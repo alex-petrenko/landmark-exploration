@@ -82,7 +82,7 @@ class EncoderLowDimensional(Encoder):
 
 
 def make_encoder(env, ph_observations, regularizer, params, name):
-    if has_image_observations(env):
+    if has_image_observations(env.observation_space.spaces['obs']):
         encoder = EncoderCNN(ph_observations, regularizer, params, name)
     else:
         encoder = EncoderLowDimensional(env, ph_observations, regularizer, params, name)

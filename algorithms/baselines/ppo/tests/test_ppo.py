@@ -33,7 +33,7 @@ class TestPPO(TestCase):
         root_dir = experiments_dir(subdir=test_dir_name)
         self.assertTrue(os.path.isdir(root_dir))
 
-        enjoy(args, params, args.env_id, max_num_episodes=1, fps=1000)
+        enjoy(params, args.env_id, max_num_episodes=1, fps=1000)
         shutil.rmtree(root_dir)
 
         self.assertFalse(os.path.isdir(root_dir))
@@ -166,7 +166,7 @@ class TestPPOPerformance(TestCase):
         params = AgentPPO.Params('test_performance')
         params.stack_past_frames = params.num_input_frames = 3
         params.ppo_epochs = 2
-        env = wrap_env(gym.make(TEST_LOWDIM_ENV), params.stack_past_frames, 0, 0)
+        env = wrap_env(gym.make(TEST_LOWDIM_ENV), params.stack_past_frames)
 
         observation_shape = env.observation_space.shape
         experience_size = params.num_envs * params.rollout

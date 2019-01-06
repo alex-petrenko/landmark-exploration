@@ -1,4 +1,5 @@
 import tensorflow as tf
+from gym.spaces import Box, Discrete
 
 
 def dense(x, layer_size, regularizer=None, activation=tf.nn.relu):

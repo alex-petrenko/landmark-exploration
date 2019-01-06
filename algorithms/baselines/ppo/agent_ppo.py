@@ -185,7 +185,9 @@ class AgentPPO(AgentLearner):
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
 
-        self.ph_observations = placeholder_from_space(env.observation_space)
+        obs_shape = list(env.observation_space.spaces['obs'].shape)
+        input_shape = [None] + obs_shape  # add batch dimension
+        self.ph_observations = tf.placeholder(tf.float32, shape=input_shape)
         self.ph_actions = placeholder_from_space(env.action_space)  # actions sampled from the policy
         self.ph_advantages, self.ph_returns, self.ph_old_action_probs = placeholders(None, None, None)
 

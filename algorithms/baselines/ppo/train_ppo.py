@@ -2,14 +2,14 @@ import sys
 
 from algorithms.baselines.ppo.agent_ppo import AgentPPO
 from algorithms.baselines.ppo.ppo_utils import parse_args_ppo
-from algorithms.env_wrappers import create_env_args
+from utils.envs.envs import create_env
 
 
-def train(args, params, env_id):
+def train(ppo_params, env_id):
     def make_env_func():
-        return create_env_args(env_id, args, params)
+        return create_env(env_id)
 
-    agent = AgentPPO(make_env_func, params=params)
+    agent = AgentPPO(make_env_func, params=ppo_params)
     agent.initialize()
     agent.learn()
     agent.finalize()
@@ -17,8 +17,9 @@ def train(args, params, env_id):
 
 
 def main():
+    """Script entry point."""
     args, params = parse_args_ppo(AgentPPO.Params)
-    return train(args, params, args.env_id)
+    return train(params, args.env)
 
 
 if __name__ == '__main__':

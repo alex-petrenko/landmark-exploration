@@ -4,14 +4,14 @@ import cv2
 
 from algorithms.baselines.ppo.agent_ppo import AgentPPO
 from algorithms.baselines.ppo.ppo_utils import parse_args_ppo
-from algorithms.env_wrappers import create_env_args
+from utils.envs.envs import create_env
 from algorithms.exploit import run_policy_loop
 from utils.utils import log
 
 
-def enjoy(args, params, env_id, max_num_episodes=1000000, fps=30):
+def enjoy(params, env_id, max_num_episodes=1000000, fps=30):
     def make_env_func():
-        e = create_env_args(env_id, args, params)
+        e = create_env(env_id)
         e.seed(0)
         return e
 
