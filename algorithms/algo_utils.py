@@ -1,6 +1,5 @@
 import numpy as np
 
-
 EPS = 1e-8
 
 
@@ -10,6 +9,7 @@ class RunningMeanStd(object):
     Courtesy of OpenAI Baselines.
 
     """
+
     def __init__(self, max_past_samples=None, epsilon=1e-4, shape=()):
         self.mean = np.zeros(shape, 'float64')
         self.var = np.ones(shape, 'float64')
@@ -57,3 +57,57 @@ def extract_keys(list_of_dicts, *keys):
 
 def extract_key(list_of_dicts, key):
     return extract_keys(list_of_dicts, key)[0]
+
+
+def calculate_discounted_sum(x, dones, discount, x_last=None):
+    """
+    Computing cumulative sum (of something) for the trajectory, taking episode termination into consideration.
+    :param x: ndarray of shape [num_steps, num_envs]
+    :param dones: ndarray of shape [num_steps, num_envs]
+    :param discount: float in range [0,1]
+    :param x_last: iterable of shape [num_envs], value at the end of trajectory. None interpreted as zero(s).
+    """
+    x_last = np.zeros_like(x[0]) if x_last is None else np.array(x_last, dtype=np.float32)
+    cumulative = x_last
+
+    discounted_sum = np.zeros_like(x)
+    for i in reversed(range(len(x))):
+        cumulative = x[i] + discount * cumulative * (1 - dones[i])
+        discounted_sum[i] = cumulative
+    return discounted_sum
+
+
+def calculate_gae(rewards, dones, values, gamma, gae_lambda):
+    """
+    Computing discounted cumulative sum, taking episode terminations into consideration. Follows the
+    Generalized Advantage Estimation algorithm.
+    See unit tests for details.
+
+    :param rewards: actual environment rewards
+    :param dones: True if absorbing state is reached
+    :param values: estimated values
+    :param gamma: discount factor [0,1]
+    :param gae_lambda: lambda-factor for GAE (discounting for longer-horizon advantage estimations), [0,1]
+    :return: advantages and discounted returns
+    """
+    assert len(rewards) == len(dones)
+    assert len(rewards) + 1 == len(values)
+
+    # section 3 in GAE paper: calculating advantages
+    deltas = rewards + (1 - dones) * (gamma * values[1:]) - values[:-1]
+    advantages = calculate_discounted_sum(deltas, dones, gamma * gae_lambda)
+
+    # targets for value function - this is just a simple discounted sum of rewards
+    discounted_returns = calculate_discounted_sum(rewards, dones, gamma, values[-1])
+
+    return advantages, discounted_returns
+
+
+def list_to_string(x, limit=6):
+    if len(x) <= limit:
+        return str(x)
+    else:
+        res = str(x[:3]).replace(']', ',')
+        res += ' ... ,'
+        res += str(x[-2:]).replace('[', ' ')
+        return res

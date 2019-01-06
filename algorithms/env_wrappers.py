@@ -3,9 +3,9 @@ Gym env wrappers that make the environment suitable for the RL algorithms.
 
 """
 
-
 import cv2
 import gym
+import copy
 import numpy as np
 
 from collections import deque
@@ -22,6 +22,29 @@ def unwrap_env(wrapped_env):
 def has_image_observations(observation_space):
     """It's a heuristic."""
     return len(observation_space.shape) >= 2
+
+
+def wrap_env(env, stack_past_frames, gt_prediction_steps, gt_every):
+    if not has_image_observations(env):
+        # vector observations
+        env = NormalizeWrapper(env)
+
+    if gt_prediction_steps == 0:
+        env = StackFramesWrapper(env, stack_past_frames)
+    else:
+        env = GroundTruthPredictionWrapper(
+            env, stack_past_frames, gt_prediction_steps, gt_every,
+        )
+
+    return env
+
+
+def create_env_args(env_id, args, params):
+    stack_frames = params.stack_past_frames
+    gt_prediction_steps = args.ground_truth_prediction_steps
+    gt_every = args.ground_truth_every
+    params.num_input_frames = stack_frames + gt_prediction_steps // gt_every
+    return wrap_env(gym.make(env_id), stack_frames, gt_prediction_steps, gt_every)
 
 
 class StackFramesWrapper(gym.core.Wrapper):
@@ -225,3 +248,73 @@ class RemainingTimeWrapper(ObservationWrapper):
             'obs': observation,
         }
         return dict_obs
+
+
+class GroundTruthPredictionWrapper(StackFramesWrapper):
+    """
+    For experiments with "ground truth predictive model". Basically, remove the agent from the environment
+    and run the rest of the dynamics for N timesteps.
+
+    Derived from StackFrames, so still provides K past observations.
+
+    Relies on non-standard Gym interface.
+
+    """
+
+    _dummy_action = 4  # idle
+
+    def __init__(self, env, stack_past_frames, ground_truth_prediction_frames, ground_truth_every):
+        super(GroundTruthPredictionWrapper, self).__init__(env, stack_past_frames)
+
+        self._ground_truth_frames = ground_truth_prediction_frames
+        self._ground_truth_every = ground_truth_every
+        self._future_env = self._future_frames = None
+
+        self._image_obs = has_image_observations(env)
+        self._num_future_frames = self._ground_truth_frames // self._ground_truth_every
+
+        if self._image_obs:
+            new_obs_space_shape = list(self.observation_space.shape)
+            new_obs_space_shape[-1] += self._num_future_frames
+        else:
+            new_obs_space_shape = list(env.observation_space.shape)
+            frame_size = new_obs_space_shape[0]
+            total_input_frames = stack_past_frames + self._num_future_frames
+            new_obs_space_shape[0] = frame_size * total_input_frames
+
+        self.observation_space = spaces.Box(
+            0.0 if self._image_obs else env.observation_space.low[0],
+            1.0 if self._image_obs else env.observation_space.high[0],
+            shape=new_obs_space_shape,
+            dtype=np.float32,
+        )
+
+    def _add_future_steps(self, obs):
+        future = list(self._future_frames)[::-self._ground_truth_every]
+
+        if self._image_obs:
+            future_numpy = np.transpose(numpy_all_the_way(future), axes=[1, 2, 0])
+            return np.concatenate((obs, future_numpy), axis=2)  # add future steps as additional channels
+        else:
+            return np.concatenate([obs] + future, axis=0)
+
+    def reset(self):
+        obs = super(GroundTruthPredictionWrapper, self).reset()
+        self._future_env = copy.deepcopy(self.env)
+
+        hide_agent = False  # hiding the agent does not work for lowdim environment, bc vector size is different
+        if hide_agent:
+            orig_env = unwrap_env(self._future_env)
+            orig_env.hide_agent()
+
+        future_frames = [self._future_env.step(self._dummy_action)[0] for _ in range(self._ground_truth_frames)]
+        self._future_frames = deque(future_frames)
+        return self._add_future_steps(obs)
+
+    def step(self, action):
+        obs, reward, done, info = super(GroundTruthPredictionWrapper, self).step(action)
+        future_obs, _, _, _ = self._future_env.step(self._dummy_action)
+
+        self._future_frames.popleft()
+        self._future_frames.append(future_obs)
+        return self._add_future_steps(obs), reward, done, info
