@@ -74,17 +74,6 @@ class EncoderLowDimensional(Encoder):
                 )
                 encoded_frames = [fc_encoder(frame) for frame in frames]
                 self.encoded_input = tf.concat(encoded_frames, axis=1)
-
-            # elif lowdim_enc_name == 'order_invariant':
-            #     enc_name = 'deepsets_' + self.name
-            #     deepsets_enc = tf.make_template(
-            #         enc_name,
-            #         deepsets_encoder,
-            #         create_scope_now_=True,
-            #         env=env, num_frames=self._num_frames, past_frames=self._past_frames,
-            #         regularizer=self._regularizer, name=enc_name,
-            #     )
-            #     self.encoded_input = deepsets_enc(ph_observations=ph_observations)
             else:
                 raise Exception('Unknown lowdim model name')
 
