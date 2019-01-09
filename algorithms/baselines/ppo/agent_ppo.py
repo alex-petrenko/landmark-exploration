@@ -8,7 +8,7 @@ import tensorflow as tf
 from tensorflow.contrib import slim
 
 from algorithms.agent import AgentLearner, summaries_dir
-from algorithms.algo_utils import calculate_gae, EPS
+from algorithms.algo_utils import calculate_gae, EPS, extract_key
 from algorithms.encoders import make_encoder
 from algorithms.models import make_model
 from algorithms.multi_env import MultiEnv
@@ -436,7 +436,7 @@ class AgentPPO(AgentLearner):
         """Main training loop."""
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
-        observations = multi_env.initial_obs()
+        observations = extract_key(multi_env.initial_obs(), 'obs')
         buffer = PPOBuffer()
 
         def end_of_training(s, es):
@@ -452,6 +452,7 @@ class AgentPPO(AgentLearner):
 
                 # wait for all the workers to complete an environment step
                 new_observation, rewards, dones, _ = multi_env.step(actions)
+                new_observation = extract_key(new_observation, 'obs')
 
                 # add experience from all environments to the current buffer
                 buffer.add(observations, actions, action_probs, rewards, dones, values)
