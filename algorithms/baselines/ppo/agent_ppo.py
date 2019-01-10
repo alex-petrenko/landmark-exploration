@@ -186,8 +186,9 @@ class AgentPPO(AgentLearner):
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
 
-        obs_shape = list(get_observation_space(env).shape)
-        input_shape = [None] + obs_shape  # add batch dimension
+        self.obs_shape = list(get_observation_space(env).shape)
+        input_shape = [None] + self.obs_shape  # add batch dimension
+        self.obs_shape = [-1] + self.obs_shape
         self.ph_observations = tf.placeholder(tf.float32, shape=input_shape)
         self.ph_actions = placeholder_from_space(env.action_space)  # actions sampled from the policy
         self.ph_advantages, self.ph_returns, self.ph_old_action_probs = placeholders(None, None, None)
@@ -337,6 +338,8 @@ class AgentPPO(AgentLearner):
 
     def best_action(self, observation, deterministic=False):
         observation = maybe_extract_key(observation, 'obs')
+        if observation.shape != self.obs_shape:
+            observation = observation.reshape(self.obs_shape)
         actions = self.actor_critic.best_action(self.session, observation, deterministic)
         return actions[0]
 
@@ -438,7 +441,7 @@ class AgentPPO(AgentLearner):
         """Main training loop."""
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
-        observations = extract_key(multi_env.initial_obs(), 'obs')
+        observations = maybe_extract_key(multi_env.initial_obs(), 'obs')
         buffer = PPOBuffer()
 
         def end_of_training(s, es):
@@ -454,7 +457,7 @@ class AgentPPO(AgentLearner):
 
                 # wait for all the workers to complete an environment step
                 new_observation, rewards, dones, _ = multi_env.step(actions)
-                new_observation = extract_key(new_observation, 'obs')
+                new_observation = maybe_extract_key(new_observation, 'obs')
 
                 # add experience from all environments to the current buffer
                 buffer.add(observations, actions, action_probs, rewards, dones, values)

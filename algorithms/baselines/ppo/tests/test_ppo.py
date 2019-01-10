@@ -13,7 +13,6 @@ from algorithms.baselines.ppo.enjoy_ppo import enjoy
 from algorithms.baselines.ppo.ppo_utils import parse_args_ppo
 from algorithms.baselines.ppo.train_ppo import train
 from algorithms.env_wrappers import wrap_env
-from algorithms.tests.test_wrappers import TEST_LOWDIM_ENV
 from algorithms.tf_utils import placeholder_from_space, placeholders
 from utils.utils import log, AttrDict
 

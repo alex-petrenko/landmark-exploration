@@ -10,7 +10,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
-from algorithms.algo_utils import extract_key
+from algorithms.algo_utils import extract_key, maybe_extract_key
 from algorithms.env_wrappers import has_image_observations, get_observation_space
 from algorithms.multi_env import MultiEnv
 from utils.utils import log, put_kernels_on_grid, AttrDict
@@ -152,7 +152,9 @@ class AgentA2C(AgentLearner):
             params.lowdim_model_name,
             params.stack_past_frames,
         )
+        self.obs_shape = [-1] + list(get_observation_space(env).shape)
         env.close()
+
 
         self.selected_actions = tf.placeholder(tf.int32, [None])  # action selected by the policy
         self.value_estimates = tf.placeholder(tf.float32, [None])
@@ -278,7 +280,9 @@ class AgentA2C(AgentLearner):
             self.summary_writer.add_summary(summary, global_step=env_steps)
 
     def best_action(self, observation, deterministic=False):
-        observation = extract_key([observation], 'obs')
+        observation = maybe_extract_key(observation, 'obs')
+        if observation.shape != self.obs_shape:
+            observation = observation.reshape(self.obs_shape)
         actions, _ = self._policy_step(observation, deterministic)
         return actions[0]
 
@@ -352,7 +356,7 @@ class AgentA2C(AgentLearner):
             make_env_func=self.make_env_func,
             stats_episodes=self.params.stats_episodes,
         )
-        observations = extract_key(multi_env.initial_obs(), 'obs')
+        observations = maybe_extract_key(multi_env.initial_obs(), 'obs')
 
         def end_of_training(s): return s >= self.params.train_for_steps
 
@@ -371,7 +375,7 @@ class AgentA2C(AgentLearner):
 
                 # wait for all the workers to complete an environment step
                 observations, rewards, dones, infos = multi_env.step(actions)
-                observations = extract_key(observations, 'obs')
+                observations = maybe_extract_key(observations, 'obs')
 
                 batch_rewards.append(rewards)
                 batch_dones.append(dones)

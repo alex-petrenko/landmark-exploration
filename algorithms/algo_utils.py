@@ -51,9 +51,9 @@ def maybe_extract_key(data, key):
     if isinstance(data, list) and isinstance(data[0], dict):
         return extract_key(data, key)
     elif isinstance(data, dict):
-        return extract_key([data], key)
+        return extract_keys(data, key)
     else:
-        return [data]
+        return data
 
 
 def extract_keys(list_of_dicts, *keys):
