@@ -91,6 +91,9 @@ class AgentLearner(Agent):
         except ValueError:
             log.info('Didn\'t find a valid restore point, start from scratch')
             self.session.run(tf.global_variables_initializer())
+
+        self.params.serialize()
+
         log.info('Initialized!')
 
     def finalize(self):

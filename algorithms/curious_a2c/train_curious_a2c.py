@@ -7,7 +7,7 @@ from utils.envs.envs import create_env
 
 def train(params, env_id):
     def make_env_func():
-        return create_env(env_id)
+        return create_env(env_id, has_timer=True)
 
     agent = AgentCuriousA2C(make_env_func, params=params)
     agent.initialize()

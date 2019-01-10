@@ -47,6 +47,15 @@ def update_mean_var_count_from_moments(mean, var, count, batch_mean, batch_var, 
     return new_mean, new_var, new_count
 
 
+def maybe_extract_key(data, key):
+    if isinstance(data, list) and isinstance(data[0], dict):
+        return extract_key(data, key)
+    elif isinstance(data, dict):
+        return extract_key([data], key)
+    else:
+        return [data]
+
+
 def extract_keys(list_of_dicts, *keys):
     """Turn a lists of dicts into a tuple of lists, with one entry for every given key."""
     res = []

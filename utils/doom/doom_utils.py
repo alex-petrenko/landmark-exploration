@@ -1,4 +1,5 @@
 import gym
+# noinspection PyUnresolvedReferences
 import vizdoomgym
 
 from algorithms.env_wrappers import ResizeAndGrayscaleWrapper, StackFramesWrapper, RewardScalingWrapper, \
@@ -14,6 +15,7 @@ class DoomCfg:
         self.env_id = env_id
         self.reward_scaling = reward_scaling
         self.default_timeout = default_timeout
+        self.has_timer = False
 
 
 DOOM_ENVS = [
@@ -31,7 +33,7 @@ def env_by_name(name):
     raise Exception('Unknown Doom env')
 
 
-def make_doom_env(doom_cfg, mode='train'):
+def make_doom_env(doom_cfg, mode='train', **kwargs):
     env = gym.make(doom_cfg.env_id)
 
     # courtesy of https://github.com/pathak22/noreward-rl/blob/master/src/envs.py
@@ -56,5 +58,8 @@ def make_doom_env(doom_cfg, mode='train'):
         env = SkipAndStackFramesWrapper(env, num_frames=4)
 
     env = RewardScalingWrapper(env, doom_cfg.reward_scaling)
-    env = RemainingTimeWrapper(env)
+
+    if 'has_timer' in kwargs and kwargs['has_timer']:
+        env = RemainingTimeWrapper(env)
+
     return env

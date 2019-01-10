@@ -18,13 +18,20 @@ def unwrap_env(wrapped_env):
     return wrapped_env.unwrapped
 
 
+def get_observation_space(env):
+    if hasattr(env.observation_space, 'spaces'):
+        return env.observation_space.spaces['obs']
+    else:
+        return env.observation_space
+
+
 def has_image_observations(observation_space):
     """It's a heuristic."""
     return len(observation_space.shape) >= 2
 
 
 def wrap_env(env, stack_past_frames):
-    if not has_image_observations(env.observation_space.spaces['obs']):
+    if not has_image_observations(get_observation_space(env)):
         # vector observations
         env = NormalizeWrapper(env)
 
@@ -234,4 +241,3 @@ class RemainingTimeWrapper(ObservationWrapper):
             'obs': observation,
         }
         return dict_obs
-

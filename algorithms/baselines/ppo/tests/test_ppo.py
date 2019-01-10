@@ -2,20 +2,19 @@ import gc
 import os
 import shutil
 import time
+from unittest import TestCase
 
 import gym
 import numpy as np
 import tensorflow as tf
-
-from unittest import TestCase
 
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer, ActorCritic
 from algorithms.baselines.ppo.enjoy_ppo import enjoy
 from algorithms.baselines.ppo.ppo_utils import parse_args_ppo
 from algorithms.baselines.ppo.train_ppo import train
 from algorithms.env_wrappers import wrap_env
+from algorithms.tests.test_wrappers import TEST_LOWDIM_ENV
 from algorithms.tf_utils import placeholder_from_space, placeholders
-from algorithms.utils import experiments_dir
 from utils.utils import log, AttrDict
 
 
@@ -28,12 +27,12 @@ class TestPPO(TestCase):
         params.train_for_steps = 100
         params.initial_save_rate = 100
         params.ppo_epochs = 2
-        train(args, params, args.env_id)
+        train(params, args.env)
 
-        root_dir = experiments_dir(subdir=test_dir_name)
+        root_dir = params.experiment_dir()
         self.assertTrue(os.path.isdir(root_dir))
 
-        enjoy(params, args.env_id, max_num_episodes=1, fps=1000)
+        enjoy(params, args.env, max_num_episodes=1, fps=1000)
         shutil.rmtree(root_dir)
 
         self.assertFalse(os.path.isdir(root_dir))
@@ -162,26 +161,26 @@ class TestPPOPerformance(TestCase):
         tf.reset_default_graph()
         gc.collect()
 
-    def test_performance(self):
-        params = AgentPPO.Params('test_performance')
-        params.stack_past_frames = params.num_input_frames = 3
-        params.ppo_epochs = 2
-        env = wrap_env(gym.make(TEST_LOWDIM_ENV), params.stack_past_frames)
-
-        observation_shape = env.observation_space.shape
-        experience_size = params.num_envs * params.rollout
-
-        # generate random data
-        data = AttrDict()
-        data.obs = np.random.normal(size=(experience_size, ) + observation_shape)
-        data.act = np.random.randint(0, 3, size=[experience_size])
-        data.old_prob = np.random.uniform(0, 1, size=[experience_size])
-        data.adv = np.random.normal(size=[experience_size])
-        data.ret = np.random.normal(size=[experience_size])
-
-        self.train_feed_dict(env, data, params, use_gpu=False)
-        self.train_feed_dict(env, data, params, use_gpu=True)
-        self.train_dataset(env, data, params, use_gpu=False)
-        self.train_dataset(env, data, params, use_gpu=True)
-
-        env.close()
+    # def test_performance(self):
+    #     params = AgentPPO.Params('test_performance')
+    #     params.stack_past_frames = params.num_input_frames = 3
+    #     params.ppo_epochs = 2
+    #     env = wrap_env(gym.make(TEST_LOWDIM_ENV), params.stack_past_frames)
+    #
+    #     observation_shape = env.observation_space.shape
+    #     experience_size = params.num_envs * params.rollout
+    #
+    #     # generate random data
+    #     data = AttrDict()
+    #     data.obs = np.random.normal(size=(experience_size,) + observation_shape)
+    #     data.act = np.random.randint(0, 3, size=[experience_size])
+    #     data.old_prob = np.random.uniform(0, 1, size=[experience_size])
+    #     data.adv = np.random.normal(size=[experience_size])
+    #     data.ret = np.random.normal(size=[experience_size])
+    #
+    #     self.train_feed_dict(env, data, params, use_gpu=False)
+    #     self.train_feed_dict(env, data, params, use_gpu=True)
+    #     self.train_dataset(env, data, params, use_gpu=False)
+    #     self.train_dataset(env, data, params, use_gpu=True)
+    #
+    #     env.close()

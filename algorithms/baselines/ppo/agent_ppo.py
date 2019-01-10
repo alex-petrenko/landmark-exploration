@@ -8,8 +8,9 @@ import tensorflow as tf
 from tensorflow.contrib import slim
 
 from algorithms.agent import AgentLearner, summaries_dir
-from algorithms.algo_utils import calculate_gae, EPS, extract_key
+from algorithms.algo_utils import calculate_gae, EPS, extract_key, maybe_extract_key
 from algorithms.encoders import make_encoder
+from algorithms.env_wrappers import get_observation_space
 from algorithms.models import make_model
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
@@ -185,7 +186,7 @@ class AgentPPO(AgentLearner):
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
 
-        obs_shape = list(env.observation_space.spaces['obs'].shape)
+        obs_shape = list(get_observation_space(env).shape)
         input_shape = [None] + obs_shape  # add batch dimension
         self.ph_observations = tf.placeholder(tf.float32, shape=input_shape)
         self.ph_actions = placeholder_from_space(env.action_space)  # actions sampled from the policy
@@ -335,7 +336,7 @@ class AgentPPO(AgentLearner):
         self.summary_writer.flush()
 
     def best_action(self, observation, deterministic=False):
-        observation = extract_key([observation], 'obs')
+        observation = maybe_extract_key(observation, 'obs')
         actions = self.actor_critic.best_action(self.session, observation, deterministic)
         return actions[0]
 

@@ -11,7 +11,7 @@ import tensorflow as tf
 from tensorflow.contrib import slim
 
 from algorithms.algo_utils import extract_key
-from algorithms.env_wrappers import has_image_observations
+from algorithms.env_wrappers import has_image_observations, get_observation_space
 from algorithms.multi_env import MultiEnv
 from utils.utils import log, put_kernels_on_grid, AttrDict
 
@@ -28,8 +28,8 @@ class Policy:
     def __init__(self, env, img_model_name, fc_layers, fc_size, lowdim_model_name, past_frames):
         self.regularizer = tf.contrib.layers.l2_regularizer(scale=1e-10)
 
-        image_obs = has_image_observations(env.observation_space.spaces['obs'])
-        obs_shape = list(env.observation_space.spaces['obs'].shape)
+        image_obs = has_image_observations(get_observation_space(env))
+        obs_shape = list(get_observation_space(env).shape)
         num_actions = env.action_space.n
 
         # process observations

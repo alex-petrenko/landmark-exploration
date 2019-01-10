@@ -5,7 +5,7 @@ Tensorflow encoders used in different trainable models.
 
 import tensorflow as tf
 
-from algorithms.env_wrappers import has_image_observations
+from algorithms.env_wrappers import has_image_observations, get_observation_space
 from algorithms.tf_utils import dense, conv
 from utils.utils import put_kernels_on_grid
 
@@ -82,7 +82,7 @@ class EncoderLowDimensional(Encoder):
 
 
 def make_encoder(env, ph_observations, regularizer, params, name):
-    if has_image_observations(env.observation_space.spaces['obs']):
+    if has_image_observations(get_observation_space(env)):
         encoder = EncoderCNN(ph_observations, regularizer, params, name)
     else:
         encoder = EncoderLowDimensional(env, ph_observations, regularizer, params, name)

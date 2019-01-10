@@ -51,13 +51,3 @@ def run_many(run_description):
     log.info('Done!')
 
     return 0
-
-
-def main():
-    """Script entry point."""
-    from runner.run_descriptions.runs.timer import DOOM_TIMER
-    return run_many(DOOM_TIMER)
-
-
-if __name__ == '__main__':
-    sys.exit(main())

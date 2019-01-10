@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 from gym.spaces import Box, Discrete
 

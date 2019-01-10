@@ -10,7 +10,7 @@ from tensorflow.contrib import slim
 
 from algorithms.algo_utils import RunningMeanStd, EPS, extract_keys
 from algorithms.baselines.a2c.agent_a2c import AgentA2C
-from algorithms.env_wrappers import has_image_observations
+from algorithms.env_wrappers import has_image_observations, get_observation_space
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, conv
 from algorithms.utils import summaries_dir
@@ -30,7 +30,7 @@ class CuriousA2CPolicy:
         lowdim_model_name = params.lowdim_model_name
         past_frames = params.stack_past_frames
 
-        image_obs = has_image_observations(env.observation_space.spaces['obs'])
+        image_obs = has_image_observations(get_observation_space(env))
         num_actions = env.action_space.n
 
         if image_obs:
@@ -107,7 +107,7 @@ class Model:
 
         self.regularizer = tf.contrib.layers.l2_regularizer(scale=1e-10)
 
-        image_obs = has_image_observations(env.observation_space.spaces['obs'])
+        image_obs = has_image_observations(get_observation_space(env))
         num_actions = env.action_space.n
 
         if image_obs:
@@ -225,7 +225,7 @@ class AgentCuriousA2C(AgentA2C):
 
         env = make_env_func()  # we need it to query observation shape, number of actions, etc.
 
-        obs_shape = list(env.observation_space.spaces['obs'].shape)
+        obs_shape = list(get_observation_space(env))
         input_shape = [None] + obs_shape  # add batch dimension
         self.observations = tf.placeholder(tf.float32, shape=input_shape)
         self.next_obs = tf.placeholder(tf.float32, shape=input_shape)

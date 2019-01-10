@@ -113,6 +113,7 @@ class AttrDict(dict):
     __getattr__ = dict.__getitem__
     __setattr__ = dict.__setitem__
 
-    def __init__(self, d):
-        for key, value in d.items():
-            self[key] = value
+    def __init__(self, d=None):
+        if d is not None:
+            for key, value in d.items():
+                self[key] = value
