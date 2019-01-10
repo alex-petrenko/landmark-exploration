@@ -46,19 +46,19 @@ class ActorCritic:
 
         log.info('Total parameters in the model: %d', count_total_parameters())
 
-    def invoke(self, session, observations, act_deterministic=False):
+    def invoke(self, session, observations, deterministic=False):
         # TODO RECURRENT
         ops = [
-            self.best_action_deterministic if act_deterministic else self.act,
+            self.best_action_deterministic if deterministic else self.act,
             self.action_prob,
             self.value,
         ]
         actions, action_prob, values = session.run(ops, feed_dict={self.ph_observations: observations})
         return actions, action_prob, values
 
-    def best_action(self, session, observations, act_deterministic=False):
+    def best_action(self, session, observations, deterministic=False):
         actions = session.run(
-            self.best_action_deterministic if act_deterministic else self.act,
+            self.best_action_deterministic if deterministic else self.act,
             feed_dict={self.ph_observations: observations},
         )
         return actions
@@ -141,7 +141,7 @@ class AgentPPO(AgentLearner):
             self.gamma = 0.99  # future reward discount
             self.gae_lambda = 0.8
             self.rollout = 64
-            self.num_envs = 1024  # number of environments to collect the experience from
+            self.num_envs = 192  # number of environments to collect the experience from
             self.num_workers = 16  # number of workers used to run the environments
 
             self.stack_past_frames = 3
@@ -334,8 +334,9 @@ class AgentPPO(AgentLearner):
         self.summary_writer.add_summary(summary, env_steps)
         self.summary_writer.flush()
 
-    def best_action(self, observation, act_deterministic=False):
-        actions = self.actor_critic.best_action(self.session, [observation], act_deterministic)
+    def best_action(self, observation, deterministic=False):
+        observation = extract_key([observation], 'obs')
+        actions = self.actor_critic.best_action(self.session, observation, deterministic)
         return actions[0]
 
     def _train_actor(self, buffer, env_steps, trajectory_length):

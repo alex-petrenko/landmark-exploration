@@ -19,7 +19,7 @@ from algorithms.utils import *
 from algorithms.agent import AgentLearner
 from algorithms.tf_utils import count_total_parameters, dense, conv
 
-from utils.distributions import CategoricalProbabilityDistribution
+from modules.distributions import CategoricalProbabilityDistribution
 
 
 class Policy:

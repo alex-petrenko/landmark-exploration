@@ -11,7 +11,7 @@ from utils.utils import log
 
 def enjoy(params, env_id, max_num_episodes=1000000, fps=30):
     def make_env_func():
-        e = create_env(env_id)
+        e = create_env(env_id, mode='test')
         e.seed(0)
         return e
 
@@ -30,7 +30,7 @@ def enjoy(params, env_id, max_num_episodes=1000000, fps=30):
 
 def main():
     args, params = parse_args_ppo(AgentPPO.Params)
-    return enjoy(args, params, args.env_id)
+    return enjoy(params, args.env)
 
 
 if __name__ == '__main__':
