@@ -14,7 +14,7 @@ from algorithms.env_wrappers import has_image_observations, get_observation_spac
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, conv
 from algorithms.utils import summaries_dir
-from modules.distributions import CategoricalProbabilityDistribution
+from utils.distributions import CategoricalProbabilityDistribution
 from utils.utils import log, AttrDict, put_kernels_on_grid
 
 
@@ -225,7 +225,7 @@ class AgentCuriousA2C(AgentA2C):
 
         env = make_env_func()  # we need it to query observation shape, number of actions, etc.
 
-        obs_shape = list(get_observation_space(env))
+        obs_shape = list(get_observation_space(env).shape)
         input_shape = [None] + obs_shape  # add batch dimension
         self.observations = tf.placeholder(tf.float32, shape=input_shape)
         self.next_obs = tf.placeholder(tf.float32, shape=input_shape)

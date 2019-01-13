@@ -1,10 +1,13 @@
+import threading
 import time
 from multiprocessing import Process, JoinableQueue
 from enum import Enum
 import copy
+from queue import Queue
 
 import numpy as np
 
+from algorithms.algo_utils import list_to_string
 from utils.utils import log, AttrDict
 
 
@@ -16,15 +19,16 @@ class StepType(Enum):
 class _MultiEnvWorker:
     """Helper class for the MultiEnv."""
 
-    def __init__(self, env_indices, make_env_func):
+    def __init__(self, env_indices, make_env_func, use_multiprocessing):
         self._verbose = False
 
         self.env_indices = env_indices
 
         self.envs = []
         self.initial_obs = []
+
+        log.info('Initializing envs %s...', list_to_string(env_indices))
         for i in env_indices:
-            log.info('Initializing env %d...', i)
             env = make_env_func()
             env.seed(i)
             self.initial_obs.append(env.reset())
@@ -32,10 +36,15 @@ class _MultiEnvWorker:
 
         self.imagined_envs = None
 
-        self.step_queue = JoinableQueue()
-        self.result_queue = JoinableQueue()
+        if use_multiprocessing:
+            self.step_queue, self.result_queue = JoinableQueue(), JoinableQueue()
+            self.process = Process(target=self.start, daemon=True)
+        else:
+            log.debug('Not using multiprocessing!')
+            self.step_queue, self.result_queue = Queue(), Queue()
+            # shouldn't be named "process" here, but who cares
+            self.process = threading.Thread(target=self.start)
 
-        self.process = Process(target=self.start, daemon=True)
         self.process.start()
 
     def start(self):
@@ -44,14 +53,20 @@ class _MultiEnvWorker:
         while True:
             actions, step_type = self.step_queue.get()
             if actions is None:  # stop signal
-                for i, e in enumerate(self.envs):
-                    log.info('Closing env %d', self.env_indices[i])
+                for e in self.envs:
                     e.close()
-                log.info('Stop worker %r...', self.env_indices)
+                if self.imagined_envs is not None:
+                    for imagined_env in self.imagined_envs:
+                        imagined_env.close()
+                self.step_queue.task_done()
+                log.info('Stop worker %s...', list_to_string(self.env_indices))
                 break
 
             if step_type == StepType.REAL:
                 envs = self.envs
+                if self.imagined_envs is not None:
+                    for imagined_env in self.imagined_envs:
+                        imagined_env.close()
                 self.imagined_envs = None
             else:  # step_type == StepType.IMAGINED:
 
@@ -105,7 +120,7 @@ class _MultiEnvWorker:
 class MultiEnv:
     """Run multiple gym-compatible environments in parallel, keeping more or less the same interface."""
 
-    def __init__(self, num_envs, num_workers, make_env_func, stats_episodes):
+    def __init__(self, num_envs, num_workers, make_env_func, stats_episodes, use_multiprocessing=True):
         self._verbose = False
 
         if num_workers > num_envs or num_envs % num_workers != 0:
@@ -116,7 +131,10 @@ class MultiEnv:
         self.workers = []
 
         envs = np.split(np.arange(num_envs), num_workers)
-        self.workers = [_MultiEnvWorker(envs[i].tolist(), make_env_func) for i in range(num_workers)]
+        self.workers = [
+            _MultiEnvWorker(envs[i].tolist(), make_env_func, use_multiprocessing)
+            for i in range(num_workers)
+        ]
 
         self.action_space = self.workers[0].envs[0].action_space
         self.observation_space = self.workers[0].envs[0].observation_space
@@ -150,6 +168,7 @@ class MultiEnv:
             assert len(results_per_worker) == self.num_envs // self.num_workers
             for result in results_per_worker:
                 results.append(result)
+            worker.result_queue.task_done()
 
         observations, rewards, dones, infos = zip(*results)
 
@@ -172,7 +191,6 @@ class MultiEnv:
 
     def predict(self, imagined_action_lists):
         start = time.time()
-
         assert len(imagined_action_lists) == self.num_envs
         imagined_action_lists = np.split(np.array(imagined_action_lists), self.num_workers)
         for worker, imagined_action_list in zip(self.workers, imagined_action_lists):
@@ -190,6 +208,7 @@ class MultiEnv:
                 observations.append(o)
                 rewards.append(r)
                 dones.append(d)
+            worker.result_queue.task_done()
 
         if self._verbose:
             log.debug('Prediction step took %.4f s', time.time() - start)
@@ -199,22 +218,33 @@ class MultiEnv:
         log.info('Stopping multi env...')
         for worker in self.workers:
             worker.step_queue.put((None, StepType.REAL))  # terminate
+            worker.step_queue.join()
             worker.process.join()
 
     def _update_episode_stats(self, episode_stats, curr_episode_data):
-        episode_stats_target_size = 2 * (self.stats_episodes // self.num_envs)
+        episode_stats_target_size = 2 * (1 + self.stats_episodes // self.num_envs)
         episode_stats.append(curr_episode_data)
         if len(episode_stats) > episode_stats_target_size * 2:
             del episode_stats[:episode_stats_target_size]
 
     def _calc_episode_stats(self, episode_data, n):
-        n = n // self.num_envs
+        n_per_env = 1 + n // self.num_envs  # number of last episodes to use from every environment
 
         avg_value = 0
+        mean_of_n_episodes = 0
         for i in range(self.num_envs):
-            last_values = episode_data[i][-n:]
-            avg_value += np.mean(last_values)
-        return avg_value / float(self.num_envs)
+            last_values = episode_data[i][-n_per_env:]
+            if len(last_values) <= 0:
+                continue
+
+            avg_value += np.sum(last_values)
+            mean_of_n_episodes += len(last_values)
+
+        # to prevent reporting statistics too early
+        if mean_of_n_episodes < max(n, self.num_envs):
+            return np.nan
+
+        return avg_value / mean_of_n_episodes
 
     def calc_avg_rewards(self, n):
         return self._calc_episode_stats(self.episode_rewards, n)

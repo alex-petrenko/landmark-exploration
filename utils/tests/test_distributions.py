@@ -4,7 +4,7 @@ import tensorflow as tf
 
 from unittest import TestCase
 
-from modules.distributions import CategoricalProbabilityDistribution, EPS
+from utils.distributions import CategoricalProbabilityDistribution, EPS
 
 
 class TestDistr(TestCase):

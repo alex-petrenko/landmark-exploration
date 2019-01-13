@@ -8,14 +8,14 @@ import tensorflow as tf
 from tensorflow.contrib import slim
 
 from algorithms.agent import AgentLearner, summaries_dir
-from algorithms.algo_utils import calculate_gae, EPS, extract_key, maybe_extract_key
+from algorithms.algo_utils import calculate_gae, EPS, maybe_extract_key
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import get_observation_space
 from algorithms.models import make_model
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     observation_summaries, summary_avg_min_max, merge_summaries
-from modules.distributions import CategoricalProbabilityDistribution
+from utils.distributions import CategoricalProbabilityDistribution
 from utils.utils import log, AttrDict
 
 
@@ -145,12 +145,8 @@ class AgentPPO(AgentLearner):
             self.num_envs = 192  # number of environments to collect the experience from
             self.num_workers = 16  # number of workers used to run the environments
 
-            self.stack_past_frames = 3
-            self.num_input_frames = self.stack_past_frames
-
             # actor-critic (encoders and models)
-            self.image_enc_name = 'convnet_large'
-            self.lowdim_enc_name = 'order_invariant'
+            self.image_enc_name = 'convnet_doom_small'
             self.model_fc_layers = 1
             self.model_fc_size = 256
             self.model_recurrent = False
@@ -159,7 +155,7 @@ class AgentPPO(AgentLearner):
             # ppo-specific
             self.ppo_clip_ratio = 1.1  # we use clip(x, e, 1/e) instead of clip(x, 1+e, 1-e) in the paper
             self.target_kl = 0.02
-            self.batch_size = 1024
+            self.batch_size = 512
             self.ppo_epochs = 10
 
             # components of the loss function

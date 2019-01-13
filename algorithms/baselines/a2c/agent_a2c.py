@@ -10,7 +10,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
-from algorithms.algo_utils import extract_key, maybe_extract_key
+from algorithms.algo_utils import maybe_extract_key
 from algorithms.env_wrappers import has_image_observations, get_observation_space
 from algorithms.multi_env import MultiEnv
 from utils.utils import log, put_kernels_on_grid, AttrDict
@@ -19,7 +19,7 @@ from algorithms.utils import *
 from algorithms.agent import AgentLearner
 from algorithms.tf_utils import count_total_parameters, dense, conv
 
-from modules.distributions import CategoricalProbabilityDistribution
+from utils.distributions import CategoricalProbabilityDistribution
 
 
 class Policy:

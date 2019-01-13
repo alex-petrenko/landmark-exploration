@@ -49,6 +49,7 @@ class AgentLearner(Agent):
             super(AgentLearner.AgentParams, self).__init__(experiment_name)
             self.use_gpu = True
             self.gpu_mem_fraction = 1.0
+            self.initial_save_rate = 1000
 
             self.stats_episodes = 100  # how many rewards to average to measure performance
 
@@ -60,7 +61,7 @@ class AgentLearner(Agent):
         tf.reset_default_graph()
 
         self.summary_rate_decay = LinearDecay([(0, 100), (1000000, 2000), (10000000, 10000)], staircase=100)
-        self.save_rate_decay = LinearDecay([(0, 100), (1000000, 2000)], staircase=100)
+        self.save_rate_decay = LinearDecay([(0, self.params.initial_save_rate), (1000000, 2000)], staircase=100)
 
         self.initial_best_avg_reward = tf.constant(-1e3)
         self.best_avg_reward = tf.Variable(self.initial_best_avg_reward)

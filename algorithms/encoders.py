@@ -13,18 +13,14 @@ from utils.utils import put_kernels_on_grid
 class Encoder:
     """A part of the graph responsible for the input encoding."""
 
-    def __init__(self, regularizer, params, name):
+    def __init__(self, regularizer, name):
         self.name = name
-
-        self._past_frames = params.stack_past_frames
-        self._num_frames = params.num_input_frames
-
         self._regularizer = regularizer
 
 
 class EncoderCNN(Encoder):
     def __init__(self, ph_observations, regularizer, params, name):
-        super(EncoderCNN, self).__init__(regularizer, params, name)
+        super(EncoderCNN, self).__init__(regularizer, name)
 
         self._ph_observations = ph_observations
         img_enc_name = params.image_enc_name
@@ -34,6 +30,8 @@ class EncoderCNN(Encoder):
                 conv_filters = self._convnet_simple([(16, 5, 2), (32, 3, 2), (32, 3, 2), (64, 3, 2)])
             elif img_enc_name == 'convnet_large':
                 conv_filters = self._convnet_simple([(32, 5, 2), (64, 3, 2), (128, 3, 2), (128, 3, 2), (128, 3, 2)])
+            elif img_enc_name == 'convnet_doom_small':
+                conv_filters = self._convnet_simple([(32, 3, 2)] * 4)  # to fairly compare with previous algos
             else:
                 raise Exception('Unknown model name')
 
@@ -61,8 +59,8 @@ class EncoderCNN(Encoder):
 
 
 class EncoderLowDimensional(Encoder):
-    def __init__(self, env, ph_observations, regularizer, params, name):
-        super(EncoderLowDimensional, self).__init__(regularizer, params, name)
+    def __init__(self, ph_observations, regularizer, params, name):
+        super(EncoderLowDimensional, self).__init__(regularizer, name)
 
         lowdim_enc_name = params.lowdim_enc_name
 
@@ -85,5 +83,5 @@ def make_encoder(env, ph_observations, regularizer, params, name):
     if has_image_observations(get_observation_space(env)):
         encoder = EncoderCNN(ph_observations, regularizer, params, name)
     else:
-        encoder = EncoderLowDimensional(env, ph_observations, regularizer, params, name)
+        encoder = EncoderLowDimensional(ph_observations, regularizer, params, name)
     return encoder

@@ -33,7 +33,7 @@ def env_by_name(name):
     raise Exception('Unknown Doom env')
 
 
-def make_doom_env(doom_cfg, mode='train', **kwargs):
+def make_doom_env(doom_cfg, mode='train', has_timer=False):
     env = gym.make(doom_cfg.env_id)
 
     # courtesy of https://github.com/pathak22/noreward-rl/blob/master/src/envs.py
@@ -52,14 +52,13 @@ def make_doom_env(doom_cfg, mode='train', **kwargs):
     if mode == 'test':
         # disable action repeat during test time
         env = StackFramesWrapper(env, stack_past_frames=4)
-        # env = SkipAndStackFramesWrapper(env, num_frames=4)
     else:
         # during training we repeat the last action n times and stack the same number of frames to capture dynamics
         env = SkipAndStackFramesWrapper(env, num_frames=4)
 
     env = RewardScalingWrapper(env, doom_cfg.reward_scaling)
 
-    if 'has_timer' in kwargs and kwargs['has_timer']:
+    if has_timer:
         env = RemainingTimeWrapper(env)
 
     return env

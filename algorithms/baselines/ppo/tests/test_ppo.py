@@ -11,7 +11,9 @@ from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer, ActorCritic
 from algorithms.baselines.ppo.enjoy_ppo import enjoy
 from algorithms.baselines.ppo.ppo_utils import parse_args_ppo
 from algorithms.baselines.ppo.train_ppo import train
+from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tf_utils import placeholder_from_space, placeholders
+from utils.doom.doom_utils import make_doom_env, env_by_name
 from utils.utils import log, AttrDict
 
 
@@ -160,26 +162,25 @@ class TestPPOPerformance(TestCase):
         tf.reset_default_graph()
         gc.collect()
 
-    # def test_performance(self):
-    #     params = AgentPPO.Params('test_performance')
-    #     params.stack_past_frames = params.num_input_frames = 3
-    #     params.ppo_epochs = 2
-    #     env = wrap_env(gym.make(TEST_LOWDIM_ENV), params.stack_past_frames)
-    #
-    #     observation_shape = env.observation_space.shape
-    #     experience_size = params.num_envs * params.rollout
-    #
-    #     # generate random data
-    #     data = AttrDict()
-    #     data.obs = np.random.normal(size=(experience_size,) + observation_shape)
-    #     data.act = np.random.randint(0, 3, size=[experience_size])
-    #     data.old_prob = np.random.uniform(0, 1, size=[experience_size])
-    #     data.adv = np.random.normal(size=[experience_size])
-    #     data.ret = np.random.normal(size=[experience_size])
-    #
-    #     self.train_feed_dict(env, data, params, use_gpu=False)
-    #     self.train_feed_dict(env, data, params, use_gpu=True)
-    #     self.train_dataset(env, data, params, use_gpu=False)
-    #     self.train_dataset(env, data, params, use_gpu=True)
-    #
-    #     env.close()
+    def test_performance(self):
+        params = AgentPPO.Params('test_performance')
+        params.ppo_epochs = 2
+        env = make_doom_env(env_by_name(TEST_ENV_NAME))
+
+        observation_shape = env.observation_space.shape
+        experience_size = params.num_envs * params.rollout
+
+        # generate random data
+        data = AttrDict()
+        data.obs = np.random.normal(size=(experience_size,) + observation_shape)
+        data.act = np.random.randint(0, 3, size=[experience_size])
+        data.old_prob = np.random.uniform(0, 1, size=[experience_size])
+        data.adv = np.random.normal(size=[experience_size])
+        data.ret = np.random.normal(size=[experience_size])
+
+        self.train_feed_dict(env, data, params, use_gpu=False)
+        self.train_feed_dict(env, data, params, use_gpu=True)
+        self.train_dataset(env, data, params, use_gpu=False)
+        self.train_dataset(env, data, params, use_gpu=True)
+
+        env.close()

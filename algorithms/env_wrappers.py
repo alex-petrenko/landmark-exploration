@@ -9,6 +9,7 @@ import numpy as np
 
 from collections import deque
 
+# noinspection PyProtectedMember
 from gym import spaces, RewardWrapper, ObservationWrapper
 
 from utils.utils import numpy_all_the_way, log
@@ -204,7 +205,8 @@ class TimeLimitWrapper(gym.core.Wrapper):
         observation, reward, done, info = self.env.step(action)
         self._num_steps += 1
         if done:
-            log.info('Completed in %d steps', self._num_steps)
+            # log.info('Completed in %d steps', self._num_steps)
+            pass
         else:
             if self._num_steps >= self._terminate_in:
                 done = True
