@@ -4,7 +4,6 @@ import shutil
 import time
 from unittest import TestCase
 
-import gym
 import numpy as np
 import tensorflow as tf
 
@@ -12,7 +11,6 @@ from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer, ActorCritic
 from algorithms.baselines.ppo.enjoy_ppo import enjoy
 from algorithms.baselines.ppo.ppo_utils import parse_args_ppo
 from algorithms.baselines.ppo.train_ppo import train
-from algorithms.env_wrappers import wrap_env
 from algorithms.tf_utils import placeholder_from_space, placeholders
 from utils.utils import log, AttrDict
 
@@ -23,8 +21,10 @@ class TestPPO(TestCase):
 
         args, params = parse_args_ppo(AgentPPO.Params)
         params.experiments_root = test_dir_name
-        params.train_for_steps = 100
-        params.initial_save_rate = 100
+        params.num_envs = 16
+        params.train_for_steps = 60
+        params.initial_save_rate = 20
+        params.batch_size = 32
         params.ppo_epochs = 2
         train(params, args.env)
 
