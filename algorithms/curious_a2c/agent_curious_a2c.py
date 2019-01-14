@@ -8,7 +8,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
-from algorithms.algo_utils import RunningMeanStd, EPS, extract_keys
+from algorithms.algo_utils import RunningMeanStd, EPS, extract_keys, num_env_steps
 from algorithms.baselines.a2c.agent_a2c import AgentA2C
 from algorithms.env_wrappers import has_image_observations, get_observation_space
 from algorithms.multi_env import MultiEnv
@@ -303,7 +303,7 @@ class AgentCuriousA2C(AgentA2C):
                 tf.summary.image(
                     'observations',
                     self.observations[:, :, :, :3],  # first three channels
-                    max_outputs=8,
+                    max_outputs=4,
                 )
                 # output also last channel
                 if self.observations.shape[-1].value > 4:
@@ -491,10 +491,7 @@ class AgentCuriousA2C(AgentA2C):
                 img_obs = next_img_obs
                 timer_obs = next_timer
 
-                if infos is not None and 'num_frames' in infos[0]:
-                    env_steps += sum((info['num_frames'] for info in infos))
-                else:
-                    env_steps += multi_env.num_envs
+                env_steps += num_env_steps(infos, multi_env.num_envs)
 
                 if rollout_step != self.params.rollout - 1:
                     # we don't need the newest observation in the training batch, already have enough

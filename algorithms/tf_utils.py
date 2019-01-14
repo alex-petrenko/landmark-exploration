@@ -72,13 +72,9 @@ def placeholders_from_spaces(*args):
 # summaries
 
 def observation_summaries(ph_observations, collections=None):
-    if len(ph_observations.shape) >= 4:
+    if len(ph_observations.shape) >= 4:  # [batch, w, h, channels]
         # first three channels
-        tf.summary.image('observations', ph_observations[:, :, :, :3], collections=collections)
-
-        # output also last channel if we have more channels than we can display
-        if ph_observations.shape[-1].value > 4:
-            tf.summary.image('observations_last_channel', ph_observations[:, :, :, -1:], collections=collections)
+        tf.summary.image('observations', ph_observations[:, :, :, -3:], collections=collections)
 
 
 def summary_avg_min_max(name, x, collections=None):

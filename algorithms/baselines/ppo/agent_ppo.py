@@ -8,7 +8,7 @@ import tensorflow as tf
 from tensorflow.contrib import slim
 
 from algorithms.agent import AgentLearner, summaries_dir
-from algorithms.algo_utils import calculate_gae, EPS, maybe_extract_key
+from algorithms.algo_utils import calculate_gae, EPS, maybe_extract_key, num_env_steps
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import get_observation_space
 from algorithms.models import make_model
@@ -448,26 +448,27 @@ class AgentPPO(AgentLearner):
             buffer.reset()
 
             # collecting experience
+            num_steps = 0
             for rollout_step in range(self.params.rollout):
                 actions, action_probs, values = self.actor_critic.invoke(self.session, observations)
 
                 # wait for all the workers to complete an environment step
-                new_observation, rewards, dones, _ = multi_env.step(actions)
-                new_observation = maybe_extract_key(new_observation, 'obs')
+                new_observation, rewards, dones, infos = multi_env.step(actions)
 
                 # add experience from all environments to the current buffer
                 buffer.add(observations, actions, action_probs, rewards, dones, values)
                 observations = new_observation
+
+                num_steps += num_env_steps(infos, multi_env.num_envs)
 
             # last step values are required for TD-return calculation
             _, _, values = self.actor_critic.invoke(self.session, observations)
             buffer.values.append(values)
 
             timing.experience = time.time() - timing.experience
+            env_steps += num_steps
 
             # calculate discounted returns and GAE
-            num_steps = len(buffer.obs) * multi_env.num_envs
-            env_steps += num_steps
             buffer.finalize_batch(self.params.gamma, self.params.gae_lambda)
 
             # update actor and critic
