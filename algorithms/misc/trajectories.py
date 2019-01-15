@@ -8,7 +8,7 @@ import numpy as np
 from algorithms.baselines.ppo.agent_ppo import AgentPPO
 from algorithms.baselines.ppo.ppo_utils import parse_args_ppo
 from utils.envs.envs import create_env
-from utils.utils import log, data_dir, experiment_dir, ensure_dir_exists, remove_if_exists
+from utils.utils import log, data_dir, ensure_dir_exists, remove_if_exists
 
 
 def enjoy(params, env_id, max_num_episodes=1000000, fps=1500):
@@ -29,7 +29,7 @@ def enjoy(params, env_id, max_num_episodes=1000000, fps=1500):
 
     agent.initialize()
 
-    traj_dir = join(data_dir(experiment_dir()), 'trajectories')
+    traj_dir = join(data_dir(params.experiment_dir()), 'trajectories')
     ensure_dir_exists(traj_dir)
 
     max_episodes_strlen = len(str(max_num_episodes))
