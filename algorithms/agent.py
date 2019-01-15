@@ -5,11 +5,9 @@ Base classes for RL agent implementations with some boilerplate.
 
 import tensorflow as tf
 
-from algorithms.utils import *
-
 from utils.params import Params
 
-from utils.utils import log
+from utils.utils import log, model_dir
 from utils.decay import LinearDecay
 
 

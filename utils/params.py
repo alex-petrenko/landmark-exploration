@@ -2,9 +2,7 @@ import json
 
 from os.path import join
 
-from algorithms.utils import experiment_dir
-
-from utils.utils import log
+from utils.utils import log, experiment_dir
 
 
 # noinspection PyMethodMayBeStatic

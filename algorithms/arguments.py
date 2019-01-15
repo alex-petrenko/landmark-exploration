@@ -1,9 +1,7 @@
 import sys
 import argparse
 
-from utils.utils import log
-
-from algorithms.utils import get_experiment_name
+from utils.utils import log, get_experiment_name
 
 
 def parse_args(default_env, default_experiment_name, params_cls):

@@ -7,7 +7,7 @@ from functools import partial
 import tensorflow as tf
 from tensorflow.contrib import slim
 
-from algorithms.agent import AgentLearner, summaries_dir
+from algorithms.agent import AgentLearner
 from algorithms.algo_utils import calculate_gae, EPS, maybe_extract_key
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import get_observation_space
@@ -16,7 +16,7 @@ from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     observation_summaries, summary_avg_min_max, merge_summaries
 from utils.distributions import CategoricalProbabilityDistribution
-from utils.utils import log, AttrDict
+from utils.utils import log, AttrDict, summaries_dir
 
 
 class ActorCritic:
