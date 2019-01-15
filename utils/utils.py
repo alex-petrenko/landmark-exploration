@@ -4,16 +4,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import math
 import logging
+import math
 import os
 from os.path import join
 
-import tensorflow as tf
 import numpy as np
-
+import tensorflow as tf
 from colorlog import ColoredFormatter
-
 
 ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
@@ -23,11 +21,11 @@ formatter = ColoredFormatter(
     datefmt=None,
     reset=True,
     log_colors={
-        'DEBUG':    'cyan',
-        'INFO':     'white,bold',
-        'INFOV':    'cyan,bold',
-        'WARNING':  'yellow',
-        'ERROR':    'red,bold',
+        'DEBUG': 'cyan',
+        'INFO': 'white,bold',
+        'INFOV': 'cyan,bold',
+        'WARNING': 'yellow',
+        'ERROR': 'red,bold',
         'CRITICAL': 'red,bg_white',
     },
     secondary_log_colors={},
@@ -37,8 +35,8 @@ ch.setFormatter(formatter)
 
 log = logging.getLogger('attcap')
 log.setLevel(logging.DEBUG)
-log.handlers = []       # No duplicated handlers
-log.propagate = False   # workaround for duplicated logs in ipython
+log.handlers = []  # No duplicated handlers
+log.propagate = False  # workaround for duplicated logs in ipython
 log.addHandler(ch)
 
 
@@ -126,6 +124,11 @@ def ensure_dir_exists(path):
     if not os.path.exists(path):
         os.makedirs(path)
     return path
+
+
+def remove_if_exists(file):
+    if os.path.isfile(file):
+        os.remove(file)
 
 
 def project_root():
