@@ -157,8 +157,8 @@ def summaries_dir(experiment_dir_):
     return ensure_dir_exists(join(experiment_dir_, '.summary'))
 
 
-def trajectories_dir(experiment_dir_):
-    return ensure_dir_exists(join(experiment_dir_, '.trajectories'))
+def data_dir(experiment_dir_):
+    return ensure_dir_exists(join(experiment_dir_, '.data'))
 
 
 def get_experiment_name(env_id, name):
