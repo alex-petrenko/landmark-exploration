@@ -23,6 +23,9 @@ class Params:
         params_filename = self.filename_prefix() + 'params.json'
         return join(self.experiment_dir(), params_filename)
 
+    def experiment_name(self):
+        return self._experiment_name
+
     def experiment_dir(self):
         return experiment_dir(self._experiment_name, self.experiments_root)
 

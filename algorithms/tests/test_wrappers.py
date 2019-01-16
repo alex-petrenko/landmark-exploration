@@ -30,14 +30,14 @@ class TestWrappers(TestCase):
         obs = env.reset()
         check_range(self, obs)
 
-        agent = AgentRandom({}, env)
+        agent = AgentRandom(env, {})
         obs, _, _, _ = env.step(agent.best_action(obs))
         check_range(self, obs)
 
         env = NormalizeWrapper(env)
         obs = env.reset()
         check_range(self, obs)
-        agent = AgentRandom({}, env)
+        agent = AgentRandom(env, {})
         obs, _, _, _ = env.step(agent.best_action(obs))
         check_range(self, obs)
 

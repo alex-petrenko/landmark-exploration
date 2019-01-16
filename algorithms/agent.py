@@ -32,7 +32,7 @@ class Agent:
 
 
 class AgentRandom(Agent):
-    def __init__(self, params, env):
+    def __init__(self, env, params):
         super(AgentRandom, self).__init__(params)
         self.action_space = env.action_space
 
