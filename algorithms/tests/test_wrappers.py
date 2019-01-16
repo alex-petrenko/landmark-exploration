@@ -19,7 +19,11 @@ TEST_LOWDIM_ENV = 'CartPole-v0'
 
 class TestWrappers(TestCase):
     def test_normalize(self):
-        env = gym.make(TEST_LOWDIM_ENV)
+        def make_env_func():
+            return gym.make(TEST_LOWDIM_ENV)
+
+        env = make_env_func()
+
         self.assertEqual(len(env.observation_space.shape), 1)
 
         def check_range(test, o):
@@ -30,14 +34,14 @@ class TestWrappers(TestCase):
         obs = env.reset()
         check_range(self, obs)
 
-        agent = AgentRandom(env, {})
+        agent = AgentRandom(make_env_func, {})
         obs, _, _, _ = env.step(agent.best_action(obs))
         check_range(self, obs)
 
         env = NormalizeWrapper(env)
         obs = env.reset()
         check_range(self, obs)
-        agent = AgentRandom(env, {})
+        agent = AgentRandom(make_env_func, {})
         obs, _, _, _ = env.step(agent.best_action(obs))
         check_range(self, obs)
 

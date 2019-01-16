@@ -26,7 +26,11 @@ class TestAlgos(TestCase):
 
     def test_run_loop(self):
         env = TimeLimitWrapper(make_doom_env(env_by_name(TEST_ENV_NAME), mode='test'), 50, 0)
-        agent = AgentRandom(env, {})
+
+        def make_env_func():
+            return env
+
+        agent = AgentRandom(make_env_func, {}, close_env=False)
         run_policy_loop(agent, env, 1, 200)
 
 

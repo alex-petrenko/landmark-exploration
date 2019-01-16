@@ -32,9 +32,20 @@ class Agent:
 
 
 class AgentRandom(Agent):
-    def __init__(self, env, params):
+    class Params(Params):
+        def __init__(self, experiment_name):
+            super(AgentRandom.Params, self).__init__(experiment_name)
+
+        # noinspection PyMethodMayBeStatic
+        def filename_prefix(self):
+            return 'random_'
+
+    def __init__(self, make_env_func, params, close_env=True):
         super(AgentRandom, self).__init__(params)
+        env = make_env_func()
         self.action_space = env.action_space
+        if close_env:
+            env.close()
 
     def best_action(self, *args, **kwargs):
         return self.action_space.sample()

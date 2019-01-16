@@ -5,33 +5,18 @@ from os.path import join
 import cv2
 import numpy as np
 
-from algorithms.agent import AgentRandom
-from algorithms.baselines.a2c.agent_a2c import AgentA2C
-from algorithms.baselines.ppo.agent_ppo import AgentPPO
-from algorithms.baselines.ppo.ppo_utils import parse_args_ppo
-from algorithms.curious_a2c.agent_curious_a2c import AgentCuriousA2C
+from algorithms.arguments import parse_model, parse_args
 from utils.envs.envs import create_env
 from utils.utils import log, data_dir, ensure_dir_exists, remove_if_exists
 
 
-def get_trajectories(params, env_id, experiment, max_num_episodes=1000000, fps=1500):
+def get_trajectories(params, env_id, agent_cls, max_num_episodes=1000000, fps=1500):
     def make_env_func():
         e = create_env(env_id, mode='traj')
         e.seed(0)
         return e
 
-    if 'ppo' in experiment:
-        agent = AgentPPO(make_env_func, params.load())
-    elif 'a2c' in experiment:
-        agent = AgentA2C(make_env_func, params.load())
-    elif 'curious_a2c' in experiment:
-        agent = AgentCuriousA2C(make_env_func, params.load())
-    elif 'random' in experiment:
-        env = make_env_func()
-        agent = AgentRandom(env, params.load())
-        env.close()
-    else:
-        raise Exception('Missing experiment {0}'.format(experiment))
+    agent = agent_cls(make_env_func, params.load())
     env = make_env_func()
 
     # this helps with screen recording
@@ -94,8 +79,9 @@ def get_trajectories(params, env_id, experiment, max_num_episodes=1000000, fps=1
 
 
 def main():
-    args, params = parse_args_ppo(AgentPPO.Params)
-    return get_trajectories(params, args.env, params.experiment_name())
+    agent_cls = parse_model()
+    args, params = parse_args('doom_basic', '', agent_cls.Params)
+    return get_trajectories(params, args.env, agent_cls)
 
 
 if __name__ == '__main__':
