@@ -127,8 +127,8 @@ class AgentA2C(AgentLearner):
             self.train_for_steps = 5000000
             self.use_gpu = True
 
-        # noinspection PyMethodMayBeStatic
-        def filename_prefix(self):
+        @staticmethod
+        def filename_prefix():
             return 'a2c_'
 
     def __init__(self, make_env_func, params):

@@ -16,7 +16,8 @@ class Params:
         self._command_line = None
         self._params_serialized = False
 
-    def filename_prefix(self):
+    @staticmethod
+    def filename_prefix():
         return ''
 
     def _params_file(self):

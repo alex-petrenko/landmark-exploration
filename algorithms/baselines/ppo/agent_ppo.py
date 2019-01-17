@@ -167,8 +167,8 @@ class AgentPPO(AgentLearner):
             self.use_gpu = True
             self.initial_save_rate = 1000
 
-        # noinspection PyMethodMayBeStatic
-        def filename_prefix(self):
+        @staticmethod
+        def filename_prefix():
             return 'ppo_'
 
     def __init__(self, make_env_func, params):

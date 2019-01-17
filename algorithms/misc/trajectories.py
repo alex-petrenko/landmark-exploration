@@ -5,6 +5,7 @@ from os.path import join
 import cv2
 import numpy as np
 
+from algorithms.agent import AgentRandom
 from algorithms.arguments import parse_model, parse_args
 from utils.envs.envs import create_env
 from utils.utils import log, data_dir, ensure_dir_exists, remove_if_exists
@@ -16,7 +17,10 @@ def get_trajectories(params, env_id, agent_cls, max_num_episodes=1000000, fps=15
         e.seed(0)
         return e
 
-    agent = agent_cls(make_env_func, params.load())
+    if agent_cls == AgentRandom:
+        agent = agent_cls(make_env_func, params)
+    else:
+        agent = agent_cls(make_env_func, params.load())
     env = make_env_func()
 
     # this helps with screen recording
@@ -80,7 +84,8 @@ def get_trajectories(params, env_id, agent_cls, max_num_episodes=1000000, fps=15
 
 def main():
     agent_cls = parse_model()
-    args, params = parse_args('doom_basic', '', agent_cls.Params)
+    default_experiment_name = agent_cls.Params.filename_prefix() + 'v000'
+    args, params = parse_args('doom_basic', default_experiment_name, agent_cls.Params)
     return get_trajectories(params, args.env, agent_cls)
 
 

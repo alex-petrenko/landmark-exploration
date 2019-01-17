@@ -205,8 +205,8 @@ class AgentCuriousA2C(AgentA2C):
 
             self.train_for_env_steps = 10 * 1000 * 1000 * 1000
 
-        # noinspection PyMethodMayBeStatic
-        def filename_prefix(self):
+        @staticmethod
+        def filename_prefix():
             return 'curious_a2c_'
 
     def __init__(self, make_env_func, params):
