@@ -3,23 +3,19 @@ Implementation of the synchronous variant of the Advantage Actor-Critic algorith
 
 """
 
-
 import time
 
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
+from algorithms.agent import AgentLearner
 from algorithms.algo_utils import maybe_extract_key
 from algorithms.env_wrappers import has_image_observations, get_observation_space
 from algorithms.multi_env import MultiEnv
-from utils.utils import log, put_kernels_on_grid, AttrDict
-
-from algorithms.utils import *
-from algorithms.agent import AgentLearner
 from algorithms.tf_utils import count_total_parameters, dense, conv
-
 from utils.distributions import CategoricalProbabilityDistribution
+from utils.utils import log, put_kernels_on_grid, AttrDict, summaries_dir
 
 
 class Policy:
@@ -131,8 +127,8 @@ class AgentA2C(AgentLearner):
             self.train_for_steps = 5000000
             self.use_gpu = True
 
-        # noinspection PyMethodMayBeStatic
-        def filename_prefix(self):
+        @staticmethod
+        def filename_prefix():
             return 'a2c_'
 
     def __init__(self, make_env_func, params):
@@ -154,7 +150,6 @@ class AgentA2C(AgentLearner):
         )
         self.obs_shape = [-1] + list(get_observation_space(env).shape)
         env.close()
-
 
         self.selected_actions = tf.placeholder(tf.int32, [None])  # action selected by the policy
         self.value_estimates = tf.placeholder(tf.float32, [None])
@@ -358,7 +353,8 @@ class AgentA2C(AgentLearner):
         )
         observations = maybe_extract_key(multi_env.reset(), 'obs')
 
-        def end_of_training(s): return s >= self.params.train_for_steps
+        def end_of_training(s):
+            return s >= self.params.train_for_steps
 
         while not end_of_training(step):
             timing = AttrDict({'experience': time.time(), 'batch': time.time()})
@@ -400,7 +396,7 @@ class AgentA2C(AgentLearner):
                 discounted_rewards.extend(self._calc_discounted_rewards(gamma, env_rewards, env_dones, last_value))
 
             # convert observations and estimations to meaningful n-step batches
-            batch_obs_shape = (self.params.rollout * multi_env.num_envs, ) + observations[0].shape
+            batch_obs_shape = (self.params.rollout * multi_env.num_envs,) + observations[0].shape
             batch_obs = np.asarray(batch_obs, np.float32).swapaxes(0, 1).reshape(batch_obs_shape)
             batch_actions = np.asarray(batch_actions, np.int32).swapaxes(0, 1).flatten()
             batch_values = np.asarray(batch_values, np.float32).swapaxes(0, 1).flatten()

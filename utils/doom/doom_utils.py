@@ -4,7 +4,7 @@ import vizdoomgym
 
 from algorithms.env_wrappers import ResizeAndGrayscaleWrapper, StackFramesWrapper, RewardScalingWrapper, \
     SkipAndStackFramesWrapper, TimeLimitWrapper, RemainingTimeWrapper
-from utils.doom.wrappers import set_resolution
+from utils.doom.wrappers import SetResolutionWrapper
 
 DOOM_W = DOOM_H = 42
 
@@ -39,10 +39,9 @@ def make_doom_env(doom_cfg, mode='train', has_timer=False):
     # courtesy of https://github.com/pathak22/noreward-rl/blob/master/src/envs.py
     # and https://github.com/ppaquette/gym-doom
     if mode == 'test':
-        obwrapper = set_resolution('800x600')
+        env = SetResolutionWrapper(env, '800x600')
     else:
-        obwrapper = set_resolution('160x120')
-    env = obwrapper(env)
+        env = SetResolutionWrapper(env, '160x120')
 
     env = ResizeAndGrayscaleWrapper(env, DOOM_W, DOOM_H)
 

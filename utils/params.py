@@ -2,9 +2,7 @@ import json
 
 from os.path import join
 
-from algorithms.utils import experiment_dir
-
-from utils.utils import log
+from utils.utils import log, experiment_dir
 
 
 # noinspection PyMethodMayBeStatic
@@ -18,12 +16,16 @@ class Params:
         self._command_line = None
         self._params_serialized = False
 
-    def filename_prefix(self):
+    @staticmethod
+    def filename_prefix():
         return ''
 
     def _params_file(self):
         params_filename = self.filename_prefix() + 'params.json'
         return join(self.experiment_dir(), params_filename)
+
+    def experiment_name(self):
+        return self._experiment_name
 
     def experiment_dir(self):
         return experiment_dir(self._experiment_name, self.experiments_root)

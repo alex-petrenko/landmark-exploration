@@ -8,9 +8,7 @@ import seaborn as sns
 
 from os.path import join
 
-from algorithms.utils import summaries_dir, experiment_dir, experiments_dir, ensure_dir_exists
-from utils.utils import log
-
+from utils.utils import log, ensure_dir_exists, experiments_dir, experiment_dir, summaries_dir
 
 sns.set()
 

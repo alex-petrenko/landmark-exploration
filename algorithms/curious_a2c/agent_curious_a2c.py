@@ -13,9 +13,8 @@ from algorithms.baselines.a2c.agent_a2c import AgentA2C
 from algorithms.env_wrappers import has_image_observations, get_observation_space
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, conv
-from algorithms.utils import summaries_dir
 from utils.distributions import CategoricalProbabilityDistribution
-from utils.utils import log, AttrDict, put_kernels_on_grid
+from utils.utils import log, AttrDict, put_kernels_on_grid, summaries_dir
 
 
 class CuriousA2CPolicy:
@@ -206,8 +205,8 @@ class AgentCuriousA2C(AgentA2C):
 
             self.train_for_env_steps = 10 * 1000 * 1000 * 1000
 
-        # noinspection PyMethodMayBeStatic
-        def filename_prefix(self):
+        @staticmethod
+        def filename_prefix():
             return 'curious_a2c_'
 
     def __init__(self, make_env_func, params):

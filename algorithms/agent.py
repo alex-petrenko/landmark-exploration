@@ -5,11 +5,9 @@ Base classes for RL agent implementations with some boilerplate.
 
 import tensorflow as tf
 
-from algorithms.utils import *
-
 from utils.params import Params
 
-from utils.utils import log
+from utils.utils import log, model_dir
 from utils.decay import LinearDecay
 
 
@@ -34,9 +32,20 @@ class Agent:
 
 
 class AgentRandom(Agent):
-    def __init__(self, params, env):
+    class Params(Params):
+        def __init__(self, experiment_name):
+            super(AgentRandom.Params, self).__init__(experiment_name)
+
+        @staticmethod
+        def filename_prefix():
+            return 'random_'
+
+    def __init__(self, make_env_func, params, close_env=True):
         super(AgentRandom, self).__init__(params)
+        env = make_env_func()
         self.action_space = env.action_space
+        if close_env:
+            env.close()
 
     def best_action(self, *args, **kwargs):
         return self.action_space.sample()

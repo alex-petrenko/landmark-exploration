@@ -4,13 +4,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import math
 import logging
-import tensorflow as tf
+import math
+import os
+from os.path import join
+
 import numpy as np
-
+import tensorflow as tf
 from colorlog import ColoredFormatter
-
 
 ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
@@ -20,11 +21,11 @@ formatter = ColoredFormatter(
     datefmt=None,
     reset=True,
     log_colors={
-        'DEBUG':    'cyan',
-        'INFO':     'white,bold',
-        'INFOV':    'cyan,bold',
-        'WARNING':  'yellow',
-        'ERROR':    'red,bold',
+        'DEBUG': 'cyan',
+        'INFO': 'white,bold',
+        'INFOV': 'cyan,bold',
+        'WARNING': 'yellow',
+        'ERROR': 'red,bold',
         'CRITICAL': 'red,bg_white',
     },
     secondary_log_colors={},
@@ -34,8 +35,8 @@ ch.setFormatter(formatter)
 
 log = logging.getLogger('attcap')
 log.setLevel(logging.DEBUG)
-log.handlers = []       # No duplicated handlers
-log.propagate = False   # workaround for duplicated logs in ipython
+log.handlers = []  # No duplicated handlers
+log.propagate = False  # workaround for duplicated logs in ipython
 log.addHandler(ch)
 
 
@@ -117,3 +118,51 @@ class AttrDict(dict):
         if d is not None:
             for key, value in d.items():
                 self[key] = value
+
+
+def ensure_dir_exists(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+    return path
+
+
+def remove_if_exists(file):
+    if os.path.isfile(file):
+        os.remove(file)
+
+
+def project_root():
+    """
+    Keep models, parameters and summaries at the root of this project's directory tree.
+    :return: full path to the root dir of this project.
+    """
+    return os.path.dirname(os.path.dirname(__file__))
+
+
+def experiments_dir():
+    return ensure_dir_exists(join(project_root(), 'train_dir'))
+
+
+def experiment_dir(experiment, experiments_root=None):
+    if experiments_root is None:
+        experiments_root = experiments_dir()
+    else:
+        experiments_root = join(experiments_dir(), experiments_root)
+
+    return ensure_dir_exists(join(experiments_root, experiment))
+
+
+def model_dir(experiment_dir_):
+    return ensure_dir_exists(join(experiment_dir_, '.model'))
+
+
+def summaries_dir(experiment_dir_):
+    return ensure_dir_exists(join(experiment_dir_, '.summary'))
+
+
+def data_dir(experiment_dir_):
+    return ensure_dir_exists(join(experiment_dir_, '.data'))
+
+
+def get_experiment_name(env_id, name):
+    return '{}-{}'.format(env_id, name)
