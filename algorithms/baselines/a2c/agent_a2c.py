@@ -356,7 +356,7 @@ class AgentA2C(AgentLearner):
             make_env_func=self.make_env_func,
             stats_episodes=self.params.stats_episodes,
         )
-        observations = maybe_extract_key(multi_env.initial_obs(), 'obs')
+        observations = maybe_extract_key(multi_env.reset(), 'obs')
 
         def end_of_training(s): return s >= self.params.train_for_steps
 

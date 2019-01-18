@@ -3,7 +3,7 @@ import time
 from multiprocessing import Process, JoinableQueue
 from enum import Enum
 import copy
-from queue import Queue
+from queue import Queue, Empty
 
 import numpy as np
 
@@ -11,9 +11,17 @@ from algorithms.algo_utils import list_to_string
 from utils.utils import log, AttrDict
 
 
-class StepType(Enum):
-    REAL = 1
-    IMAGINED = 2
+def safe_get(q, timeout=1e6, msg='Queue timeout'):
+    """Using queue.get() with timeout is necessary, otherwise KeyboardInterrupt is not handled."""
+    while True:
+        try:
+            return q.get(timeout=timeout)
+        except Empty:
+            log.exception(msg)
+
+
+class MsgType(Enum):
+    TERMINATE, RESET, STEP_REAL, STEP_IMAGINED = range(4)
 
 
 class _MultiEnvWorker:
@@ -22,55 +30,53 @@ class _MultiEnvWorker:
     def __init__(self, env_indices, make_env_func, use_multiprocessing):
         self._verbose = False
 
+        self.make_env_func = make_env_func
         self.env_indices = env_indices
 
-        self.envs = []
-        self.initial_obs = []
-
-        log.info('Initializing envs %s...', list_to_string(env_indices))
-        for i in env_indices:
-            env = make_env_func()
-            env.seed(i)
-            self.initial_obs.append(env.reset())
-            self.envs.append(env)
-
-        self.imagined_envs = None
-
         if use_multiprocessing:
-            self.step_queue, self.result_queue = JoinableQueue(), JoinableQueue()
+            self.task_queue, self.result_queue = JoinableQueue(), JoinableQueue()
             self.process = Process(target=self.start, daemon=True)
         else:
             log.debug('Not using multiprocessing!')
-            self.step_queue, self.result_queue = Queue(), Queue()
+            self.task_queue, self.result_queue = Queue(), Queue()
             # shouldn't be named "process" here, but who cares
             self.process = threading.Thread(target=self.start)
 
         self.process.start()
 
     def start(self):
+        real_envs = []
+        imagined_envs = None
+
+        log.info('Initializing envs %s...', list_to_string(self.env_indices))
+        for i in self.env_indices:
+            env = self.make_env_func()
+            env.seed(i)
+            real_envs.append(env)
+
         timing = AttrDict({'copying': 0, 'prediction': 0})
 
         while True:
-            actions, step_type = self.step_queue.get()
-            if actions is None:  # stop signal
-                for e in self.envs:
+            actions, msg_type = safe_get(self.task_queue)
+            if msg_type == MsgType.TERMINATE:
+                for e in real_envs:
                     e.close()
-                if self.imagined_envs is not None:
-                    for imagined_env in self.imagined_envs:
+                if imagined_envs is not None:
+                    for imagined_env in imagined_envs:
                         imagined_env.close()
-                self.step_queue.task_done()
+                self.task_queue.task_done()
                 log.info('Stop worker %s...', list_to_string(self.env_indices))
                 break
 
-            if step_type == StepType.REAL:
-                envs = self.envs
-                if self.imagined_envs is not None:
-                    for imagined_env in self.imagined_envs:
+            envs = real_envs
+            if msg_type == MsgType.RESET or msg_type == MsgType.STEP_REAL:
+                if imagined_envs is not None:
+                    for imagined_env in imagined_envs:
                         imagined_env.close()
-                self.imagined_envs = None
-            else:  # step_type == StepType.IMAGINED:
+                imagined_envs = None
+            else:
 
-                if self.imagined_envs is None:
+                if imagined_envs is None:
                     # initializing new prediction, let's report timing for the previous one
                     if timing.prediction > 0 and self._verbose:
                         log.debug(
@@ -81,40 +87,43 @@ class _MultiEnvWorker:
                     timing.prediction = 0
                     timing.copying = time.time()
 
-                    self.imagined_envs = []
+                    imagined_envs = []
                     # we expect a list of actions for every environment in this worker (list of lists)
-                    assert len(actions) == len(self.envs)
+                    assert len(actions) == len(real_envs)
                     for env_idx in range(len(actions)):
                         for _ in actions[env_idx]:
-                            imagined_env = copy.deepcopy(self.envs[env_idx])
-                            self.imagined_envs.append(imagined_env)
+                            imagined_env = copy.deepcopy(real_envs[env_idx])
+                            imagined_envs.append(imagined_env)
                     timing.copying = time.time() - timing.copying
 
-                envs = self.imagined_envs
+                envs = imagined_envs
                 actions = np.asarray(actions).flatten()
 
-            assert len(envs) == len(actions)
+            if msg_type == MsgType.RESET:
+                results = [env.reset() for env in envs]
+            else:
+                assert len(envs) == len(actions)
 
-            # Collect obs, reward, and 'done' for each env (discard info)
-            prediction_start = time.time()
-            results = [env.step(action) for env, action in zip(envs, actions)]
+                # Collect obs, reward, and 'done' for each env (discard info)
+                prediction_start = time.time()
+                results = [env.step(action) for env, action in zip(envs, actions)]
 
-            # pack results per-env
-            results = np.split(np.array(results), len(self.envs))
+                # pack results per-env
+                results = np.split(np.array(results), len(real_envs))
 
-            if step_type == StepType.IMAGINED:
-                timing.prediction += time.time() - prediction_start
+                if msg_type == MsgType.STEP_IMAGINED:
+                    timing.prediction += time.time() - prediction_start
 
-            # If this is a real step and the env is done, reset
-            if step_type == StepType.REAL:
-                for i, result in enumerate(results):
-                    obs, reward, done, info = result[0]
-                    if done:
-                        obs = self.envs[i].reset()
-                    results[i] = (obs, reward, done, info)  # collapse dimension of size 1
+                # If this is a real step and the env is done, reset
+                if msg_type == MsgType.STEP_REAL:
+                    for i, result in enumerate(results):
+                        obs, reward, done, info = result[0]
+                        if done:
+                            obs = real_envs[i].reset()
+                        results[i] = (obs, reward, done, info)  # collapse dimension of size 1
 
             self.result_queue.put(results)
-            self.step_queue.task_done()
+            self.task_queue.task_done()
 
 
 class MultiEnv:
@@ -136,8 +145,12 @@ class MultiEnv:
             for i in range(num_workers)
         ]
 
-        self.action_space = self.workers[0].envs[0].action_space
-        self.observation_space = self.workers[0].envs[0].observation_space
+        # create a temp env to query information
+        env = make_env_func()
+        self.action_space = env.action_space
+        self.observation_space = env.observation_space
+        env.close()
+        del env
 
         self.curr_episode_reward = [0] * num_envs
         self.episode_rewards = [[] for _ in range(num_envs)]
@@ -147,29 +160,42 @@ class MultiEnv:
 
         self.stats_episodes = stats_episodes
 
-    def initial_obs(self):
-        obs = []
-        for w in self.workers:
-            for o in w.initial_obs:
-                obs.append(o)
-        return obs
+    def await_tasks(self, data, task_type, timeout=0.05):
+        if data is None:
+            data = [None] * self.num_envs
 
-    def step(self, actions):
-        """Obviously, returns vectors of obs, rewards, dones instead of usual single values."""
-        assert len(actions) == self.num_envs
-        actions = np.split(np.array(actions), self.num_workers)
-        for worker, action_tuple in zip(self.workers, actions):
-            worker.step_queue.put((action_tuple, StepType.REAL))
+        assert len(data) == self.num_envs
+        data = np.split(np.array(data), self.num_workers)
+        assert len(data) == self.num_workers
+
+        for worker, task in zip(self.workers, data):
+            worker.task_queue.put((task, task_type))
 
         results = []
         for worker in self.workers:
-            worker.step_queue.join()
-            results_per_worker = worker.result_queue.get()
+            worker.task_queue.join()
+            results_per_worker = safe_get(
+                worker.result_queue,
+                timeout=timeout,
+                msg=f'Takes a surprisingly long time to process task {task_type}, retry...',
+            )
+
             assert len(results_per_worker) == self.num_envs // self.num_workers
-            for result in results_per_worker:
-                results.append(result)
+            results.extend(results_per_worker)
             worker.result_queue.task_done()
 
+        return results
+
+    def reset(self):
+        observations = self.await_tasks(None, MsgType.RESET)
+        return observations
+
+    def step(self, actions):
+        """
+        Obviously, returns vectors of obs, rewards, dones instead of usual single values.
+        Must call reset before the first step!
+        """
+        results = self.await_tasks(actions, MsgType.STEP_REAL)
         observations, rewards, dones, infos = zip(*results)
 
         for i in range(self.num_envs):
@@ -194,15 +220,20 @@ class MultiEnv:
         assert len(imagined_action_lists) == self.num_envs
         imagined_action_lists = np.split(np.array(imagined_action_lists), self.num_workers)
         for worker, imagined_action_list in zip(self.workers, imagined_action_lists):
-            worker.step_queue.put((imagined_action_list, StepType.IMAGINED))
+            worker.task_queue.put((imagined_action_list, MsgType.STEP_IMAGINED))
 
         observations = []
         rewards = []
         dones = []
         for worker in self.workers:
-            worker.step_queue.join()
-            results_per_worker = worker.result_queue.get()
-            assert len(results_per_worker) == len(imagined_action_list)
+            worker.task_queue.join()
+            results_per_worker = safe_get(
+                worker.result_queue,
+                timeout=1.0,
+                msg='Took a surprisingly long time to predict the future, retrying...',
+            )
+
+            assert len(results_per_worker) == len(imagined_action_lists[0])
             for result in results_per_worker:
                 o, r, d, _ = zip(*result)
                 observations.append(o)
@@ -216,9 +247,8 @@ class MultiEnv:
 
     def close(self):
         log.info('Stopping multi env...')
-        for worker in self.workers:
-            worker.step_queue.put((None, StepType.REAL))  # terminate
-            worker.step_queue.join()
+        for i, worker in enumerate(self.workers):
+            worker.task_queue.put((None, MsgType.TERMINATE))  # terminate
             worker.process.join()
 
     def _update_episode_stats(self, episode_stats, curr_episode_data):

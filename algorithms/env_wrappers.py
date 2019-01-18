@@ -77,8 +77,7 @@ class StackFramesWrapper(gym.core.Wrapper):
 
     def reset(self):
         observation = self.env.reset()
-        self._frames = deque([np.zeros_like(observation)] * (self._stack_past - 1))
-        self._frames.append(observation)
+        self._frames = deque([observation] * self._stack_past)
         return self._render_stacked_frames()
 
     def step(self, action):

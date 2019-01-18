@@ -1,14 +1,13 @@
 import math
-
-import numpy as np
 import time
 from functools import partial
 
+import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
 from algorithms.agent import AgentLearner, summaries_dir
-from algorithms.algo_utils import calculate_gae, EPS, maybe_extract_key, num_env_steps
+from algorithms.algo_utils import calculate_gae, EPS, num_env_steps
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import get_observation_space
 from algorithms.models import make_model
@@ -333,7 +332,6 @@ class AgentPPO(AgentLearner):
         self.summary_writer.flush()
 
     def best_action(self, observation, deterministic=False):
-        observation = maybe_extract_key(observation, 'obs')
         if observation.shape != self.obs_shape:
             observation = observation.reshape(self.obs_shape)
         actions = self.actor_critic.best_action(self.session, observation, deterministic)
@@ -437,7 +435,7 @@ class AgentPPO(AgentLearner):
         """Main training loop."""
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
-        observations = maybe_extract_key(multi_env.initial_obs(), 'obs')
+        observations = multi_env.reset()
         buffer = PPOBuffer()
 
         def end_of_training(s, es):
@@ -495,8 +493,8 @@ class AgentPPO(AgentLearner):
             )
 
             self._learn_loop(multi_env)
-        except Exception as exc:
-            log.exception(exc)
+        except (Exception, KeyboardInterrupt, SystemExit):
+            log.exception('Interrupt...')
         finally:
             log.info('Closing env...')
             if multi_env is not None:

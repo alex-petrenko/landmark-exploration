@@ -132,14 +132,14 @@ class TestMultiEnv(TestCase):
 
     def test_multi_env(self):
         """Just a basic sanity check test."""
-        num_envs = 8
+        num_envs = 32
         multi_env = MultiEnv(
             num_envs=num_envs,
-            num_workers=4,
+            num_workers=16,
             make_env_func=self.make_env_func,
             stats_episodes=10,
         )
-        obs = multi_env.initial_obs()
+        obs = multi_env.reset()
 
         self.assertEqual(len(obs), num_envs)
 
@@ -150,7 +150,7 @@ class TestMultiEnv(TestCase):
 
         # By pure chance some of the environments might be identical even with different seeds, but definitely not
         # all of them!
-        self.assertGreater(num_different, len(obs) // 2)
+        self.assertGreaterEqual(num_different, len(obs) // 2)
 
         for i in range(20):
             obs, rewards, dones, infos = multi_env.step([0] * num_envs)

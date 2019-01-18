@@ -457,7 +457,7 @@ class AgentCuriousA2C(AgentA2C):
         env_steps = self.total_env_steps.eval(session=self.session)
         batch_size = self.params.rollout * self.params.num_envs
 
-        img_obs, timer_obs = extract_keys(multi_env.initial_obs(), 'obs', 'timer')
+        img_obs, timer_obs = extract_keys(multi_env.reset(), 'obs', 'timer')
 
         adv_running_mean_std = RunningMeanStd(max_past_samples=10000)
 
@@ -569,7 +569,7 @@ class AgentCuriousA2C(AgentA2C):
             )
 
             self._learn_loop(multi_env, step_callback)
-        except Exception as exc:
+        except (Exception, KeyboardInterrupt, SystemExit) as exc:
             log.exception(exc)
         finally:
             log.info('Closing env...')
