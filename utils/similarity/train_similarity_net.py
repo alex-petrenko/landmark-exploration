@@ -8,7 +8,7 @@ from utils.similarity.similarity_net import SimilarityNetwork
 from utils.utils import model_dir, log, experiment_dir
 
 
-def test(env_id):
+def train(env_id):
     def make_env_func():
         return create_env(env_id)
 
@@ -21,6 +21,12 @@ def test(env_id):
     ph_ob2 = tf.placeholder(tf.float32, shape=input_shape)
 
     sim_net = SimilarityNetwork(ph_ob1, ph_ob2, "similarity")
+
+    session = init()
+
+    # train
+
+    session.close()
 
     return 0
 
@@ -36,7 +42,7 @@ def init():
 
     session = tf.Session(config=config)
 
-    checkpoint_dir = model_dir(experiment_dir('test_similarity_net'))
+    checkpoint_dir = model_dir(experiment_dir('similarity_net'))
     saver = tf.train.Saver(max_to_keep=3)
 
     try:
@@ -45,10 +51,13 @@ def init():
         log.info('Didn\'t find a valid restore point, start from scratch')
         session.run(tf.global_variables_initializer())
 
+    log.info('Initialized!')
+    return session
+
 
 def main():
     """Script entry point."""
-    return test()
+    return train()
 
 
 if __name__ == '__main__':
