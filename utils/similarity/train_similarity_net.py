@@ -1,11 +1,13 @@
 import sys
+from os.path import join
 
+import numpy as np
 import tensorflow as tf
 
 from algorithms.env_wrappers import get_observation_space
 from utils.envs.envs import create_env
 from utils.similarity.similarity_net import SimilarityNetwork
-from utils.utils import model_dir, log, experiment_dir
+from utils.utils import model_dir, log, experiment_dir, data_dir
 
 
 def train(env_id):
@@ -24,7 +26,19 @@ def train(env_id):
 
     session = init()
 
+    trajectories = load_trajectories()
+    actions = trajectories['action']
+    dones = trajectories['done']
+    obs = trajectories['obs']
+    rewards = trajectories['reward']
+
+    print(actions.shape, dones.shape, obs.shape, rewards.shape)
+
+    obs_input_shape = [1] + obs_shape
+    ob1 = obs[0].reshape(obs_input_shape)
+    ob2 = obs[1].reshape(obs_input_shape)
     # train
+    print(sim_net.pred(session, ob1, ob2))
 
     session.close()
 
@@ -55,9 +69,15 @@ def init():
     return session
 
 
+def load_trajectories():
+    traj_dir = join(data_dir(experiment_dir('doom_maze-random_v000')), 'trajectories')
+    trajectories = np.load(join(traj_dir, 'ep_0000000_random_traj.npz'))
+
+    return trajectories
+
 def main():
     """Script entry point."""
-    return train()
+    return train('doom_maze')
 
 
 if __name__ == '__main__':
