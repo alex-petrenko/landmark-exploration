@@ -35,7 +35,7 @@ class SimilarityNetwork:
 
     def pred(self, session, ob1, ob2):
         pred = session.run(
-            [self.labels, self.logits],
+            self.labels,
             feed_dict={self._ob1: ob1, self._ob2: ob2},
         )
         return pred
