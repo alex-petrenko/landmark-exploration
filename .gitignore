@@ -114,3 +114,7 @@ train_dir_old/**
 .idea/**/usage.statistics.xml
 .idea/**/dictionaries
 .idea/**/shelf
+
+
+#macOS
+.DS_Store
