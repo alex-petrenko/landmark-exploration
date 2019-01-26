@@ -33,6 +33,7 @@ def train(env_id):
     rewards = trajectories['reward']
 
     print(actions.shape, dones.shape, obs.shape, rewards.shape)
+    print(obs_shape)
 
     obs_input_shape = [1] + obs_shape
     ob1 = obs[0].reshape(obs_input_shape)
@@ -74,6 +75,7 @@ def load_trajectories():
     trajectories = np.load(join(traj_dir, 'ep_0000000_random_traj.npz'))
 
     return trajectories
+
 
 def main():
     """Script entry point."""

@@ -23,19 +23,19 @@ class SimilarityNetwork:
 
         left = encoder_template(self._ob1, 'convnet_simple', name)
         right = encoder_template(self._ob2, 'convnet_simple', name)
-        out = tf.concat([left, right], 0)
+        out = tf.concat([left, right], 1)
         out = dense(out, 128)
         out = dense(out, 16)
         out = dense(out, 2, activation=None)
         self.logits = out
 
-        self.labels = tf.argmax(self.logits, axis=1)
+        self.labels = tf.argmax(self.logits)
 
         # print([v.name for v in tf.all_variables()])
 
     def pred(self, session, ob1, ob2):
         pred = session.run(
-            self.labels,
+            [self.labels, self.logits],
             feed_dict={self._ob1: ob1, self._ob2: ob2},
         )
         return pred
