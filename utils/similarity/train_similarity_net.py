@@ -22,7 +22,7 @@ def train(env_id):
     ph_ob1 = tf.placeholder(tf.float32, shape=input_shape)
     ph_ob2 = tf.placeholder(tf.float32, shape=input_shape)
 
-    sim_net = SimilarityNetwork(ph_ob1, ph_ob2, "similarity")
+    sim_net = SimilarityNetwork(ph_ob1, ph_ob2, 'similarity')
 
     session = init()
 

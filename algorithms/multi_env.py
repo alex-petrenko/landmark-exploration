@@ -51,6 +51,7 @@ class _MultiEnvWorker:
             env.seed(i)
             env.reset()
             envs.append(env)
+            time.sleep(0.1)
 
     def _terminate(self, real_envs, imagined_envs):
         log.info('Stop worker %s...', list_to_string(self.env_indices))
@@ -59,6 +60,8 @@ class _MultiEnvWorker:
         if imagined_envs is not None:
             for imagined_env in imagined_envs:
                 imagined_env.close()
+
+        log.info('Worker %s terminated!', list_to_string(self.env_indices))
 
     def start(self):
         real_envs = []
@@ -166,7 +169,7 @@ class MultiEnv:
 
         for worker in self.workers:
             worker.task_queue.put((None, MsgType.INIT))
-            time.sleep(0.05)  # just in case
+            time.sleep(0.1)  # just in case
         for worker in self.workers:
             worker.task_queue.join()
 
@@ -271,6 +274,7 @@ class MultiEnv:
         log.info('Stopping multi env...')
         for worker in self.workers:
             worker.task_queue.put((None, MsgType.TERMINATE))
+            time.sleep(0.01)
         for worker in self.workers:
             worker.process.join()
 

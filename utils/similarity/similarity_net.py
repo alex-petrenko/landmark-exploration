@@ -19,7 +19,7 @@ class SimilarityNetwork:
             cnn = dense(cnn, 256)
             return cnn
 
-        encoder_template = tf.make_template("encoder_template", make_encoder_cnn)
+        encoder_template = tf.make_template('encoder_template', make_encoder_cnn)
 
         left = encoder_template(self._ob1, 'convnet_simple', name)
         right = encoder_template(self._ob2, 'convnet_simple', name)

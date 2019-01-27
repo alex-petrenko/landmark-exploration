@@ -27,10 +27,11 @@ class EncoderCNN(Encoder):
         with tf.variable_scope(self.name):
             if img_enc_name == 'convnet_simple':
                 conv_filters = self._convnet_simple([(16, 5, 2), (32, 3, 2), (32, 3, 2), (64, 3, 2)])
-            elif img_enc_name == 'convnet_large':
-                conv_filters = self._convnet_simple([(32, 5, 2), (64, 3, 2), (128, 3, 2), (128, 3, 2), (128, 3, 2)])
             elif img_enc_name == 'convnet_doom_small':
                 conv_filters = self._convnet_simple([(32, 3, 2)] * 4)  # to fairly compare with previous algos
+            elif img_enc_name == 'convnet_doom':
+                # use this with 64x64 resolution
+                conv_filters = self._convnet_simple([(32, 5, 2), (32, 3, 2), (32, 3, 2), (64, 3, 2), (64, 3, 2)])
             else:
                 raise Exception('Unknown model name')
 
