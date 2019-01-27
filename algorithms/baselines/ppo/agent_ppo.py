@@ -421,7 +421,7 @@ class AgentPPO(AgentLearner):
             avg_loss = np.mean(losses)
             if avg_loss > 0.995 * prev_loss:
                 log.info('Early stopping after %d epochs because critic did not improve enough', epoch)
-                log.info('Was %.3f now %.3f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
+                log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
             prev_loss = avg_loss
 

@@ -21,7 +21,7 @@ def safe_get(q, timeout=1e6, msg='Queue timeout'):
 
 
 class MsgType(Enum):
-    TERMINATE, RESET, STEP_REAL, STEP_IMAGINED = range(4)
+    INIT, TERMINATE, RESET, STEP_REAL, STEP_IMAGINED = range(5)
 
 
 class _MultiEnvWorker:
@@ -44,30 +44,42 @@ class _MultiEnvWorker:
 
         self.process.start()
 
-    def start(self):
-        real_envs = []
-        imagined_envs = None
-
+    def _init(self, envs):
         log.info('Initializing envs %s...', list_to_string(self.env_indices))
         for i in self.env_indices:
             env = self.make_env_func()
             env.seed(i)
-            real_envs.append(env)
+            env.reset()
+            envs.append(env)
+
+    def _terminate(self, real_envs, imagined_envs):
+        log.info('Stop worker %s...', list_to_string(self.env_indices))
+        for e in real_envs:
+            e.close()
+        if imagined_envs is not None:
+            for imagined_env in imagined_envs:
+                imagined_env.close()
+
+    def start(self):
+        real_envs = []
+        imagined_envs = None
 
         timing = AttrDict({'copying': 0, 'prediction': 0})
 
         while True:
             actions, msg_type = safe_get(self.task_queue)
-            if msg_type == MsgType.TERMINATE:
-                for e in real_envs:
-                    e.close()
-                if imagined_envs is not None:
-                    for imagined_env in imagined_envs:
-                        imagined_env.close()
+
+            if msg_type == MsgType.INIT:
+                self._init(real_envs)
                 self.task_queue.task_done()
-                log.info('Stop worker %s...', list_to_string(self.env_indices))
+                continue
+
+            if msg_type == MsgType.TERMINATE:
+                self._terminate(real_envs, imagined_envs)
+                self.task_queue.task_done()
                 break
 
+            # handling actual workload
             envs = real_envs
             if msg_type == MsgType.RESET or msg_type == MsgType.STEP_REAL:
                 if imagined_envs is not None:
@@ -135,6 +147,13 @@ class MultiEnv:
         if num_workers > num_envs or num_envs % num_workers != 0:
             raise Exception('num_envs should be a multiple of num_workers')
 
+        # create a temp env to query information
+        env = make_env_func()
+        self.action_space = env.action_space
+        self.observation_space = env.observation_space
+        env.close()
+        del env
+
         self.num_envs = num_envs
         self.num_workers = num_workers
         self.workers = []
@@ -145,12 +164,11 @@ class MultiEnv:
             for i in range(num_workers)
         ]
 
-        # create a temp env to query information
-        env = make_env_func()
-        self.action_space = env.action_space
-        self.observation_space = env.observation_space
-        env.close()
-        del env
+        for worker in self.workers:
+            worker.task_queue.put((None, MsgType.INIT))
+            time.sleep(0.05)  # just in case
+        for worker in self.workers:
+            worker.task_queue.join()
 
         self.curr_episode_reward = [0] * num_envs
         self.episode_rewards = [[] for _ in range(num_envs)]
@@ -160,7 +178,7 @@ class MultiEnv:
 
         self.stats_episodes = stats_episodes
 
-    def await_tasks(self, data, task_type, timeout=0.05):
+    def await_tasks(self, data, task_type, timeout=None):
         if data is None:
             data = [None] * self.num_envs
 
@@ -170,6 +188,10 @@ class MultiEnv:
 
         for worker, task in zip(self.workers, data):
             worker.task_queue.put((task, task_type))
+
+        num_envs_per_worker = self.num_envs // self.num_workers
+        if timeout is None:
+            timeout = num_envs_per_worker * 0.02
 
         results = []
         for worker in self.workers:
@@ -247,8 +269,9 @@ class MultiEnv:
 
     def close(self):
         log.info('Stopping multi env...')
-        for i, worker in enumerate(self.workers):
-            worker.task_queue.put((None, MsgType.TERMINATE))  # terminate
+        for worker in self.workers:
+            worker.task_queue.put((None, MsgType.TERMINATE))
+        for worker in self.workers:
             worker.process.join()
 
     def _update_episode_stats(self, episode_stats, curr_episode_data):

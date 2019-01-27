@@ -2,6 +2,7 @@
 Base classes for RL agent implementations with some boilerplate.
 
 """
+import gc
 
 import tensorflow as tf
 
@@ -90,7 +91,7 @@ class AgentLearner(Agent):
             gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=self.params.gpu_mem_fraction)
 
         config = tf.ConfigProto(
-            device_count={'GPU': 100 if self.params.use_gpu else 0},
+            device_count={'GPU': 1 if self.params.use_gpu else 0},
             gpu_options=gpu_options,
             log_device_placement=False,
         )
@@ -108,6 +109,7 @@ class AgentLearner(Agent):
 
     def finalize(self):
         self.session.close()
+        gc.collect()
 
     def _maybe_save(self, step, env_steps):
         self.params.ensure_serialized()
