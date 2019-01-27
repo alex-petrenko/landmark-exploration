@@ -19,11 +19,10 @@ class Encoder:
 
 
 class EncoderCNN(Encoder):
-    def __init__(self, ph_observations, regularizer, params, name):
+    def __init__(self, ph_observations, regularizer, img_enc_name, name):
         super(EncoderCNN, self).__init__(regularizer, name)
 
         self._ph_observations = ph_observations
-        img_enc_name = params.image_enc_name
 
         with tf.variable_scope(self.name):
             if img_enc_name == 'convnet_simple':
@@ -59,10 +58,8 @@ class EncoderCNN(Encoder):
 
 
 class EncoderLowDimensional(Encoder):
-    def __init__(self, ph_observations, regularizer, params, name):
+    def __init__(self, ph_observations, regularizer, lowdim_enc_name, name):
         super(EncoderLowDimensional, self).__init__(regularizer, name)
-
-        lowdim_enc_name = params.lowdim_enc_name
 
         with tf.variable_scope(self.name):
             if lowdim_enc_name == 'simple_fc':
@@ -81,7 +78,7 @@ class EncoderLowDimensional(Encoder):
 
 def make_encoder(env, ph_observations, regularizer, params, name):
     if has_image_observations(get_observation_space(env)):
-        encoder = EncoderCNN(ph_observations, regularizer, params, name)
+        encoder = EncoderCNN(ph_observations, regularizer, params.image_enc_name, name)
     else:
-        encoder = EncoderLowDimensional(ph_observations, regularizer, params, name)
+        encoder = EncoderLowDimensional(ph_observations, regularizer, params.lowdim_enc_name, name)
     return encoder
