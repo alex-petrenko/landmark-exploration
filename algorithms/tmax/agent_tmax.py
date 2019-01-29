@@ -14,6 +14,7 @@ from algorithms.models import make_model
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     observation_summaries, summary_avg_min_max, merge_summaries
+from algorithms.tmax.reachability import ReachabilityNetwork
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.utils import log, AttrDict, summaries_dir
 
@@ -47,7 +48,6 @@ class ActorCritic:
         log.info('Total parameters in the model: %d', count_total_parameters())
 
     def invoke(self, session, observations, deterministic=False):
-        # TODO RECURRENT
         ops = [
             self.best_action_deterministic if deterministic else self.act,
             self.action_prob,
@@ -118,6 +118,106 @@ class PPOBuffer:
         return num_batches
 
 
+class TrajectoryBuffer:
+    """Store trajectories for multiple parallel environments."""
+
+    def __init__(self, num_envs):
+        """For now we don't need anything except obs and actions."""
+        self.obs = [[] for _ in range(num_envs)]
+        self.actions = [[] for _ in range(num_envs)]
+
+        self.complete_trajectories = []
+
+    def reset_trajectories(self):
+        """Discard old trajectories and start collecting new ones."""
+        self.complete_trajectories = []
+
+    def add(self, obs, actions, dones):
+        assert len(obs) == len(actions)
+        for env_idx in range(len(obs)):
+            if dones[env_idx]:
+                # finalize the trajectory and put it into a separate buffer
+                trajectory = AttrDict({'obs': self.obs[env_idx], 'actions': self.actions[env_idx]})
+                self.complete_trajectories.append(trajectory)
+                self.obs[env_idx] = []
+                self.actions[env_idx] = []
+            else:
+                self.obs[env_idx].append(obs[env_idx])
+                self.actions[env_idx].append(actions[env_idx])
+
+
+class ReachabilityBuffer:
+    """Training data for the reachability network (observation pairs and labels)."""
+
+    def __init__(self, params):
+        self.obs_first, self.obs_second, self.labels = None, None, None
+        self.params = params
+
+    def extract_data(self, trajectories):
+        obs_first, obs_second, labels = [], [], []
+        for trajectory in trajectories:
+            obs = trajectory.obs
+            episode_len = len(obs)
+            num_obs_pairs = int(self.params.obs_pairs_per_episode * episode_len)
+
+            reachable_thr = self.params.reachable_threshold
+            unreachable_thr = self.params.unreachable_threshold
+
+            try:
+                for _ in range(num_obs_pairs):
+                    # toss a coin to determine if we want a reachable pair or not
+                    reachable = np.random.rand() <= 0.5
+                    threshold = reachable_thr if reachable else unreachable_thr
+
+                    # sample first obs in a pair
+                    first_idx = np.random.randint(0, episode_len - threshold - 1)
+
+                    # sample second obs
+                    if reachable:
+                        second_idx = np.random.randint(first_idx, first_idx + reachable_thr)
+                    else:
+                        second_idx = np.random.randint(first_idx + unreachable_thr, episode_len)
+
+                    obs_first.append(obs[first_idx])
+                    obs_second.append(obs[second_idx])
+                    labels.append(int(reachable))
+            except ValueError:
+                # just in case, if some episode is e.g. too short for unreachable pair
+                log.exception(f'Value error in Reachability buffer! Episode len {episode_len}')
+
+        if self.obs_first is None:
+            self.obs_first = np.array(obs_first)
+            self.obs_second = np.array(obs_second)
+            self.labels = np.array(labels, dtype=np.int32)
+        else:
+            self.obs_first = np.append(self.obs_first, obs_first, axis=0)
+            self.obs_second = np.append(self.obs_second, obs_second, axis=0)
+            self.labels = np.append(self.labels, labels, axis=0)
+
+        assert len(self.obs_first) == len(self.obs_second)
+        assert len(self.obs_first) == len(self.labels)
+
+    def has_enough_data(self):
+        len_data, min_data = len(self.obs_first), self.params.reachability_min_data
+        if len_data < min_data:
+            log.info('Not enough data to train reachability net, %d/%d', len_data, min_data)
+            return False
+        return True
+
+    def shuffle_data(self):
+        if len(self.obs_first) <= 0:
+            return
+
+        chaos = np.random.permutation(len(self.obs_first))
+        self.obs_first = self.obs_first[chaos]
+        self.obs_second = self.obs_second[chaos]
+        self.labels = self.labels[chaos]
+
+    def discard_data(self):
+        """Discard portion of old data (to gradually update the experience buffer)."""
+        self.obs_first, self.obs_second, self.labels = None, None, None
+
+
 class AgentTMAX(AgentLearner):
     """Agent based on PPO+TMAX algorithm."""
 
@@ -151,6 +251,14 @@ class AgentTMAX(AgentLearner):
             self.initial_entropy_loss_coeff = 0.1
             self.min_entropy_loss_coeff = 0.002
 
+            # reachability network
+            self.obs_pairs_per_episode = 0.5  # e.g. for episode of len 300 we will create 150 training pairs
+            self.reachable_threshold = 3  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
+            self.reachability_min_data = 25000  # min number of training pairs to start training
+            self.reachability_train_epochs = 5
+            self.reachability_batch_size = 128
+
             # training process
             self.learning_rate = 1e-4
             self.train_for_steps = self.train_for_env_steps = 10 * 1000 * 1000 * 1000
@@ -165,8 +273,10 @@ class AgentTMAX(AgentLearner):
         """Initialize PPO computation graph and some auxiliary tensors."""
         super(AgentTMAX, self).__init__(params)
 
+        # separate global_steps
         self.actor_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='actor_step')
         self.critic_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='critic_step')
+        self.reach_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='reach_step')
 
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
@@ -180,7 +290,7 @@ class AgentTMAX(AgentLearner):
 
         self.actor_critic = ActorCritic(env, self.ph_observations, self.params)
 
-
+        self.reachability = ReachabilityNetwork(env, params)
 
         env.close()
 
@@ -198,12 +308,17 @@ class AgentTMAX(AgentLearner):
         critic_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='critic_opt')
         self.train_critic = critic_opt.minimize(self.objectives.critic_loss, global_step=self.critic_step)
 
+        reach_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='reach_opt')
+        self.train_reachability = reach_opt.minimize(self.reachability.loss, global_step=self.reach_step)
+
+        # summaries
         self.add_summaries()
 
         summary_dir = summaries_dir(self.params.experiment_dir())
         self.summary_writer = tf.summary.FileWriter(summary_dir)
         self.actor_summaries = merge_summaries(collections=['actor'])
         self.critic_summaries = merge_summaries(collections=['critic'])
+        self.reach_summaries = merge_summaries(collections=['reachability'])
 
         self.saver = tf.train.Saver(max_to_keep=3)
 
@@ -290,11 +405,16 @@ class AgentTMAX(AgentLearner):
             critic_scalar('value_loss', obj.value_loss)
             critic_scalar('critic_training_steps', self.critic_step)
 
+        with tf.name_scope('reachability'):
+            reachability_scalar = partial(tf.summary.scalar, collections=['reachability'])
+            reachability_scalar('reach_loss', self.reachability.loss)
+
     def _maybe_print(self, step, avg_rewards, avg_length, fps, t):
         log.info('<====== Step %d ======>', step)
         log.info('Avg FPS: %.1f', fps)
         log.info('Experience for batch took %.3f sec (%.1f batches/s)', t.experience, 1.0 / t.experience)
         log.info('Train step for batch took %.3f sec (%.1f batches/s)', t.train, 1.0 / t.train)
+        log.info('Train reachability took %.3f sec (%.1f batches/s)', t.reach, 1.0 / t.reach)
 
         if math.isnan(avg_rewards) or math.isnan(avg_length):
             return
@@ -329,7 +449,7 @@ class AgentTMAX(AgentLearner):
         actions = self.actor_critic.best_action(self.session, observation, deterministic)
         return actions[0]
 
-    def _train_actor(self, buffer, env_steps, trajectory_length):
+    def _train_actor(self, buffer, env_steps):
         # train actor for multiple epochs on all collected experience
         summary = None
         actor_step = self.actor_step.eval(session=self.session)
@@ -337,7 +457,7 @@ class AgentTMAX(AgentLearner):
         kl_running_avg = 0.0
         early_stop = False
         for epoch in range(self.params.ppo_epochs):
-            num_batches = buffer.generate_batches(self.params.batch_size, trajectory_length)
+            num_batches = buffer.generate_batches(self.params.batch_size)
             total_num_steps = self.params.ppo_epochs * num_batches
 
             for i in range(num_batches):
@@ -422,12 +542,62 @@ class AgentTMAX(AgentLearner):
         self._train_critic(buffer, env_steps)
         return step
 
+    def _maybe_train_reachability(self, buffer, env_steps):
+        if not buffer.has_enough_data():
+            return
+
+        batch_size = self.params.reachability_batch_size
+        summary = None
+        reach_step = self.reach_step.eval(session=self.session)
+
+        prev_loss = 1e10
+        losses = []
+
+        for epoch in range(self.params.reachability_train_epochs):
+            buffer.shuffle_data()
+            obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
+
+            for i in range(0, len(obs_first) - 1, batch_size):
+                with_summaries = self._should_write_summaries(reach_step) and summary is None
+                summaries = [self.reach_summaries] if with_summaries else []
+
+                start, end = i, i + batch_size
+
+                result = self.session.run(
+                    [self.reachability.loss, self.train_reachability] + summaries,
+                    feed_dict={
+                        self.reachability.ph_obs_first: obs_first[start:end],
+                        self.reachability.ph_obs_second: obs_second[start:end],
+                        self.reachability.ph_labels: labels[start:end],
+                    }
+                )
+
+                reach_step += 1
+                losses.append(result[0])
+
+                if with_summaries:
+                    summary = result[-1]
+                    self.summary_writer.add_summary(summary, global_step=env_steps)
+
+            # check loss improvement at the end of each epoch, early stop if necessary
+            avg_loss = np.mean(losses)
+            if avg_loss > 0.995 * prev_loss:
+                log.info('Early stopping after %d epochs because reachability did not improve enough', epoch)
+                log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
+                break
+            prev_loss = avg_loss
+
+        buffer.discard_data()  # train on fresh data every time
+
     def _learn_loop(self, multi_env):
         """Main training loop."""
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
         observations = multi_env.reset()
         buffer = PPOBuffer()
+
+        trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)
+        reachability_buffer = ReachabilityBuffer(self.params)
 
         def end_of_training(s, es):
             return s >= self.params.train_for_steps or es > self.params.train_for_env_steps
@@ -444,8 +614,9 @@ class AgentTMAX(AgentLearner):
                 # wait for all the workers to complete an environment step
                 new_observation, rewards, dones, infos = multi_env.step(actions)
 
-                # add experience from all environments to the current buffer
+                # add experience from all environments to the current buffer(s)
                 buffer.add(observations, actions, action_probs, rewards, dones, values)
+                trajectory_buffer.add(observations, actions, dones)
                 observations = new_observation
 
                 num_steps += num_env_steps(infos, multi_env.num_envs)
@@ -464,6 +635,13 @@ class AgentTMAX(AgentLearner):
             timing.train = time.time()
             step = self._train(buffer, env_steps)
             timing.train = time.time() - timing.train
+
+            # update reachability net
+            timing.reach = time.time()
+            reachability_buffer.extract_data(trajectory_buffer.complete_trajectories)
+            trajectory_buffer.reset_trajectories()
+            self._maybe_train_reachability(reachability_buffer, env_steps)
+            timing.reach = time.time() - timing.reach
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)

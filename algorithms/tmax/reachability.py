@@ -7,19 +7,19 @@ from algorithms.tf_utils import dense, placeholders_from_spaces
 
 class ReachabilityNetwork:
     def __init__(self, env, params):
-        self.ph_ob1, self.ph_ob2 = placeholders_from_spaces(get_observation_space(env), get_observation_space(env))
+        obs_space = get_observation_space(env)
+        self.ph_obs_first, self.ph_obs_second = placeholders_from_spaces(obs_space, obs_space)
         self.ph_labels = tf.placeholder(dtype=tf.int32, shape=(None, ))
 
         with tf.variable_scope('reach'):
-
             def make_encoder_cnn(ph_obs):
                 enc = make_encoder(env, ph_obs, None, params, 'reach_enc')
                 return enc.encoded_input
 
             encoder = tf.make_template('siamese_enc', make_encoder_cnn)
 
-            ob1_enc = encoder(self.ph_ob1)
-            ob2_enc = encoder(self.ph_ob2)
+            ob1_enc = encoder(self.ph_obs_first)
+            ob2_enc = encoder(self.ph_obs_second)
             observations_encoded = tf.concat([ob1_enc, ob2_enc], axis=1)
 
             fc_layers = [256, 256]
@@ -31,10 +31,11 @@ class ReachabilityNetwork:
             self.probabilities = tf.nn.softmax(logits)
 
             self.loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=self.ph_labels)
+            self.loss = tf.reduce_mean(self.loss)
 
     def get_probabilities(self, session, ob1, ob2):
         probabilities = session.run(
             self.probabilities,
-            feed_dict={self.ph_ob1: ob1, self.ph_ob2: ob2},
+            feed_dict={self.ph_obs_first: ob1, self.ph_obs_second: ob2},
         )
         return probabilities
