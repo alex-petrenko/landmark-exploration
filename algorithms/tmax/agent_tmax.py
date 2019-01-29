@@ -95,7 +95,7 @@ class PPOBuffer:
         self.values = self.values[:-1]
         assert self.values.shape == self.advantages.shape
 
-    def _generate_batches(self, batch_size):
+    def generate_batches(self, batch_size):
         num_transitions = self.obs.shape[0] * self.obs.shape[1]
         if num_transitions % batch_size != 0:
             raise Exception(f'Batch size {batch_size} does not divide experience size {num_transitions}')
@@ -116,16 +116,6 @@ class PPOBuffer:
         assert self.obs.shape[0] == num_batches
         assert self.rewards.shape[0] == num_batches
         return num_batches
-
-    def _generate_batches_recurrent(self, batch_size, trajectory_len):
-        # TODO!
-        pass
-
-    def generate_batches(self, batch_size, trajectory_len):
-        if trajectory_len <= 1:
-            return self._generate_batches(batch_size)
-        else:
-            return self._generate_batches_recurrent(batch_size, trajectory_len)
 
 
 class AgentTMAX(AgentLearner):
@@ -189,6 +179,8 @@ class AgentTMAX(AgentLearner):
         self.ph_advantages, self.ph_returns, self.ph_old_action_probs = placeholders(None, None, None)
 
         self.actor_critic = ActorCritic(env, self.ph_observations, self.params)
+
+
 
         env.close()
 
@@ -387,7 +379,7 @@ class AgentTMAX(AgentLearner):
 
         return actor_step
 
-    def _train_critic(self, buffer, env_steps, trajectory_length):
+    def _train_critic(self, buffer, env_steps):
         # train critic
         summary = None
         critic_step = self.critic_step.eval(session=self.session)
@@ -396,7 +388,7 @@ class AgentTMAX(AgentLearner):
         losses = []
 
         for epoch in range(self.params.ppo_epochs):
-            num_batches = buffer.generate_batches(self.params.batch_size, trajectory_length)
+            num_batches = buffer.generate_batches(self.params.batch_size)
 
             for i in range(num_batches):
                 with_summaries = self._should_write_summaries(critic_step) and summary is None
@@ -426,9 +418,8 @@ class AgentTMAX(AgentLearner):
             prev_loss = avg_loss
 
     def _train(self, buffer, env_steps):
-        trajectory_length = self.params.rnn_rollout if self.params.model_recurrent else 1
-        step = self._train_actor(buffer, env_steps, trajectory_length)
-        self._train_critic(buffer, env_steps, trajectory_length)
+        step = self._train_actor(buffer, env_steps)
+        self._train_critic(buffer, env_steps)
         return step
 
     def _learn_loop(self, multi_env):

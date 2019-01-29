@@ -3,16 +3,15 @@ Gym env wrappers that make the environment suitable for the RL algorithms.
 
 """
 
+from collections import deque
+
 import cv2
 import gym
 import numpy as np
-
-from collections import deque
-
 # noinspection PyProtectedMember
 from gym import spaces, RewardWrapper, ObservationWrapper
 
-from utils.utils import numpy_all_the_way, log
+from utils.utils import numpy_all_the_way
 
 
 def unwrap_env(wrapped_env):
