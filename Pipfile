@@ -13,6 +13,8 @@ colorlog = "*"
 opencv-python = "*"
 vizdoom = {git = "https://github.com/mwydmuch/ViZDoom"}
 numpy = "<1.16"  # numpy 1.16.0 is known for memory leaks! https://github.com/numpy/numpy/issues/12793 (also with multiprocessing JoinableQueues)
+networkx = "*"
+matplotlib = "*"
 
 [requires]
 python_version = "3.6"
