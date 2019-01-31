@@ -62,10 +62,10 @@ class StackFramesWrapper(gym.core.Wrapper):
             new_obs_space_shape[0] *= stack_past_frames
 
         self.observation_space = spaces.Box(
-            0.0 if self._image_obs else env.observation_space.low[0],
-            1.0 if self._image_obs else env.observation_space.high[0],
+            env.observation_space.low.flat[0],
+            env.observation_space.high.flat[0],
             shape=new_obs_space_shape,
-            dtype=np.float32,
+            dtype=env.observation_space.dtype,
         )
 
     def _render_stacked_frames(self):
@@ -153,14 +153,14 @@ class ResizeAndGrayscaleWrapper(gym.core.Wrapper):
 
     def __init__(self, env, w, h):
         super(ResizeAndGrayscaleWrapper, self).__init__(env)
-        self.observation_space = spaces.Box(0.0, 1.0, shape=[w, h], dtype=np.float32)
+        low, high = env.observation_space.low.flat[0], env.observation_space.high.flat[0]
+        self.observation_space = spaces.Box(low, high, shape=[w, h], dtype=env.observation_space.dtype)
         self.w = w
         self.h = h
 
     def _observation(self, obs):
         obs = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
         obs = cv2.resize(obs, (self.w, self.h), interpolation=cv2.INTER_AREA)
-        obs = obs.astype(np.float32) / 255.0
         return obs
 
     def reset(self):
@@ -232,6 +232,7 @@ class RemainingTimeWrapper(ObservationWrapper):
                 raise Exception('RemainingTimeWrapper is supposed to wrap TimeLimitWrapper')
         self.time_limit_wrapper = wrapped_env
 
+    # noinspection PyProtectedMember
     def observation(self, observation):
         num_steps = self.time_limit_wrapper._num_steps
         terminate_in = self.time_limit_wrapper._terminate_in

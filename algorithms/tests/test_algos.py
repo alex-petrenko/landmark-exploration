@@ -1,12 +1,17 @@
+import gc
+
 import numpy as np
+import tensorflow as tf
 
 from unittest import TestCase
 
 from algorithms.agent import AgentLearner, AgentRandom
 from algorithms.algo_utils import RunningMeanStd, extract_keys
-from algorithms.env_wrappers import TimeLimitWrapper
+from algorithms.encoders import is_normalized, tf_normalize
+from algorithms.env_wrappers import TimeLimitWrapper, get_observation_space
 from algorithms.exploit import run_policy_loop
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
+from algorithms.tf_utils import placeholder_from_space
 from utils.doom.doom_utils import make_doom_env, env_by_name
 from utils.utils import log
 
@@ -65,3 +70,34 @@ class TestAlgoUtils(TestCase):
         obs1, obs2 = extract_keys(test_obs, 'obs1', 'obs2')
         self.assertEqual(obs1, [1, 3])
         self.assertEqual(obs2, [2, 4])
+
+
+class TestEncoders(TestCase):
+    def test_normalize(self):
+        env = make_doom_env(env_by_name(TEST_ENV_NAME))
+        obs_space = get_observation_space(env)
+
+        env.reset()
+        obs = [env.step(0)[0] for _ in range(10)]
+
+        self.assertTrue(np.all(obs_space.low == 0))
+        self.assertTrue(np.all(obs_space.high == 255))
+        self.assertEqual(obs_space.dtype, np.uint8)
+
+        self.assertFalse(is_normalized(obs_space))
+
+        tf.reset_default_graph()
+
+        ph_obs = placeholder_from_space(obs_space)
+        obs_tensor = tf_normalize(ph_obs, obs_space)
+
+        with tf.Session() as sess:
+            sess.run(tf.global_variables_initializer())
+            normalized_obs = sess.run(obs_tensor, feed_dict={ph_obs: obs})
+
+            self.assertEqual(normalized_obs.dtype, np.float32)
+            self.assertLessEqual(normalized_obs.max(), 1.0)
+            self.assertGreaterEqual(normalized_obs.min(), -1.0)
+
+        tf.reset_default_graph()
+        gc.collect()

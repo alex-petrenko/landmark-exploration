@@ -258,8 +258,8 @@ class AgentTMAX(AgentLearner):
 
             # reachability network
             self.obs_pairs_per_episode = 0.5  # e.g. for episode of len 300 we will create 150 training pairs
-            self.reachable_threshold = 3  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
+            self.reachable_threshold = 15  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 50  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_min_data = 25000  # min number of training pairs to start training
             self.reachability_train_epochs = 5
             self.reachability_batch_size = 128
