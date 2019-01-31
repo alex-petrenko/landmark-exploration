@@ -8,9 +8,7 @@ resolutions = ['160x120', '200x125', '200x150', '256x144', '256x160', '256x192',
 
 
 class SetResolutionWrapper(gym.Wrapper):
-    """
-        Doom wrapper to change screen resolution
-    """
+    """Doom wrapper to change screen resolution."""
 
     def __init__(self, env, target_resolution):
         super(SetResolutionWrapper, self).__init__(env)
