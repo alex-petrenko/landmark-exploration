@@ -4,7 +4,8 @@ import vizdoomgym
 
 from algorithms.env_wrappers import ResizeAndGrayscaleWrapper, StackFramesWrapper, RewardScalingWrapper, \
     SkipAndStackFramesWrapper, TimeLimitWrapper, RemainingTimeWrapper
-from utils.doom.wrappers import SetResolutionWrapper
+from utils.doom.wrappers.observation_space import SetResolutionWrapper
+from utils.doom.wrappers.step_human_input import StepHumanInput
 
 DOOM_W = DOOM_H = 42
 
@@ -33,8 +34,11 @@ def env_by_name(name):
     raise Exception('Unknown Doom env')
 
 
-def make_doom_env(doom_cfg, mode='train', has_timer=False):
+def make_doom_env(doom_cfg, mode='train', has_timer=False, human_input=False):
     env = gym.make(doom_cfg.env_id)
+
+    if human_input:
+        env = StepHumanInput(env)
 
     # courtesy of https://github.com/pathak22/noreward-rl/blob/master/src/envs.py
     # and https://github.com/ppaquette/gym-doom

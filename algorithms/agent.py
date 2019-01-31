@@ -108,7 +108,8 @@ class AgentLearner(Agent):
         log.info('Initialized!')
 
     def finalize(self):
-        self.session.close()
+        if self.session is not None:
+            self.session.close()
         gc.collect()
 
     def _maybe_save(self, step, env_steps):

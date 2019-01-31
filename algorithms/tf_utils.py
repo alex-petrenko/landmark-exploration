@@ -49,17 +49,17 @@ def combined_shape(length, shape=None):
     return (length, shape) if np.isscalar(shape) else (length, *shape)
 
 
-def placeholder(dim=None):
-    return tf.placeholder(dtype=tf.float32, shape=combined_shape(None, dim))
+def placeholder(dim=None, dtype=tf.float32):
+    return tf.placeholder(dtype=dtype, shape=combined_shape(None, dim))
 
 
-def placeholders(*args):
-    return [placeholder(dim) for dim in args]
+def placeholders(*args, dtype=tf.float32):
+    return [placeholder(dim, dtype) for dim in args]
 
 
 def placeholder_from_space(space):
     if isinstance(space, Box):
-        return placeholder(space.shape)
+        return placeholder(space.shape, space.dtype)
     elif isinstance(space, Discrete):
         return tf.placeholder(dtype=tf.int32, shape=(None,))
     raise NotImplementedError

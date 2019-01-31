@@ -2,6 +2,7 @@
 Tensorflow encoders used in different trainable models.
 
 """
+import numpy as np
 
 import tensorflow as tf
 
@@ -77,9 +78,28 @@ class EncoderLowDimensional(Encoder):
         return dense(x, 128, self._regularizer)
 
 
+def is_normalized(obs_space):
+    return obs_space.dtype == np.float32 and obs_space.low in [0.0, 1.0] and obs_space.high == 1.0
+
+
+def tf_normalize(obs, obs_space):
+    low, high = obs_space.low, obs_space.high
+    mean = (low + high) * 0.5
+    if obs_space.dtype != np.float32:
+        obs = tf.to_float(obs)
+    obs = (obs - mean) / (high - mean)
+    return obs
+
+
 def make_encoder(env, ph_observations, regularizer, params, name):
-    if has_image_observations(get_observation_space(env)):
-        encoder = EncoderCNN(ph_observations, regularizer, params.image_enc_name, name)
+    obs_space = get_observation_space(env)
+    if has_image_observations(obs_space):
+        if is_normalized(obs_space):
+            obs_normalized = ph_observations
+        else:
+            obs_normalized = tf_normalize(ph_observations, obs_space)
+
+        encoder = EncoderCNN(obs_normalized, regularizer, params.image_enc_name, name)
     else:
         encoder = EncoderLowDimensional(ph_observations, regularizer, params.lowdim_enc_name, name)
     return encoder

@@ -6,7 +6,7 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-tensorflow = "*"
+Tensorflow-gpu = "*"
 gym = "*"
 vizdoomgym = {git = "https://github.com/alex-petrenko/vizdoomgym",editable = true}
 colorlog = "*"
@@ -15,6 +15,7 @@ vizdoom = {git = "https://github.com/mwydmuch/ViZDoom"}
 numpy = "<1.16"  # numpy 1.16.0 is known for memory leaks! https://github.com/numpy/numpy/issues/12793 (also with multiprocessing JoinableQueues)
 networkx = "*"
 bokeh = "*"
+pynput = "*"
 
 [requires]
 python_version = "3.6"

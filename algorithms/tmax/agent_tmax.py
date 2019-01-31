@@ -150,7 +150,7 @@ class ReachabilityBuffer:
     """Training data for the reachability network (observation pairs and labels)."""
 
     def __init__(self, params):
-        self.obs_first, self.obs_second, self.labels = None, None, None
+        self.obs_first, self.obs_second, self.labels = [], [], []
         self.params = params
 
     def extract_data(self, trajectories):
@@ -185,7 +185,12 @@ class ReachabilityBuffer:
                 # just in case, if some episode is e.g. too short for unreachable pair
                 log.exception(f'Value error in Reachability buffer! Episode len {episode_len}')
 
-        if self.obs_first is None:
+        log.info('Num obs pairs: %d', len(obs_first))
+
+        if len(obs_first) <= 0:
+            return
+
+        if len(self.obs_first) <= 0:
             self.obs_first = np.array(obs_first)
             self.obs_second = np.array(obs_second)
             self.labels = np.array(labels, dtype=np.int32)
@@ -194,11 +199,26 @@ class ReachabilityBuffer:
             self.obs_second = np.append(self.obs_second, obs_second, axis=0)
             self.labels = np.append(self.labels, labels, axis=0)
 
+        self._discard_data()
+
         assert len(self.obs_first) == len(self.obs_second)
         assert len(self.obs_first) == len(self.labels)
 
+    def _discard_data(self):
+        """Remove some data if the current buffer is too big."""
+        target_size = self.params.reachability_target_buffer_size
+        if len(self.obs_first) <= target_size:
+            return
+
+        log.info('Discarding %d observation pairs out of %d', len(self.obs_first) - target_size, len(self.obs_first))
+
+        self.shuffle_data()
+        self.obs_first = self.obs_first[:target_size]
+        self.obs_second = self.obs_second[:target_size]
+        self.labels = self.labels[:target_size]
+
     def has_enough_data(self):
-        len_data, min_data = len(self.obs_first), self.params.reachability_min_data
+        len_data, min_data = len(self.obs_first), self.params.reachability_target_buffer_size // 2
         if len_data < min_data:
             log.info('Not enough data to train reachability net, %d/%d', len_data, min_data)
             return False
@@ -212,10 +232,6 @@ class ReachabilityBuffer:
         self.obs_first = self.obs_first[chaos]
         self.obs_second = self.obs_second[chaos]
         self.labels = self.labels[chaos]
-
-    def discard_data(self):
-        """Discard portion of old data (to gradually update the experience buffer)."""
-        self.obs_first, self.obs_second, self.labels = None, None, None
 
 
 class AgentTMAX(AgentLearner):
@@ -253,10 +269,10 @@ class AgentTMAX(AgentLearner):
 
             # reachability network
             self.obs_pairs_per_episode = 0.5  # e.g. for episode of len 300 we will create 150 training pairs
-            self.reachable_threshold = 3  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
-            self.reachability_min_data = 25000  # min number of training pairs to start training
-            self.reachability_train_epochs = 5
+            self.reachable_threshold = 15  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 50  # num. of frames between obs, such that one is unreachable from the other
+            self.reachability_target_buffer_size = 25000  # target number of training examples to store
+            self.reachability_train_epochs = 1
             self.reachability_batch_size = 128
 
             # training process
@@ -586,8 +602,6 @@ class AgentTMAX(AgentLearner):
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
             prev_loss = avg_loss
-
-        buffer.discard_data()  # train on fresh data every time
 
     def _learn_loop(self, multi_env):
         """Main training loop."""
