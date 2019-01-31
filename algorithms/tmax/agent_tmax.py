@@ -150,7 +150,7 @@ class ReachabilityBuffer:
     """Training data for the reachability network (observation pairs and labels)."""
 
     def __init__(self, params):
-        self.obs_first, self.obs_second, self.labels = None, None, None
+        self.obs_first, self.obs_second, self.labels = [], [], []
         self.params = params
 
     def extract_data(self, trajectories):
@@ -185,7 +185,12 @@ class ReachabilityBuffer:
                 # just in case, if some episode is e.g. too short for unreachable pair
                 log.exception(f'Value error in Reachability buffer! Episode len {episode_len}')
 
-        if self.obs_first is None:
+        log.info('Num obs pairs: %d', len(obs_first))
+
+        if len(obs_first) <= 0:
+            return
+
+        if len(self.obs_first) <= 0:
             self.obs_first = np.array(obs_first)
             self.obs_second = np.array(obs_second)
             self.labels = np.array(labels, dtype=np.int32)
@@ -215,7 +220,7 @@ class ReachabilityBuffer:
 
     def discard_data(self):
         """Discard portion of old data (to gradually update the experience buffer)."""
-        self.obs_first, self.obs_second, self.labels = None, None, None
+        self.obs_first, self.obs_second, self.labels = [], [], []
 
 
 class AgentTMAX(AgentLearner):
