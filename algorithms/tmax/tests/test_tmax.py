@@ -38,15 +38,17 @@ class TestTMAX(TestCase):
         self.assertFalse(os.path.isdir(root_dir))
 
     def test_reachability(self):
-        tf.reset_default_graph()
+        g = tf.Graph()
 
         env = make_doom_env(env_by_name(TEST_ENV_NAME))
         args, params = parse_args_tmax(AgentTMAX.Params)
-        reachability_net = ReachabilityNetwork(env, params)
+
+        with g.as_default():
+            reachability_net = ReachabilityNetwork(env, params)
 
         obs = env.reset()
 
-        with tf.Session() as sess:
+        with tf.Session(graph=g) as sess:
             sess.run(tf.global_variables_initializer())
             probabilities = reachability_net.get_probabilities(sess, [obs], [obs])[0]
             self.assertAlmostEqual(sum(probabilities), 1.0, places=5)  # probs sum up to 1
@@ -55,4 +57,4 @@ class TestTMAX(TestCase):
 
         env.close()
 
-        tf.reset_default_graph()
+        g.finalize()

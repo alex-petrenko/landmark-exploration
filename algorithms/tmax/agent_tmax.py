@@ -289,7 +289,7 @@ class AgentTMAX(AgentLearner):
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 128
 
-            self.new_landmark_reachability = 0.25
+            self.new_landmark_reachability = 0.1
             self.new_landmark_reward = 0.1
 
             self.bootstrap_env_steps = 750 * 1000

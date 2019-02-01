@@ -45,6 +45,10 @@ def play_and_visualize(params, env_id, verbose=False):
     agent = AgentTMAX(make_env_func, params.load())
     agent.initialize()
 
+    cv2_window_name = 'agent_observations'
+    cv2.namedWindow(cv2_window_name)
+    cv2.moveWindow(cv2_window_name, 1800, 0)
+
     env = make_env_func()
     current_landmark = env.reset()
     frame = 0
@@ -72,7 +76,7 @@ def play_and_visualize(params, env_id, verbose=False):
             log.info('Reward: %.4f', reward)
 
         obs_big = cv2.resize(obs, (420, 420), interpolation=cv2.INTER_NEAREST)
-        cv2.imshow('agent_observations', obs_big)
+        cv2.imshow(cv2_window_name, obs_big)
         cv2.waitKey(1)
 
     time.sleep(0.3)

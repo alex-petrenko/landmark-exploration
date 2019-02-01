@@ -32,6 +32,8 @@ class TestDistr(TestCase):
                 p = sess.run(uniform.probability(i))
                 self.assertAlmostEqual(p, 0.25)
 
+            self.assertAlmostEqual(e, uniform.max_entropy(), places=5)
+
         with g.as_default():
             logits = tf.constant([0, 1, 2, 3], dtype=tf.float32)
             distr = CategoricalProbabilityDistribution(logits)
@@ -44,5 +46,7 @@ class TestDistr(TestCase):
             e, probs, kl_self_v, kl_uniform_v = sess.run([entropy, probs, kl_self, kl_uniform])
             self.assertAlmostEqual(kl_self_v, 0)
             self.assertGreater(kl_uniform_v, EPS)
+
+            self.assertAlmostEqual(uniform.max_entropy(), distr.max_entropy())
 
         g.finalize()

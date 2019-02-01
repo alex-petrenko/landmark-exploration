@@ -1,4 +1,5 @@
 """Courtesy of OpenAI Baselines, distributions.py"""
+import math
 
 import numpy as np
 import tensorflow as tf
@@ -53,6 +54,11 @@ class CategoricalProbabilityDistribution:
         z0 = tf.reduce_sum(ea0, axis=-1, keepdims=True)
         p0 = ea0 / z0
         return tf.reduce_sum(p0 * (tf.log(z0 + EPS) - a0), axis=-1)
+
+    def max_entropy(self):
+        """Maximum possible entropy for this probability distribution."""
+        avg_prob = 1.0 / self.num_categories
+        return -math.log(avg_prob)
 
     def kl(self, other_logits):
         a0 = self.logits - tf.reduce_max(self.logits, axis=-1, keepdims=True)

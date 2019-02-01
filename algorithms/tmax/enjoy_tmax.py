@@ -9,7 +9,7 @@ from utils.envs.envs import create_env
 from utils.utils import log
 
 
-def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=50, fps=1500):
+def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=1500):
     def make_env_func():
         e = create_env(env_id, mode='test')
         e.seed(0)

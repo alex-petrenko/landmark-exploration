@@ -249,16 +249,20 @@ class AgentPPO(AgentLearner):
         entropy_loss_coeff = tf.maximum(entropy_loss_coeff, params.min_entropy_loss_coeff)
         entropy_loss = entropy_loss_coeff * entropy_loss
 
-        # final losses to optimize
-        actor_loss = ppo_loss + entropy_loss
-        critic_loss = value_loss
-
         # auxiliary quantities (for tensorboard, logging, early stopping)
         log_p_old = tf.log(old_action_probs + EPS)
         log_p = tf.log(action_probs + EPS)
         sample_kl = tf.reduce_mean(log_p_old - log_p)
         sample_entropy = tf.reduce_mean(-log_p)
         clipped_fraction = tf.reduce_mean(clipped)
+
+        # only use entropy bonus if the policy is not close to max entropy
+        max_entropy = actor_critic.actions_distribution.max_entropy()
+        entropy_loss = tf.cond(sample_entropy > 0.8 * max_entropy, lambda: 0.0, lambda: entropy_loss)
+
+        # final losses to optimize
+        actor_loss = ppo_loss + entropy_loss
+        critic_loss = value_loss
 
         return AttrDict(locals())
 
