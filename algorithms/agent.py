@@ -3,7 +3,6 @@ Base classes for RL agent implementations with some boilerplate.
 
 """
 import gc
-from enum import Enum
 
 import tensorflow as tf
 
@@ -13,7 +12,7 @@ from utils.utils import log, model_dir, summaries_dir, memory_consumption_mb
 from utils.decay import LinearDecay
 
 
-class TrainStatus(Enum):
+class TrainStatus:
     SUCCESS, FAILURE = range(2)
 
 

@@ -12,7 +12,7 @@ from algorithms.env_wrappers import TimeLimitWrapper, get_observation_space
 from algorithms.exploit import run_policy_loop
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tf_utils import placeholder_from_space
-from utils.doom.doom_utils import make_doom_env, env_by_name
+from utils.envs.doom.doom_utils import make_doom_env, env_by_name
 from utils.utils import log
 
 

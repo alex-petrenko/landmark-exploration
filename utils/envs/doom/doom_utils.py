@@ -4,8 +4,8 @@ import vizdoomgym
 
 from algorithms.env_wrappers import ResizeAndGrayscaleWrapper, StackFramesWrapper, RewardScalingWrapper, \
     SkipAndStackFramesWrapper, TimeLimitWrapper, RemainingTimeWrapper
-from utils.doom.wrappers.observation_space import SetResolutionWrapper
-from utils.doom.wrappers.step_human_input import StepHumanInput
+from utils.envs.doom.wrappers.observation_space import SetResolutionWrapper
+from utils.envs.doom.wrappers.step_human_input import StepHumanInput
 
 DOOM_W = DOOM_H = 42
 

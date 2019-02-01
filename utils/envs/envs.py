@@ -2,7 +2,7 @@ import gym
 
 from algorithms.env_wrappers import RewardScalingWrapper, TimeLimitWrapper, SkipAndStackFramesWrapper, \
     RemainingTimeWrapper
-from utils.doom.doom_utils import make_doom_env, env_by_name
+from utils.envs.doom.doom_utils import make_doom_env, env_by_name
 
 
 def create_env(env, **kwargs):

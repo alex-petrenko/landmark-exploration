@@ -11,7 +11,7 @@ from algorithms.tmax.enjoy_tmax import enjoy
 from algorithms.tmax.reachability import ReachabilityNetwork
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.tmax.train_tmax import train
-from utils.doom.doom_utils import make_doom_env, env_by_name
+from utils.envs.doom.doom_utils import make_doom_env, env_by_name
 
 
 class TestTMAX(TestCase):

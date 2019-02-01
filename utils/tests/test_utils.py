@@ -3,7 +3,7 @@ from unittest import TestCase
 import numpy as np
 
 from utils.decay import LinearDecay
-from utils.doom.doom_utils import make_doom_env, env_by_name
+from utils.envs.doom.doom_utils import make_doom_env, env_by_name
 from utils.utils import numpy_all_the_way, numpy_flatten
 
 
