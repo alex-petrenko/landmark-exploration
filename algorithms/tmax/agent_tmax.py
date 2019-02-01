@@ -153,12 +153,14 @@ class ReachabilityBuffer:
         self.obs_first, self.obs_second, self.labels = [], [], []
         self.params = params
 
-    def extract_data(self, trajectories):
+    def extract_data(self, trajectories, bootstrap_period):
         obs_first, obs_second, labels = [], [], []
         for trajectory in trajectories:
             obs = trajectory.obs
             episode_len = len(obs)
-            num_obs_pairs = int(self.params.obs_pairs_per_episode * episode_len)
+
+            obs_pairs_fraction = self.params.obs_pairs_per_episode if bootstrap_period else 1.0
+            num_obs_pairs = int(obs_pairs_fraction * episode_len)
 
             reachable_thr = self.params.reachable_threshold
             unreachable_thr = self.params.unreachable_threshold
@@ -230,6 +232,11 @@ class ReachabilityBuffer:
         self.labels = self.labels[chaos]
 
 
+class TopologicalMap:
+    def __init__(self):
+        pass
+
+
 class AgentTMAX(AgentLearner):
     """Agent based on PPO+TMAX algorithm."""
 
@@ -263,13 +270,16 @@ class AgentTMAX(AgentLearner):
             self.initial_entropy_loss_coeff = 0.1
             self.min_entropy_loss_coeff = 0.002
 
-            # reachability network
+            # TMAX-specific parameters
             self.obs_pairs_per_episode = 0.25  # e.g. for episode of len 300 we will create 75 training pairs
             self.reachable_threshold = 20  # num. of frames between obs, such that one is reachable from the other
             self.unreachable_threshold = 60  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 25000  # target number of training examples to store
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 128
+            self.new_landmark_reachability = 0.25
+
+            self.bootstrap_env_steps = 750 * 1000
 
             # training process
             self.learning_rate = 1e-4
@@ -419,8 +429,8 @@ class AgentTMAX(AgentLearner):
             reachability_scalar = partial(tf.summary.scalar, collections=['reachability'])
             reachability_scalar('reach_loss', self.reachability.loss)
 
-    def _maybe_print(self, step, avg_rewards, avg_length, fps, t):
-        log.info('<====== Step %d ======>', step)
+    def _maybe_print(self, step, env_step, avg_rewards, avg_length, fps, t):
+        log.info('<====== Step %d, env step %.1fM ======>', step, env_step / 1000000)
         log.info('Avg FPS: %.1f', fps)
         log.info('Experience for batch took %.3f sec (%.1f batches/s)', t.experience, 1.0 / t.experience)
         log.info('Train step for batch took %.3f sec (%.1f batches/s)', t.train, 1.0 / t.train)
@@ -543,7 +553,7 @@ class AgentTMAX(AgentLearner):
 
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
-            if avg_loss > 0.995 * prev_loss:
+            if avg_loss > 0.999 * prev_loss:
                 log.info('Early stopping after %d epochs because critic did not improve enough', epoch)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
@@ -565,7 +575,11 @@ class AgentTMAX(AgentLearner):
         prev_loss = 1e10
         losses = []
 
-        for epoch in range(self.params.reachability_train_epochs):
+        num_epochs = self.params.reachability_train_epochs
+        if self._is_bootstrap(env_steps):
+            num_epochs = max(10, num_epochs * 2)
+
+        for epoch in range(num_epochs):
             buffer.shuffle_data()
             obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
 
@@ -593,11 +607,14 @@ class AgentTMAX(AgentLearner):
 
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
-            if avg_loss > 0.995 * prev_loss:
+            if avg_loss > 0.999 * prev_loss:
                 log.info('Early stopping after %d epochs because reachability did not improve enough', epoch)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
             prev_loss = avg_loss
+
+    def _is_bootstrap(self, env_steps):
+        return env_steps < self.params.bootstrap_env_steps
 
     def _learn_loop(self, multi_env):
         """Main training loop."""
@@ -643,12 +660,13 @@ class AgentTMAX(AgentLearner):
 
             # update actor and critic
             timing.train = time.time()
-            step = self._train(buffer, env_steps)
+            if not self._is_bootstrap(env_steps):
+                step = self._train(buffer, env_steps)
             timing.train = time.time() - timing.train
 
             # update reachability net
             timing.reach = time.time()
-            reachability_buffer.extract_data(trajectory_buffer.complete_trajectories)
+            reachability_buffer.extract_data(trajectory_buffer.complete_trajectories, self._is_bootstrap(env_steps))
             trajectory_buffer.reset_trajectories()
             self._maybe_train_reachability(reachability_buffer, env_steps)
             timing.reach = time.time() - timing.reach
@@ -657,7 +675,7 @@ class AgentTMAX(AgentLearner):
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)
             fps = num_steps / (time.time() - timing.rollout)
 
-            self._maybe_print(step, avg_reward, avg_length, fps, timing)
+            self._maybe_print(step, env_steps, avg_reward, avg_length, fps, timing)
             self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
 
