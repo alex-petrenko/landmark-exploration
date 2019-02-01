@@ -25,13 +25,14 @@ class TestTMAX(TestCase):
         params.initial_save_rate = 20
         params.batch_size = 32
         params.ppo_epochs = 2
+        params.bootstrap_env_steps = 25
         status = train(params, args.env)
         self.assertEqual(status, TrainStatus.SUCCESS)
 
         root_dir = params.experiment_dir()
         self.assertTrue(os.path.isdir(root_dir))
 
-        enjoy(params, args.env, max_num_episodes=1, fps=1000)
+        enjoy(params, args.env, max_num_episodes=1, max_num_frames=50, fps=1000)
         shutil.rmtree(root_dir)
 
         self.assertFalse(os.path.isdir(root_dir))
@@ -49,6 +50,8 @@ class TestTMAX(TestCase):
             sess.run(tf.global_variables_initializer())
             probabilities = reachability_net.get_probabilities(sess, [obs], [obs])[0]
             self.assertAlmostEqual(sum(probabilities), 1.0, places=5)  # probs sum up to 1
+            reachability = reachability_net.get_reachability(sess, [obs], [obs])[0]
+            self.assertEqual(probabilities[1], reachability)
 
         env.close()
 

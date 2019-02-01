@@ -33,9 +33,14 @@ class ReachabilityNetwork:
             self.loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=self.ph_labels)
             self.loss = tf.reduce_mean(self.loss)
 
-    def get_probabilities(self, session, ob1, ob2):
+    def get_probabilities(self, session, obs_first, obs_second):
         probabilities = session.run(
             self.probabilities,
-            feed_dict={self.ph_obs_first: ob1, self.ph_obs_second: ob2},
+            feed_dict={self.ph_obs_first: obs_first, self.ph_obs_second: obs_second},
         )
         return probabilities
+
+    def get_reachability(self, session, obs_first, obs_second):
+        probs = self.get_probabilities(session, obs_first, obs_second)
+        return [p[1] for p in probs]
+
