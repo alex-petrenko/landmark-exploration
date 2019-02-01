@@ -164,5 +164,9 @@ def data_dir(experiment_dir_):
     return ensure_dir_exists(join(experiment_dir_, '.data'))
 
 
+def vis_dir(experiment_dir_):
+    return ensure_dir_exists(join(experiment_dir_, '.vis'))
+
+
 def get_experiment_name(env_id, name):
     return '{}-{}'.format(env_id, name)
