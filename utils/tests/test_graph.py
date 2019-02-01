@@ -8,7 +8,7 @@ from utils.graph import visualize_graph
 from utils.utils import project_root
 
 
-@unittest.skip('Uses external data')  # TODO
+# @unittest.skip('Uses external data')  # TODO
 class TestGraph(TestCase):
     def test_visualize_graph(self):
         imglist = ['elephant.jpg', 'lion.jpg', 'ostrich.jpg', 'snake.jpg']
@@ -19,4 +19,4 @@ class TestGraph(TestCase):
         for n in graph.nodes():
             graph.node[n]['img'] = imglist[n]
 
-        visualize_graph(graph, 'Test Visualize Graph')
+        visualize_graph(graph)
