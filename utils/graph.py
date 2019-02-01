@@ -2,15 +2,15 @@ from os.path import join
 
 from bokeh import palettes
 from bokeh.io import output_file, show
-from bokeh.models import BoxSelectTool, Circle, HoverTool, MultiLine, Plot, Range1d, TapTool
+from bokeh.models import Circle, HoverTool, MultiLine, Plot, Range1d, TapTool
 # noinspection PyProtectedMember
 from bokeh.models.graphs import from_networkx, NodesAndLinkedEdges, NodesOnly
 import networkx as nx
 
-from utils.utils import project_root, ensure_dir_exists
+from utils.utils import ensure_dir_exists, project_root
 
 
-def visualize_graph(graph, title_text='Graph Visualizer'):
+def visualize_graph(graph, title_text=''):
     """
     This method visualizes a NetworkX graph using Bokeh.
 
@@ -22,10 +22,15 @@ def visualize_graph(graph, title_text='Graph Visualizer'):
     hover_tool = HoverTool(tooltips='<img src="@imgs" height="200" alt="@imgs" width="200"></img>', show_arrow=False)
 
     plot = Plot(plot_width=400, plot_height=400, x_range=Range1d(-0.1, 1.1), y_range=Range1d(-0.1, 1.1))
-    plot.title.text = title_text
+    if title_text != '':
+        plot.title.text = title_text
     plot.title.align = 'center'
+    plot.min_border = 0
+    plot.outline_line_color = None
 
-    plot.add_tools(hover_tool, TapTool(), BoxSelectTool())
+    plot.add_tools(hover_tool, TapTool())
+    plot.toolbar.logo = None
+    plot.toolbar_location = None
 
     graph_renderer = from_networkx(graph, pos)
 
