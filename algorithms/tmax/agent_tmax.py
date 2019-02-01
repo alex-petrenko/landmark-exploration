@@ -6,7 +6,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
-from algorithms.agent import AgentLearner
+from algorithms.agent import AgentLearner, TrainStatus
 from algorithms.algo_utils import calculate_gae, EPS, num_env_steps
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import get_observation_space
@@ -16,7 +16,7 @@ from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_
     observation_summaries, summary_avg_min_max, merge_summaries
 from algorithms.tmax.reachability import ReachabilityNetwork
 from utils.distributions import CategoricalProbabilityDistribution
-from utils.utils import log, AttrDict, summaries_dir
+from utils.utils import log, AttrDict
 
 
 class ActorCritic:
@@ -185,8 +185,6 @@ class ReachabilityBuffer:
                 # just in case, if some episode is e.g. too short for unreachable pair
                 log.exception(f'Value error in Reachability buffer! Episode len {episode_len}')
 
-        log.info('Num obs pairs: %d', len(obs_first))
-
         if len(obs_first) <= 0:
             return
 
@@ -209,8 +207,6 @@ class ReachabilityBuffer:
         target_size = self.params.reachability_target_buffer_size
         if len(self.obs_first) <= target_size:
             return
-
-        log.info('Discarding %d observation pairs out of %d', len(self.obs_first) - target_size, len(self.obs_first))
 
         self.shuffle_data()
         self.obs_first = self.obs_first[:target_size]
@@ -330,8 +326,6 @@ class AgentTMAX(AgentLearner):
         # summaries
         self.add_summaries()
 
-        summary_dir = summaries_dir(self.params.experiment_dir())
-        self.summary_writer = tf.summary.FileWriter(summary_dir)
         self.actor_summaries = merge_summaries(collections=['actor'])
         self.critic_summaries = merge_summaries(collections=['critic'])
         self.reach_summaries = merge_summaries(collections=['reachability'])
@@ -442,7 +436,9 @@ class AgentTMAX(AgentLearner):
             self.params.stats_episodes, avg_rewards, best_avg_reward,
         )
 
-    def _maybe_aux_summaries(self, env_steps, avg_reward, avg_length):
+    def _maybe_aux_summaries(self, env_steps, avg_reward, avg_length, fps):
+        self._report_basic_summaries(fps, env_steps)
+
         if math.isnan(avg_reward) or math.isnan(avg_length):
             # not enough data to report yet
             return
@@ -662,10 +658,11 @@ class AgentTMAX(AgentLearner):
             fps = num_steps / (time.time() - timing.rollout)
 
             self._maybe_print(step, avg_reward, avg_length, fps, timing)
-            self._maybe_aux_summaries(env_steps, avg_reward, avg_length)
+            self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
 
     def learn(self):
+        status = TrainStatus.SUCCESS
         multi_env = None
         try:
             multi_env = MultiEnv(
@@ -678,7 +675,10 @@ class AgentTMAX(AgentLearner):
             self._learn_loop(multi_env)
         except (Exception, KeyboardInterrupt, SystemExit):
             log.exception('Interrupt...')
+            status = TrainStatus.FAILURE
         finally:
             log.info('Closing env...')
             if multi_env is not None:
                 multi_env.close()
+
+        return status

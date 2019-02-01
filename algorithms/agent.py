@@ -3,13 +3,18 @@ Base classes for RL agent implementations with some boilerplate.
 
 """
 import gc
+from enum import Enum
 
 import tensorflow as tf
 
 from utils.params import Params
 
-from utils.utils import log, model_dir
+from utils.utils import log, model_dir, summaries_dir, memory_consumption_mb
 from utils.decay import LinearDecay
+
+
+class TrainStatus(Enum):
+    SUCCESS, FAILURE = range(2)
 
 
 # noinspection PyMethodMayBeStatic,PyUnusedLocal
@@ -84,6 +89,9 @@ class AgentLearner(Agent):
         self.total_env_steps_placeholder = tf.placeholder(tf.int64, [], 'new_env_steps')
         self.update_env_steps = tf.assign(self.total_env_steps, self.total_env_steps_placeholder)
 
+        summary_dir = summaries_dir(self.params.experiment_dir())
+        self.summary_writer = tf.summary.FileWriter(summary_dir)
+
     def initialize(self):
         """Start the session."""
         gpu_options = tf.GPUOptions()
@@ -131,3 +139,13 @@ class AgentLearner(Agent):
             if avg_reward > curr_best_reward + 1e-6:
                 log.warn('New best reward %.6f (was %.6f)!', avg_reward, curr_best_reward)
                 self.session.run(self.update_best_reward, feed_dict={self.avg_reward_placeholder: avg_reward})
+
+    def _report_basic_summaries(self, fps, env_steps):
+        summary = tf.Summary()
+        summary.value.add(tag='0_aux/fps', simple_value=float(fps))
+
+        memory_mb = memory_consumption_mb()
+        summary.value.add(tag='0_aux/master_process_memory_mb', simple_value=float(memory_mb))
+
+        self.summary_writer.add_summary(summary, env_steps)
+        self.summary_writer.flush()

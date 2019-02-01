@@ -7,6 +7,7 @@ from unittest import TestCase
 import numpy as np
 import tensorflow as tf
 
+from algorithms.agent import TrainStatus
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer, ActorCritic
 from algorithms.baselines.ppo.enjoy_ppo import enjoy
 from algorithms.baselines.ppo.ppo_utils import parse_args_ppo
@@ -28,7 +29,8 @@ class TestPPO(TestCase):
         params.initial_save_rate = 20
         params.batch_size = 32
         params.ppo_epochs = 2
-        train(params, args.env)
+        status = train(params, args.env)
+        self.assertEqual(status, TrainStatus.SUCCESS)
 
         root_dir = params.experiment_dir()
         self.assertTrue(os.path.isdir(root_dir))

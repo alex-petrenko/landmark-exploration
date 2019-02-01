@@ -6,7 +6,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
-from algorithms.agent import AgentLearner
+from algorithms.agent import AgentLearner, TrainStatus
 from algorithms.algo_utils import calculate_gae, EPS, num_env_steps
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import get_observation_space
@@ -483,6 +483,7 @@ class AgentPPO(AgentLearner):
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
 
     def learn(self):
+        status = TrainStatus.SUCCESS
         multi_env = None
         try:
             multi_env = MultiEnv(
@@ -495,7 +496,10 @@ class AgentPPO(AgentLearner):
             self._learn_loop(multi_env)
         except (Exception, KeyboardInterrupt, SystemExit):
             log.exception('Interrupt...')
+            status = TrainStatus.FAILURE
         finally:
             log.info('Closing env...')
             if multi_env is not None:
                 multi_env.close()
+
+        return status

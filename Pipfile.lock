@@ -29,13 +29,6 @@
             ],
             "version": "==0.7.1"
         },
-        "backports.weakref": {
-            "hashes": [
-                "sha256:81bc9b51c0abc58edc76aefbbc68c62a787918ffe943a37947e162c3f8e19e82",
-                "sha256:bc4170a29915f8b22c9e7c4939701859650f2eb84184aee80da329ac0b9825c2"
-            ],
-            "version": "==1.0.post1"
-        },
         "bokeh": {
             "hashes": [
                 "sha256:ceeb6a75afc1b2de00c2b8b6da121dec3fb77031326897b80d4375a70e96aebf"
@@ -71,15 +64,6 @@
                 "sha256:cabb249f4710888a2fc0e13e9a16c343d932033718ff62e1e9bc93a9d3a9122b"
             ],
             "version": "==4.3.2"
-        },
-        "enum34": {
-            "hashes": [
-                "sha256:2d81cbbe0e73112bdfe6ef8576f2238f2ba27dd0d55752a776c41d38b7da2850",
-                "sha256:644837f692e5f550741432dd3f223bbb9852018674981b1664e5dc339387588a",
-                "sha256:6bd0f6ad48ec2aa117d3d141940d484deccda84d4fcd884f5c3d93c23ecd8c79",
-                "sha256:8ad8c4783bf61ded74527bffb48ed9b54166685e4230386a9ed9b1279e2df5b1"
-            ],
-            "version": "==1.1.6"
         },
         "future": {
             "hashes": [
@@ -234,13 +218,6 @@
             ],
             "version": "==1.1.0"
         },
-        "mock": {
-            "hashes": [
-                "sha256:5ce3c71c5545b472da17b72268978914d0252980348636840bd34a00b5cc96c1",
-                "sha256:b158b6df76edd239b8208d481dc46b6afd45a846b7812ff0ce58971cf5bc8bba"
-            ],
-            "version": "==2.0.0"
-        },
         "networkx": {
             "hashes": [
                 "sha256:45e56f7ab6fe81652fb4bc9f44faddb0e9025f469f602df14e3b2551c2ea5c8b"
@@ -322,13 +299,6 @@
             ],
             "version": "==19.0"
         },
-        "pbr": {
-            "hashes": [
-                "sha256:a7953f66e1f82e4b061f43096a4bcc058f7d3d41de9b94ac871770e8bdd831a2",
-                "sha256:d717573351cfe09f49df61906cd272abaa759b3e91744396b804965ff7bff38b"
-            ],
-            "version": "==5.1.2"
-        },
         "pillow": {
             "hashes": [
                 "sha256:051de330a06c99d6f84bcf582960487835bcae3fc99365185dc2d4f65a390c0e",
@@ -399,49 +369,6 @@
             "index": "pypi",
             "version": "==1.4"
         },
-        "pyobjc-core": {
-            "hashes": [
-                "sha256:0db8a392c20999c1ecceaf4fe020120e08f701da3e450ae1a44db89395a2ca14",
-                "sha256:15cafa04fe87e356fb098651ac9cb649053a3e90c9b33ba6069c1b4caf12b923",
-                "sha256:36806db4ec71629248747d044c45b227b43a3278db9c872ae99fa0fd2f598ce9",
-                "sha256:4b2fe2973fbd72c435d90e150d59f8d3a3b96bdd86f3a270c7762ddb3a739ef6",
-                "sha256:5316d36a0d4faa7add3c36a32df57074bd9718a813db1bae9149f763532353ab",
-                "sha256:644c2a87622456f404f2f0042e2e58dde3f5f603fee7120846cb7d59a1bc877e",
-                "sha256:9f1182614803255d25ca6fc7c6c69b5a329bfb1c3db0d2dedf76ab726310a4c6",
-                "sha256:ce30699a4f0b7d757e06aeba564f25ad09a54174eefdb1a53f917fca4ea17f97",
-                "sha256:db8836da2401e63d8bdaff7052fdc6113b7527d12d84e58fe075e69ff590e8fd"
-            ],
-            "version": "==5.1.2"
-        },
-        "pyobjc-framework-cocoa": {
-            "hashes": [
-                "sha256:0ca2487d29a7e5392fa15f18643e79c001c1f55722e6b5287f4b0dc00c9bf9e4",
-                "sha256:3df2ccfd602ee9bc5a208c35b7d592af5a54347ad4bd82e12c200ed667f06c22",
-                "sha256:43e11210ec5175b64bd8bd7db2ac9c83a4384ea7ac924f993c59b373bd95c207",
-                "sha256:83bf1d2c9ce0c767646646b353575fb971e5bf1ce634d58ce97ef5a1564bc4cc",
-                "sha256:89d1126c16df70f9f07b469f9b86fabe32609b18c5b49f4cfb4c95fbb66490b7",
-                "sha256:a13f451071b7bd00e773874ddf5de4618c121448312d3409dac93a0bcc71962e",
-                "sha256:cd6e53cd76a23633ea9149822a5eefa246950657f9eef44b0fea3331e2a95749",
-                "sha256:d6d7489211570cacd4fcc95aed6bb5a31fef71f900a221eaba1bf80874544d61",
-                "sha256:e784bab1b24e2e01a4724b7be8c813848845ffa592b00a7e25add233697cc9ad"
-            ],
-            "version": "==5.1.2"
-        },
-        "pyobjc-framework-quartz": {
-            "hashes": [
-                "sha256:103d92d313bebd1a3b34f22f546f99413458cdf49d660cc2ae1e50ea71d4cd8c",
-                "sha256:222fbcc7035b86ff06427a7c9a92af2dbcf2b5644e389f03247f54d350bd8e5b",
-                "sha256:5238e9662fe15e71f68ca16ea1744702040188ff7a377d9180b42cf1998745e5",
-                "sha256:5556ecc44a782b4577bd26251b72bed3ef7e3c2e0c780110838e3cd9f0ecc2fc",
-                "sha256:5c6946c6bad2c695b3293893a69a592ea0caee516361a3b4612d2ab56dcbd5b4",
-                "sha256:79ca11ab1285533852585854398be6e7f2ef209f9f3ad5d0a2bec90a77d654d7",
-                "sha256:7c6da7cf65a24e073bad7095b6368ebddcd713f81db38e54979b743756a1db12",
-                "sha256:b9c0a15288a098732c66c0a916c89c62d4b3fe1f19f73d3b02b0f2da37f859f3",
-                "sha256:f3607fec954e9d98a66b57ccb693b05dce28e5d9ec72804ca7c5273c1ac245a5"
-            ],
-            "markers": "sys_platform == 'darwin'",
-            "version": "==5.1.2"
-        },
         "pyparsing": {
             "hashes": [
                 "sha256:66c9268862641abcac4a96ba74506e594c884e3f57690a696d21ad8210ed667a",
@@ -455,6 +382,14 @@
                 "sha256:88f9287c0174266bb0d8cedd395cfba9c58e87e5ad86b2ce58859bc11be3cf02"
             ],
             "version": "==2.7.5"
+        },
+        "python-xlib": {
+            "hashes": [
+                "sha256:2772d194e22e644de67e6353ef8432e49bafce1e1e661f0d9ea1a3c7f77f3ba0",
+                "sha256:7ecf32b18b59be2c06848410bae848792ead119ac31084f487730581b3ab598c"
+            ],
+            "markers": "'linux' in sys_platform",
+            "version": "==0.24"
         },
         "pyyaml": {
             "hashes": [
@@ -571,7 +506,7 @@
         "vizdoomgym": {
             "editable": true,
             "git": "https://github.com/alex-petrenko/vizdoomgym",
-            "ref": "f73595284c719e64049a4b759ad3670a2d718810"
+            "ref": "3c4cec20a4cc2861582d48f005fa776040ad3f3e"
         },
         "werkzeug": {
             "hashes": [

@@ -9,9 +9,9 @@ from utils.envs.envs import create_env
 def train(params, env_id):
     agent = AgentTMAX(partial(create_env, env=env_id), params=params)
     agent.initialize()
-    agent.learn()
+    status = agent.learn()
     agent.finalize()
-    return 0
+    return status
 
 
 def main():

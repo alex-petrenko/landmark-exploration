@@ -7,8 +7,7 @@ import numpy as np
 import tensorflow as tf
 
 from algorithms.env_wrappers import has_image_observations, get_observation_space
-from algorithms.tf_utils import dense, conv
-from utils.utils import put_kernels_on_grid
+from algorithms.tf_utils import dense, conv, put_kernels_on_grid
 
 
 class Encoder:

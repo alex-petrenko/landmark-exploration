@@ -4,6 +4,7 @@ from unittest import TestCase
 
 import tensorflow as tf
 
+from algorithms.agent import TrainStatus
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.enjoy_tmax import enjoy
@@ -24,12 +25,13 @@ class TestTMAX(TestCase):
         params.initial_save_rate = 20
         params.batch_size = 32
         params.ppo_epochs = 2
-        train(params, args.env)
+        status = train(params, args.env)
+        self.assertEqual(status, TrainStatus.SUCCESS)
 
         root_dir = params.experiment_dir()
         self.assertTrue(os.path.isdir(root_dir))
 
-        enjoy(params, args.env, max_num_episodes=1, fps=2000)
+        enjoy(params, args.env, max_num_episodes=1, fps=1000)
         shutil.rmtree(root_dir)
 
         self.assertFalse(os.path.isdir(root_dir))
@@ -46,7 +48,7 @@ class TestTMAX(TestCase):
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
             probabilities = reachability_net.get_probabilities(sess, [obs], [obs])[0]
-            self.assertAlmostEqual(sum(probabilities), 1.0)  # probs sum up to 1
+            self.assertAlmostEqual(sum(probabilities), 1.0, places=5)  # probs sum up to 1
 
         env.close()
 

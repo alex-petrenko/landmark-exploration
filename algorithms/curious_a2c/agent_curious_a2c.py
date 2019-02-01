@@ -12,9 +12,9 @@ from algorithms.algo_utils import RunningMeanStd, EPS, extract_keys, num_env_ste
 from algorithms.baselines.a2c.agent_a2c import AgentA2C
 from algorithms.env_wrappers import has_image_observations, get_observation_space
 from algorithms.multi_env import MultiEnv
-from algorithms.tf_utils import dense, count_total_parameters, conv
+from algorithms.tf_utils import dense, count_total_parameters, conv, put_kernels_on_grid
 from utils.distributions import CategoricalProbabilityDistribution
-from utils.utils import log, AttrDict, put_kernels_on_grid, summaries_dir
+from utils.utils import log, AttrDict, summaries_dir
 
 
 class CuriousA2CPolicy:

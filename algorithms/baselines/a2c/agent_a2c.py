@@ -13,9 +13,9 @@ from algorithms.agent import AgentLearner
 from algorithms.algo_utils import maybe_extract_key
 from algorithms.env_wrappers import has_image_observations, get_observation_space
 from algorithms.multi_env import MultiEnv
-from algorithms.tf_utils import count_total_parameters, dense, conv
+from algorithms.tf_utils import count_total_parameters, dense, conv, put_kernels_on_grid
 from utils.distributions import CategoricalProbabilityDistribution
-from utils.utils import log, put_kernels_on_grid, AttrDict, summaries_dir
+from utils.utils import log, AttrDict, summaries_dir
 
 
 class Policy:

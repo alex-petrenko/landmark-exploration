@@ -11,9 +11,9 @@ def train(ppo_params, env_id):
 
     agent = AgentPPO(make_env_func, params=ppo_params)
     agent.initialize()
-    agent.learn()
+    status = agent.learn()
     agent.finalize()
-    return 0
+    return status
 
 
 def main():
