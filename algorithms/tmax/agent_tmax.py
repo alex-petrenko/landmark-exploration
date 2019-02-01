@@ -234,7 +234,18 @@ class ReachabilityBuffer:
 
 class TopologicalMap:
     def __init__(self):
-        pass
+        self.current_landmark = None
+
+    def set_landmark(self, obs):
+        self.current_landmark = obs
+
+    @staticmethod
+    def update_landmarks(maps, obs, dones):
+        assert len(maps) == len(obs)
+
+        for i, m in enumerate(maps):
+            if m.current_landmark is None or dones[i]:
+                m.set_landmark(obs[i])
 
 
 class AgentTMAX(AgentLearner):
@@ -277,7 +288,9 @@ class AgentTMAX(AgentLearner):
             self.reachability_target_buffer_size = 25000  # target number of training examples to store
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 128
+
             self.new_landmark_reachability = 0.25
+            self.new_landmark_reward = 0.1
 
             self.bootstrap_env_steps = 750 * 1000
 
@@ -616,6 +629,21 @@ class AgentTMAX(AgentLearner):
     def _is_bootstrap(self, env_steps):
         return env_steps < self.params.bootstrap_env_steps
 
+    def _calc_exploration_bonus(self, obs, maps):
+        assert len(obs) == len(maps)
+
+        num_envs = len(maps)
+        bonuses = np.zeros([num_envs])
+
+        current_landmarks = [m.current_landmark for m in maps]
+        reachabilities = self.reachability.get_reachability(self.session, current_landmarks, obs)
+        for i, reach in enumerate(reachabilities):
+            if reach < self.params.new_landmark_reachability:
+                maps[i].set_landmark(obs[i])
+                bonuses[i] += self.params.new_landmark_reward
+
+        return bonuses
+
     def _learn_loop(self, multi_env):
         """Main training loop."""
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
@@ -625,6 +653,8 @@ class AgentTMAX(AgentLearner):
 
         trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)
         reachability_buffer = ReachabilityBuffer(self.params)
+
+        maps = [TopologicalMap() for _ in range(multi_env.num_envs)]
 
         def end_of_training(s, es):
             return s >= self.params.train_for_steps or es > self.params.train_for_env_steps
@@ -639,12 +669,17 @@ class AgentTMAX(AgentLearner):
                 actions, action_probs, values = self.actor_critic.invoke(self.session, observations)
 
                 # wait for all the workers to complete an environment step
-                new_observation, rewards, dones, infos = multi_env.step(actions)
+                new_observations, rewards, dones, infos = multi_env.step(actions)
+
+                TopologicalMap.update_landmarks(maps, new_observations, dones)
+
+                bonuses = self._calc_exploration_bonus(new_observations, maps)
+                rewards += bonuses
 
                 # add experience from all environments to the current buffer(s)
                 buffer.add(observations, actions, action_probs, rewards, dones, values)
                 trajectory_buffer.add(observations, actions, dones)
-                observations = new_observation
+                observations = new_observations
 
                 num_steps += num_env_steps(infos, multi_env.num_envs)
 

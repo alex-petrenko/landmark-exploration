@@ -3,7 +3,7 @@ from algorithms.arguments import parse_args
 # values to use if not specified in the command line
 
 DEFAULT_EXPERIMENT_NAME = 'tmax_v000'
-DEFAULT_ENV = 'doom_basic'
+DEFAULT_ENV = 'doom_maze'
 
 
 def parse_args_tmax(params_cls):

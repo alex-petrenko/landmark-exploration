@@ -64,8 +64,8 @@ def play_and_visualize(params, env_id, verbose=False):
             current_landmark_frame = frame
             store_landmark = False
 
-        reachability_probs = agent.reachability.get_probabilities(agent.session, [current_landmark], [obs])
-        log.info('Reachability: %.3f frames %d', reachability_probs[0][1], frame - current_landmark_frame)
+        reachability_probs = agent.reachability.get_reachability(agent.session, [current_landmark], [obs])
+        log.info('Reachability: %.3f frames %d', reachability_probs[0], frame - current_landmark_frame)
 
         if verbose:
             log.info('Action: %r', env_doom.game.get_last_action())
