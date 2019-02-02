@@ -1,0 +1,50 @@
+class TopologicalMap:
+    def __init__(self, initial_obs):
+        self.landmarks = self.adjacency = None
+        self.curr_landmark_idx = 0
+        self.reset(initial_obs)
+
+    def reset(self, initial_obs):
+        """Create the graph with only one vertex."""
+        self.landmarks = [initial_obs]
+        self.adjacency = [[]]  # initial vertex has no neighbors
+        self.curr_landmark_idx = 0
+
+    @property
+    def curr_landmark(self):
+        return self.landmarks[self.curr_landmark_idx]
+
+    def neighbor_indices(self):
+        neighbors = [self.curr_landmark_idx]
+        neighbors.extend([i for i in self.adjacency[self.curr_landmark_idx]])
+        return neighbors
+
+    def non_neighbor_indices(self):
+        neighbors = self.neighbor_indices()
+        non_neighbors = [i for i in range(len(self.landmarks)) if i not in neighbors]
+        return non_neighbors
+
+    def _add_undirected_edge(self, i1, i2):
+        self.adjacency[i1].append(i2)
+        self.adjacency[i2].append(i1)
+
+    def set_curr_landmark(self, landmark_idx):
+        """Replace current landmark with the given landmark. Create necessary edges if needed."""
+
+        if landmark_idx == self.curr_landmark_idx:
+            return
+
+        if landmark_idx not in self.adjacency[self.curr_landmark_idx]:
+            # create new edges, we found a loop closure!
+            assert self.curr_landmark_idx not in self.adjacency[landmark_idx]
+            self._add_undirected_edge(self.curr_landmark_idx, landmark_idx)
+
+        self.curr_landmark_idx = landmark_idx
+
+    def add_landmark(self, obs):
+        new_landmark_idx = len(self.landmarks)
+        self.landmarks.append(obs)
+        self.adjacency.append([])
+        self._add_undirected_edge(self.curr_landmark_idx, new_landmark_idx)
+        assert len(self.adjacency) == len(self.landmarks)
+        return new_landmark_idx

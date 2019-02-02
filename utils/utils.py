@@ -1,6 +1,7 @@
 """Utilities."""
 
 import logging
+import operator
 import os
 from os.path import join
 
@@ -35,6 +36,8 @@ log.propagate = False  # workaround for duplicated logs in ipython
 log.addHandler(ch)
 
 
+# general utilities
+
 class AttrDict(dict):
     __getattr__ = dict.__getitem__
     __setattr__ = dict.__setitem__
@@ -43,6 +46,27 @@ class AttrDict(dict):
         if d is not None:
             for key, value in d.items():
                 self[key] = value
+
+
+def op_with_idx(x, op):
+    assert len(x) > 0
+
+    best_idx = 0
+    best_x = x[best_idx]
+    for i, item in enumerate(x):
+        if op(item, best_x):
+            best_x = item
+            best_idx = i
+
+    return best_x, best_idx
+
+
+def min_with_idx(x):
+    return op_with_idx(x, operator.lt)
+
+
+def max_with_idx(x):
+    return op_with_idx(x, operator.gt)
 
 
 # numpy stuff

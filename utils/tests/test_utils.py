@@ -4,7 +4,7 @@ import numpy as np
 
 from utils.decay import LinearDecay
 from utils.envs.doom.doom_utils import make_doom_env, env_by_name
-from utils.utils import numpy_all_the_way, numpy_flatten
+from utils.utils import numpy_all_the_way, numpy_flatten, max_with_idx, min_with_idx
 
 
 class TestDecay(TestCase):
@@ -46,7 +46,7 @@ class TestDecay(TestCase):
         chk(decay.at(99), 50)
 
 
-class TestUtil(TestCase):
+class TestNumpyUtil(TestCase):
     def test_numpy_all_the_way(self):
         a = np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8]])
         lst = [np.array([0, 1, 2]), np.array([3, 4, 5]), np.array([6, 7, 8])]
@@ -58,6 +58,18 @@ class TestUtil(TestCase):
         lst = [np.array([0, 1, 2]), np.array([3, 4, 5]), np.array([6, 7, 8])]
         flattened = numpy_flatten(lst)
         self.assertTrue(np.array_equal(a, flattened))
+
+
+class TestUtil(TestCase):
+    def test_op_with_idx(self):
+        x = [1, 3, 2, 10, -1, 5, 9]
+        max_x, max_idx = max_with_idx(x)
+        self.assertEqual(max_x, max(x))
+        self.assertEqual(max_idx, 3)
+
+        min_x, min_idx = min_with_idx(x)
+        self.assertEqual(min_x, min(x))
+        self.assertEqual(min_idx, 4)
 
 
 class TestDoom(TestCase):
