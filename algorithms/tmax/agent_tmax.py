@@ -274,7 +274,7 @@ class AgentTMAX(AgentLearner):
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 128
 
-            self.new_landmark_reachability = 0.25  # condition for considering current observation a "new landmark"
+            self.new_landmark_reachability = 0.2  # condition for considering current observation a "new landmark"
             self.loop_closure_reachability = 0.75  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.1  # reward for finding new vertex or new edge in the topological map
 
@@ -462,6 +462,30 @@ class AgentTMAX(AgentLearner):
             summary.value.add(tag='0_aux/best_reward_ever', simple_value=float(best_reward))
 
         self.summary_writer.add_summary(summary, env_steps)
+        self.summary_writer.flush()
+
+    def _maybe_map_summaries(self, maps, env_steps):
+        num_landmarks = [len(m.landmarks) for m in maps]
+        num_neighbors = [len(m.neighbor_indices()) for m in maps]
+        num_edges = [m.num_undirected_edges() for m in maps]
+
+        avg_num_landmarks = sum(num_landmarks) / len(num_landmarks)
+        avg_num_neighbors = sum(num_neighbors) / len(num_neighbors)
+        avg_num_edges = sum(num_edges) / len(num_edges)
+
+        summary_obj = tf.Summary()
+
+        def summary(tag, value):
+            summary_obj.value.add(tag=f'map/{tag}', simple_value=float(value))
+
+        summary('avg_landmarks', avg_num_landmarks)
+        summary('max_landmarks', max(num_landmarks))
+        summary('avg_neighbors', avg_num_neighbors)
+        summary('max_neighbors', max(num_neighbors))
+        summary('avg_edges', avg_num_edges)
+        summary('max_edges', max(num_edges))
+
+        self.summary_writer.add_summary(summary_obj, env_steps)
         self.summary_writer.flush()
 
     def best_action(self, observation, deterministic=False):
@@ -780,6 +804,7 @@ class AgentTMAX(AgentLearner):
 
             self._maybe_print(step, env_steps, avg_reward, avg_length, fps, timing)
             self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps)
+            self._maybe_map_summaries(maps, env_steps)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
 
     def learn(self):

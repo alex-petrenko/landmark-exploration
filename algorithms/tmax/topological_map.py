@@ -48,3 +48,9 @@ class TopologicalMap:
         self._add_undirected_edge(self.curr_landmark_idx, new_landmark_idx)
         assert len(self.adjacency) == len(self.landmarks)
         return new_landmark_idx
+
+    def num_undirected_edges(self):
+        """Helper function for summaries."""
+        num_edges = [len(adj) for adj in self.adjacency]
+        num_edges = sum(num_edges) / 2
+        return num_edges
