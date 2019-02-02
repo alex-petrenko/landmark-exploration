@@ -283,7 +283,7 @@ class AgentTMAX(AgentLearner):
 
             # TMAX-specific parameters
             self.obs_pairs_per_episode = 0.25  # e.g. for episode of len 300 we will create 75 training pairs
-            self.reachable_threshold = 20  # num. of frames between obs, such that one is reachable from the other
+            self.reachable_threshold = 15  # num. of frames between obs, such that one is reachable from the other
             self.unreachable_threshold = 60  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 25000  # target number of training examples to store
             self.reachability_train_epochs = 1
