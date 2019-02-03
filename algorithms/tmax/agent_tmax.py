@@ -274,8 +274,8 @@ class AgentTMAX(AgentLearner):
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 128
 
-            self.new_landmark_reachability = 0.2  # condition for considering current observation a "new landmark"
-            self.loop_closure_reachability = 0.2  # condition for graph loop closure (finding new edge)
+            self.new_landmark_reachability = 0.15  # condition for considering current observation a "new landmark"
+            self.loop_closure_reachability = 0.5  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.05  # reward for finding new vertex or new edge in the topological map
 
             self.bootstrap_env_steps = 750 * 1000
@@ -640,16 +640,23 @@ class AgentTMAX(AgentLearner):
         """Check whether we're still in the initial bootstrapping stage."""
         return env_steps < self.params.bootstrap_env_steps
 
-    def _update_maps(self, maps, obs, dones, env_steps):
+    def update_maps(self, maps, obs, dones, env_steps=None, verbose=False):
         """Omnipotent function for the management of topological maps."""
         assert len(obs) == len(maps)
         num_envs = len(maps)
 
         bonuses = np.zeros([num_envs])
 
+        if env_steps is None:
+            env_steps = self.session.run(self.total_env_steps)
+
         if self._is_bootstrap(env_steps):
             # don't bother updating the graph when the reachability net isn't trained yet
             return bonuses
+
+        def log_verbose(s, *args):
+            if verbose:
+                log.debug(s, *args)
 
         for i, m in enumerate(maps):
             if dones[i]:
@@ -676,9 +683,15 @@ class AgentTMAX(AgentLearner):
             j_next = j + len(neighbor_indices)
             reachability = reachabilities[j:j_next]
 
+            if verbose:
+                neighbor_reachability = {}
+                for i, neighbor_idx in enumerate(neighbor_indices):
+                    neighbor_reachability[neighbor_idx] = '{:.3f}'.format(reachability[i])
+                log_verbose('Env %d reachability: %r', env_i, neighbor_reachability)
+
             # check if we're far enough from all landmarks in the neighborhood
-            min_r = min(reachability)
-            if min_r < self.params.new_landmark_reachability:
+            max_r = max(reachability)
+            if max_r < self.params.new_landmark_reachability:
                 # we're far enough from all obs in the neighborhood, might have found something new!
                 new_landmark_candidates.append(env_i)
             else:
@@ -728,6 +741,7 @@ class AgentTMAX(AgentLearner):
             if max_r > self.params.loop_closure_reachability:
                 # current observation is close to some other landmark, "close the loop" by creating a new edge
                 m.set_curr_landmark(non_neighbor_indices[max_r_idx])
+                log_verbose('Change current landmark to %d (loop closure)', m.curr_landmark_idx)
             else:
                 # vertex is relatively far away from all vertex in the graph, we've found a new landmark!
                 new_landmark_idx = m.add_landmark(obs[env_i])
@@ -765,7 +779,7 @@ class AgentTMAX(AgentLearner):
                 # wait for all the workers to complete an environment step
                 new_observations, rewards, dones, infos = multi_env.step(actions)
 
-                bonuses = self._update_maps(maps, new_observations, dones, env_steps)
+                bonuses = self.update_maps(maps, new_observations, dones, env_steps)
                 rewards += bonuses
 
                 # add experience from all environments to the current buffer(s)

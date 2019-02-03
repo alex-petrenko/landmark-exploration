@@ -1,5 +1,9 @@
+from utils.utils import log
+
+
 class TopologicalMap:
-    def __init__(self, initial_obs):
+    def __init__(self, initial_obs, verbose=False):
+        self.verbose = verbose
         self.landmarks = self.adjacency = None
         self.curr_landmark_idx = 0
         self.reset(initial_obs)
@@ -9,6 +13,11 @@ class TopologicalMap:
         self.landmarks = [initial_obs]
         self.adjacency = [[]]  # initial vertex has no neighbors
         self.curr_landmark_idx = 0
+
+    def _log_verbose(self, msg, *args):
+        if not self.verbose:
+            return
+        log.debug(msg, *args)
 
     @property
     def curr_landmark(self):
@@ -27,6 +36,7 @@ class TopologicalMap:
     def _add_undirected_edge(self, i1, i2):
         self.adjacency[i1].append(i2)
         self.adjacency[i2].append(i1)
+        self._log_verbose('New edge %d-%d', i1, i2)
 
     def set_curr_landmark(self, landmark_idx):
         """Replace current landmark with the given landmark. Create necessary edges if needed."""
@@ -39,6 +49,7 @@ class TopologicalMap:
             assert self.curr_landmark_idx not in self.adjacency[landmark_idx]
             self._add_undirected_edge(self.curr_landmark_idx, landmark_idx)
 
+        self._log_verbose('Change current landmark to %d', landmark_idx)
         self.curr_landmark_idx = landmark_idx
 
     def add_landmark(self, obs):
@@ -47,6 +58,7 @@ class TopologicalMap:
         self.adjacency.append([])
         self._add_undirected_edge(self.curr_landmark_idx, new_landmark_idx)
         assert len(self.adjacency) == len(self.landmarks)
+        self._log_verbose('Added new landmark %d', new_landmark_idx)
         return new_landmark_idx
 
     def num_undirected_edges(self):
