@@ -275,8 +275,8 @@ class AgentTMAX(AgentLearner):
             self.reachability_batch_size = 128
 
             self.new_landmark_reachability = 0.2  # condition for considering current observation a "new landmark"
-            self.loop_closure_reachability = 0.75  # condition for graph loop closure (finding new edge)
-            self.map_expansion_reward = 0.1  # reward for finding new vertex or new edge in the topological map
+            self.loop_closure_reachability = 0.2  # condition for graph loop closure (finding new edge)
+            self.map_expansion_reward = 0.05  # reward for finding new vertex or new edge in the topological map
 
             self.bootstrap_env_steps = 750 * 1000
 
@@ -726,7 +726,7 @@ class AgentTMAX(AgentLearner):
                 max_r, max_r_idx = max_with_idx(reachability)
 
             if max_r > self.params.loop_closure_reachability:
-                # current observation is very close to some other landmark, "close the loop" by creating a new edge
+                # current observation is close to some other landmark, "close the loop" by creating a new edge
                 m.set_curr_landmark(non_neighbor_indices[max_r_idx])
             else:
                 # vertex is relatively far away from all vertex in the graph, we've found a new landmark!
