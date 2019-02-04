@@ -10,7 +10,7 @@ from utils.envs.envs import create_env
 from utils.utils import log
 
 
-def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=10):
+def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=1000):
     def make_env_func():
         e = create_env(env_id, mode='test')
         e.seed(0)
@@ -41,6 +41,8 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=10)
         episode_reward, episode_frames = 0, 0
         if graph is None:
             graph = TopologicalMap(obs, verbose=True)
+        else:
+            agent.update_maps([graph], [obs], [True])
 
         start_episode = time.time()
         while not done:
@@ -50,10 +52,11 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=10)
             action = agent.best_action(obs, deterministic=False)
             obs, rew, done, _ = env.step(action)
 
-            bonus = agent.update_maps([graph], [obs], [done], verbose=True)
-            bonus = bonus[0]
-            if bonus > 0:
-                log.info('Bonus %.3f received', bonus)
+            if not done:
+                bonus = agent.update_maps([graph], [obs], [done], verbose=True)
+                bonus = bonus[0]
+                if bonus > 0:
+                    log.info('Bonus %.3f received', bonus)
 
             episode_reward += rew
 

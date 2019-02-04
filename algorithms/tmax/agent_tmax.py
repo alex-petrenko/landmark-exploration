@@ -683,7 +683,9 @@ class AgentTMAX(AgentLearner):
             j_next = j + len(neighbor_indices)
             reachability = reachabilities[j:j_next]
 
-            if verbose:
+            # optional diagnostic logging
+            log_reachability = True
+            if verbose and log_reachability:
                 neighbor_reachability = {}
                 for i, neighbor_idx in enumerate(neighbor_indices):
                     neighbor_reachability[neighbor_idx] = '{:.3f}'.format(reachability[i])
