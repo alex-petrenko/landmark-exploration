@@ -12,15 +12,13 @@ class ReachabilityNetwork:
         self.ph_labels = tf.placeholder(dtype=tf.int32, shape=(None, ))
 
         with tf.variable_scope('reach'):
-            def make_encoder_cnn(ph_obs):
-                enc = make_encoder(env, ph_obs, None, params, 'reach_enc')
-                return enc.encoded_input
+            encoder = tf.make_template(
+                'siamese_enc', make_encoder, create_scope_now_=True, env=env, regularizer=None, params=params,
+            )
 
-            encoder = tf.make_template('siamese_enc', make_encoder_cnn)
-
-            ob1_enc = encoder(self.ph_obs_first)
-            ob2_enc = encoder(self.ph_obs_second)
-            observations_encoded = tf.concat([ob1_enc, ob2_enc], axis=1)
+            obs_first_enc = encoder(self.ph_obs_first).encoded_input
+            obs_second_enc = encoder(self.ph_obs_second).encoded_input
+            observations_encoded = tf.concat([obs_first_enc, obs_second_enc], axis=1)
 
             fc_layers = [256, 256]
             x = observations_encoded

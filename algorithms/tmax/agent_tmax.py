@@ -13,26 +13,51 @@ from algorithms.env_wrappers import get_observation_space
 from algorithms.models import make_model
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
-    observation_summaries, summary_avg_min_max, merge_summaries
+    observation_summaries, summary_avg_min_max, merge_summaries, tf_shape
+from algorithms.tmax.graph_encoders import make_graph_encoder
 from algorithms.tmax.reachability import ReachabilityNetwork
 from algorithms.tmax.topological_map import TopologicalMap
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.utils import log, AttrDict, max_with_idx
 
 
+def encode_obs_and_neighbors(env, observations, neighbors, num_neighbors, reg, params):
+    """
+    As an input we're given (current_observation, current_neighborhood), where current_observation is
+    just an env. observation, and current_neighborhood is a set of env. observations topologically close to the
+    current one (0 or 1 edges away in the topological graph).
+    """
+
+    obs_encoder = tf.make_template(
+        'obs_enc', make_encoder, create_scope_now_=True, env=env, regularizer=reg, params=params,
+    )
+    current_obs_encoded = obs_encoder(observations).encoded_input
+
+    obs_shape = tf_shape(observations)[1:]
+    neighbors = tf.reshape(neighbors, [-1] + obs_shape)  # turn into a single big batch to encode all at once
+    neighbors = obs_encoder(neighbors).encoded_input
+    neighborhood_encoder = make_graph_encoder(neighbors, num_neighbors, params, 'graph_enc')
+
+    encoded_input = tf.concat([current_obs_encoded, neighborhood_encoder.encoded_neighborhoods], axis=1)
+    return encoded_input
+
+
 class ActorCritic:
-    def __init__(self, env, ph_observations, params):
+    def __init__(self, env, ph_observations, ph_neighbors, ph_num_neighbors, params):
         self.ph_observations = ph_observations
+        self.ph_neighbors = ph_neighbors
+        self.ph_num_neighbors = ph_num_neighbors
 
         num_actions = env.action_space.n
 
-        regularizer = None  # don't use L2 regularization
+        reg = None  # don't use L2 regularization
 
         # actor computation graph
-        actor_encoder = make_encoder(env, ph_observations, regularizer, params, 'act_enc')
-        actor_model = make_model(actor_encoder.encoded_input, regularizer, params, 'act_mdl')
+        actor_encoder = tf.make_template('act_enc', encode_obs_and_neighbors, create_scope_now_=True)
+        actor_encoded_obs = actor_encoder(env, ph_observations, ph_neighbors, ph_num_neighbors, reg, params)
+        actor_model = make_model(actor_encoded_obs, reg, params, 'act_mdl')
 
-        actions_fc = dense(actor_model.latent, params.model_fc_size // 2, regularizer)
+        actions_fc = dense(actor_model.latent, params.model_fc_size // 2, reg)
         action_logits = tf.contrib.layers.fully_connected(actions_fc, num_actions, activation_fn=None)
         self.best_action_deterministic = tf.argmax(action_logits, axis=1)
         self.actions_distribution = CategoricalProbabilityDistribution(action_logits)
@@ -40,27 +65,36 @@ class ActorCritic:
         self.action_prob = self.actions_distribution.probability(self.act)
 
         # critic computation graph
-        value_encoder = make_encoder(env, ph_observations, regularizer, params, 'val_enc')
-        value_model = make_model(value_encoder.encoded_input, regularizer, params, 'val_mdl')
+        value_encoder = tf.make_template('val_enc', encode_obs_and_neighbors, create_scope_now_=True)
+        value_encoded_obs = value_encoder(env, ph_observations, ph_neighbors, ph_num_neighbors, reg, params)
+        value_model = make_model(value_encoded_obs, reg, params, 'val_mdl')
 
-        value_fc = dense(value_model.latent, params.model_fc_size // 2, regularizer)
+        value_fc = dense(value_model.latent, params.model_fc_size // 2, reg)
         self.value = tf.squeeze(tf.contrib.layers.fully_connected(value_fc, 1, activation_fn=None), axis=[1])
 
         log.info('Total parameters in the model: %d', count_total_parameters())
 
-    def invoke(self, session, observations, deterministic=False):
+    def _feed_dict(self, observations, neighbors, num_neighbors):
+        return {
+            self.ph_observations: observations,
+            self.ph_neighbors: neighbors,
+            self.ph_num_neighbors: num_neighbors,
+        }
+
+    def invoke(self, session, observations, neighbors, num_neighbors, deterministic=False):
         ops = [
             self.best_action_deterministic if deterministic else self.act,
             self.action_prob,
             self.value,
         ]
-        actions, action_prob, values = session.run(ops, feed_dict={self.ph_observations: observations})
+        feed_dict = self._feed_dict(observations, neighbors, num_neighbors)
+        actions, action_prob, values = session.run(ops, feed_dict=feed_dict)
         return actions, action_prob, values
 
-    def best_action(self, session, observations, deterministic=False):
+    def best_action(self, session, observations, neighbors, num_neighbors, deterministic=False):
+        feed_dict = self._feed_dict(observations, neighbors, num_neighbors)
         actions = session.run(
-            self.best_action_deterministic if deterministic else self.act,
-            feed_dict={self.ph_observations: observations},
+            self.best_action_deterministic if deterministic else self.act, feed_dict=feed_dict,
         )
         return actions
 
@@ -267,9 +301,12 @@ class AgentTMAX(AgentLearner):
             self.min_entropy_loss_coeff = 0.002
 
             # TMAX-specific parameters
+            self.max_neighborhood_size = 8  # max number of neighbors that can be fed into policy at every timestep
+            self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
+
             self.obs_pairs_per_episode = 0.25  # e.g. for episode of len 300 we will create 75 training pairs
-            self.reachable_threshold = 15  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 60  # num. of frames between obs, such that one is unreachable from the other
+            self.reachable_threshold = 8  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 24  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 25000  # target number of training examples to store
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 128
@@ -302,14 +339,18 @@ class AgentTMAX(AgentLearner):
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
 
-        self.obs_shape = list(get_observation_space(env).shape)
-        input_shape = [None] + self.obs_shape  # add batch dimension
-        self.obs_shape = [-1] + self.obs_shape
-        self.ph_observations = tf.placeholder(tf.float32, shape=input_shape)
+        obs_shape = list(get_observation_space(env).shape)
+        self.ph_observations = placeholder_from_space(get_observation_space(env))
         self.ph_actions = placeholder_from_space(env.action_space)  # actions sampled from the policy
         self.ph_advantages, self.ph_returns, self.ph_old_action_probs = placeholders(None, None, None)
 
-        self.actor_critic = ActorCritic(env, self.ph_observations, self.params)
+        # placeholders for the graph neighborhood
+        self.ph_neighbors = tf.placeholder(tf.float32, shape=[None, params.max_neighborhood_size] + obs_shape)
+        self.ph_num_neighbors = tf.placeholder(tf.int32, shape=[None])
+
+        self.actor_critic = ActorCritic(
+            env, self.ph_observations, self.ph_neighbors, self.ph_num_neighbors, self.params,
+        )
 
         self.reachability = ReachabilityNetwork(env, params)
 
@@ -341,7 +382,6 @@ class AgentTMAX(AgentLearner):
 
         self.saver = tf.train.Saver(max_to_keep=3)
 
-        log.debug('tmax variables:')
         all_vars = tf.trainable_variables()
         slim.model_analyzer.analyze_vars(all_vars, print_info=True)
 
@@ -489,8 +529,6 @@ class AgentTMAX(AgentLearner):
         self.summary_writer.flush()
 
     def best_action(self, observation, deterministic=False):
-        if observation.shape != self.obs_shape:
-            observation = observation.reshape(self.obs_shape)
         actions = self.actor_critic.best_action(self.session, observation, deterministic)
         return actions[0]
 
@@ -600,7 +638,7 @@ class AgentTMAX(AgentLearner):
 
         num_epochs = self.params.reachability_train_epochs
         if self._is_bootstrap(env_steps):
-            num_epochs = max(10, num_epochs * 2)
+            num_epochs = max(10, num_epochs * 2)  # during bootstrap do more epochs to train faster!
 
         for epoch in range(num_epochs):
             buffer.shuffle_data()
@@ -754,6 +792,20 @@ class AgentTMAX(AgentLearner):
 
         return bonuses
 
+    @staticmethod
+    def _get_neighbors(maps, neighbors_buffer):
+        """Prepare a batch """
+        neighbors_buffer.fill(0)
+        num_neighbors = [0] * len(maps)
+
+        for env_idx, m in enumerate(maps):
+            n_indices = m.neighbor_indices()
+            for i, n_idx in enumerate(n_indices):
+                neighbors_buffer[env_idx, i] = m.landmarks[n_idx]
+            num_neighbors[env_idx] = len(n_indices)
+
+        return num_neighbors
+
     def _learn_loop(self, multi_env):
         """Main training loop."""
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
@@ -763,6 +815,9 @@ class AgentTMAX(AgentLearner):
 
         trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)
         reachability_buffer = ReachabilityBuffer(self.params)
+        neighbors = np.zeros(
+            (multi_env.num_envs, self.params.max_neighborhood_size) + observations[0].shape, dtype=np.uint8,
+        )
 
         maps = [TopologicalMap(obs) for obs in observations]
 
@@ -776,7 +831,10 @@ class AgentTMAX(AgentLearner):
             # collecting experience
             num_steps = 0
             for rollout_step in range(self.params.rollout):
-                actions, action_probs, values = self.actor_critic.invoke(self.session, observations)
+                num_neighbors = self._get_neighbors(maps, neighbors)
+                actions, action_probs, values = self.actor_critic.invoke(
+                    self.session, observations, neighbors, num_neighbors,
+                )
 
                 # wait for all the workers to complete an environment step
                 new_observations, rewards, dones, infos = multi_env.step(actions)
@@ -792,7 +850,8 @@ class AgentTMAX(AgentLearner):
                 num_steps += num_env_steps(infos, multi_env.num_envs)
 
             # last step values are required for TD-return calculation
-            _, _, values = self.actor_critic.invoke(self.session, observations)
+            num_neighbors = self._get_neighbors(maps, neighbors)
+            _, _, values = self.actor_critic.invoke(self.session, observations, neighbors, num_neighbors)
             buffer.values.append(values)
 
             timing.experience = time.time() - timing.experience

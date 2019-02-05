@@ -8,9 +8,9 @@ class TopologicalMap:
         self.curr_landmark_idx = 0
         self.reset(initial_obs)
 
-    def reset(self, initial_obs):
+    def reset(self, obs):
         """Create the graph with only one vertex."""
-        self.landmarks = [initial_obs]
+        self.landmarks = [obs]
         self.adjacency = [[]]  # initial vertex has no neighbors
         self.curr_landmark_idx = 0
 

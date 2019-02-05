@@ -7,6 +7,8 @@ from gym.spaces import Box, Discrete
 from utils.utils import log
 
 
+# general tensorflow utils
+
 def dense(x, layer_size, regularizer=None, activation=tf.nn.relu):
     return tf.contrib.layers.fully_connected(
         x,
@@ -43,6 +45,10 @@ def count_total_parameters():
             variable_parameters *= dim.value
         total_parameters += variable_parameters
     return total_parameters
+
+
+def tf_shape(tensor):
+    return tensor.get_shape().as_list()
 
 
 # handy placeholder utils, courtesy of https://github.com/openai/spinningup

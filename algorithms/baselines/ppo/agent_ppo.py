@@ -27,7 +27,7 @@ class ActorCritic:
         regularizer = None  # don't use L2 regularization
 
         # actor computation graph
-        actor_encoder = make_encoder(env, ph_observations, regularizer, params, 'act_enc')
+        actor_encoder = make_encoder(ph_observations, env, regularizer, params, 'act_enc')
         actor_model = make_model(actor_encoder.encoded_input, regularizer, params, 'act_mdl')
 
         actions_fc = dense(actor_model.latent, params.model_fc_size // 2, regularizer)
@@ -38,7 +38,7 @@ class ActorCritic:
         self.action_prob = self.actions_distribution.probability(self.act)
 
         # critic computation graph
-        value_encoder = make_encoder(env, ph_observations, regularizer, params, 'val_enc')
+        value_encoder = make_encoder(ph_observations, env, regularizer, params, 'val_enc')
         value_model = make_model(value_encoder.encoded_input, regularizer, params, 'val_mdl')
 
         value_fc = dense(value_model.latent, params.model_fc_size // 2, regularizer)

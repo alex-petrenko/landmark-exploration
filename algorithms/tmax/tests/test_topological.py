@@ -6,7 +6,7 @@ from algorithms.tmax.topological_map import TopologicalMap
 from utils.envs.doom.doom_utils import make_doom_env, env_by_name
 
 
-class TestTMAX(TestCase):
+class TestGraph(TestCase):
     def test_topological_graph(self):
         env = make_doom_env(env_by_name(TEST_ENV_NAME))
         initial_obs = env.reset()

@@ -90,7 +90,20 @@ def tf_normalize(obs, obs_space):
     return obs
 
 
-def make_encoder(env, ph_observations, regularizer, params, name):
+def make_encoder(ph_observations, env, regularizer, params, name='enc'):
+    """
+    Create an appropriate encoder according to params.
+    'name' argument is used to create an internal variable scope, which allows you to use this function to create
+    multiple encoders (without parameter sharing) by providing a different name.
+    If you're sharing encoder parameters, use tf.make_template, and make sure that 'name' stays default or passed as
+    a keyword argument when the encoder template as created (so it's the same for all instances of the shared encoder)
+
+    :param ph_observations: obs
+    :param env: env
+    :param regularizer: reg
+    :param params: params
+    :param name: used to create an internal variable scope! Be careful!  <---
+    """
     obs_space = get_observation_space(env)
     if has_image_observations(obs_space):
         if is_normalized(obs_space):
