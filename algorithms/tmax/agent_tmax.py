@@ -306,6 +306,7 @@ class AgentTMAX(AgentLearner):
             self.min_entropy_loss_coeff = 0.002
 
             # TMAX-specific parameters
+            self.graph_enc_name = 'rnn'
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
 
@@ -817,7 +818,7 @@ class AgentTMAX(AgentLearner):
                     break
 
                 neighbors_buffer[env_idx, i] = m.landmarks[n_idx]
-            num_neighbors[env_idx] = len(n_indices)
+            num_neighbors[env_idx] = min(len(n_indices), self.params.max_neighborhood_size)
 
         return num_neighbors
 

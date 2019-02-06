@@ -38,7 +38,35 @@ class NeighborhoodEncoderRNN(Encoder):
             )
 
 
+class NeighborhoodEncoderDeepSets(Encoder):
+    """
+    Using idea from "DeepSets" paper: compute a feature vector for every neighbor and aggregate them using
+    an order-invariant function (mean here).
+    """
+    def __init__(self, neighbors, num_neighbors, params, name):
+        super(NeighborhoodEncoderDeepSets, self).__init__(regularizer=None, name=name)
+
+        with tf.variable_scope(self.name):
+
+            # convert neighborhoods from [?, obs_shape] to [?, max_neighborhood_size, obs_shape]
+            obs_shape = tf_shape(neighbors)[1:]
+            neighbors = tf.reshape(neighbors, [-1, params.max_neighborhood_size] + obs_shape)
+
+            mask = tf.sequence_mask(num_neighbors, params.max_neighborhood_size)
+            mask = tf.cast(mask, dtype=tf.float32)
+            mask = tf.expand_dims(mask, axis=2)
+            neighbors_masked = neighbors * tf.cast(mask, dtype=tf.float32)
+
+            neighbors_aggregated = tf.reduce_mean(neighbors_masked, axis=1)
+            self.encoded_neighborhoods = tf.layers.dense(neighbors_aggregated, 128, activation=tf.nn.relu)
+
+
 def make_graph_encoder(neighbors, num_neighbors, params, name):
     """Maybe implement other encoders here."""
-    encoder = NeighborhoodEncoderRNN(neighbors, num_neighbors, params, name)
+    if params.graph_enc_name == 'rnn':
+        encoder = NeighborhoodEncoderRNN(neighbors, num_neighbors, params, name)
+    elif params.graph_enc_name == 'deepsets':
+        encoder = NeighborhoodEncoderDeepSets(neighbors, num_neighbors, params, name)
+    else:
+        raise NotImplementedError(f'Unknown graph encoder {params.graph_enc_name}')
     return encoder
