@@ -1,4 +1,6 @@
+import copy
 import math
+import random
 import time
 from functools import partial
 
@@ -74,7 +76,7 @@ class ActorCritic:
 
         log.info('Total parameters in the model: %d', count_total_parameters())
 
-    def _feed_dict(self, observations, neighbors, num_neighbors):
+    def input_dict(self, observations, neighbors, num_neighbors):
         return {
             self.ph_observations: observations,
             self.ph_neighbors: neighbors,
@@ -87,34 +89,36 @@ class ActorCritic:
             self.action_prob,
             self.value,
         ]
-        feed_dict = self._feed_dict(observations, neighbors, num_neighbors)
+        feed_dict = self.input_dict(observations, neighbors, num_neighbors)
         actions, action_prob, values = session.run(ops, feed_dict=feed_dict)
         return actions, action_prob, values
 
     def best_action(self, session, observations, neighbors, num_neighbors, deterministic=False):
-        feed_dict = self._feed_dict(observations, neighbors, num_neighbors)
+        feed_dict = self.input_dict(observations, neighbors, num_neighbors)
         actions = session.run(
             self.best_action_deterministic if deterministic else self.act, feed_dict=feed_dict,
         )
         return actions
 
 
-class PPOBuffer:
+class TmaxPPOBuffer:
     def __init__(self):
         self.obs = self.actions = self.action_probs = self.rewards = self.dones = self.values = None
         self.advantages = self.returns = None
+        self.neighbors, self.num_neighbors = None, None
 
     def reset(self):
         self.obs, self.actions, self.action_probs, self.rewards, self.dones, self.values = [], [], [], [], [], []
+        self.neighbors, self.num_neighbors = [], []
         self.advantages = self.returns = None
 
-    def add(self, obs, actions, action_probs, rewards, dones, values):
-        self.obs.append(obs)
-        self.actions.append(actions)
-        self.action_probs.append(action_probs)
-        self.rewards.append(rewards)
-        self.dones.append(dones)
-        self.values.append(values)
+    def add(self, obs, actions, action_probs, rewards, dones, values, neighbors, num_neighbors):
+        """Append one-step data to the current batch of observations."""
+        args = copy.copy(locals())
+        s = str(args)
+        for arg_name, arg_value in args.items():
+            if arg_name in self.__dict__:
+                self.__dict__[arg_name].append(arg_value)
 
     def finalize_batch(self, gamma, gae_lambda):
         # convert everything in the buffer into numpy arrays
@@ -150,6 +154,7 @@ class PPOBuffer:
         num_batches = num_transitions // batch_size
         assert self.obs.shape[0] == num_batches
         assert self.rewards.shape[0] == num_batches
+        assert self.neighbors.shape[0] == num_batches
         return num_batches
 
 
@@ -301,7 +306,7 @@ class AgentTMAX(AgentLearner):
             self.min_entropy_loss_coeff = 0.002
 
             # TMAX-specific parameters
-            self.max_neighborhood_size = 8  # max number of neighbors that can be fed into policy at every timestep
+            self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
 
             self.obs_pairs_per_episode = 0.25  # e.g. for episode of len 300 we will create 75 training pairs
@@ -339,13 +344,13 @@ class AgentTMAX(AgentLearner):
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
 
-        obs_shape = list(get_observation_space(env).shape)
+        self.obs_shape = list(get_observation_space(env).shape)
         self.ph_observations = placeholder_from_space(get_observation_space(env))
         self.ph_actions = placeholder_from_space(env.action_space)  # actions sampled from the policy
         self.ph_advantages, self.ph_returns, self.ph_old_action_probs = placeholders(None, None, None)
 
         # placeholders for the graph neighborhood
-        self.ph_neighbors = tf.placeholder(tf.float32, shape=[None, params.max_neighborhood_size] + obs_shape)
+        self.ph_neighbors = tf.placeholder(tf.float32, shape=[None, params.max_neighborhood_size] + self.obs_shape)
         self.ph_num_neighbors = tf.placeholder(tf.int32, shape=[None])
 
         self.actor_critic = ActorCritic(
@@ -528,8 +533,11 @@ class AgentTMAX(AgentLearner):
         self.summary_writer.add_summary(summary_obj, env_steps)
         self.summary_writer.flush()
 
-    def best_action(self, observation, deterministic=False):
-        actions = self.actor_critic.best_action(self.session, observation, deterministic)
+    def best_action(self, observation):
+        raise NotImplementedError('Not supported! Use best_action_tmax')
+
+    def best_action_tmax(self, observations, neighbors, num_neighbors, deterministic=False):
+        actions = self.actor_critic.best_action(self.session, observations, neighbors, num_neighbors, deterministic)
         return actions[0]
 
     def _train_actor(self, buffer, env_steps):
@@ -550,11 +558,11 @@ class AgentTMAX(AgentLearner):
                 result = self.session.run(
                     [self.objectives.sample_kl, self.train_actor] + summaries,
                     feed_dict={
-                        self.ph_observations: buffer.obs[i],
                         self.ph_actions: buffer.actions[i],
                         self.ph_old_action_probs: buffer.action_probs[i],
                         self.ph_advantages: buffer.advantages[i],
                         self.ph_returns: buffer.returns[i],
+                        **self.actor_critic.input_dict(buffer.obs[i], buffer.neighbors[i], buffer.num_neighbors[i]),
                     }
                 )
 
@@ -600,8 +608,8 @@ class AgentTMAX(AgentLearner):
                 result = self.session.run(
                     [self.objectives.critic_loss, self.train_critic] + summaries,
                     feed_dict={
-                        self.ph_observations: buffer.obs[i],
                         self.ph_returns: buffer.returns[i],
+                        **self.actor_critic.input_dict(buffer.obs[i], buffer.neighbors[i], buffer.num_neighbors[i]),
                     }
                 )
 
@@ -614,7 +622,7 @@ class AgentTMAX(AgentLearner):
 
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
-            if avg_loss > 0.999 * prev_loss:
+            if avg_loss > 0.995 * prev_loss:
                 log.info('Early stopping after %d epochs because critic did not improve enough', epoch)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
@@ -792,15 +800,22 @@ class AgentTMAX(AgentLearner):
 
         return bonuses
 
-    @staticmethod
-    def _get_neighbors(maps, neighbors_buffer):
-        """Prepare a batch """
+    def get_neighbors(self, maps, neighbors_buffer):
         neighbors_buffer.fill(0)
         num_neighbors = [0] * len(maps)
 
         for env_idx, m in enumerate(maps):
             n_indices = m.neighbor_indices()
+            random.shuffle(n_indices)  # order of neighbors does not matter
+
             for i, n_idx in enumerate(n_indices):
+                if i >= self.params.max_neighborhood_size:
+                    log.warning(
+                        'Too many neighbors %d, max encoded is %d. Had to ignore some neighbors.',
+                        len(n_indices), self.params.max_neighborhood_size,
+                    )
+                    break
+
                 neighbors_buffer[env_idx, i] = m.landmarks[n_idx]
             num_neighbors[env_idx] = len(n_indices)
 
@@ -811,12 +826,12 @@ class AgentTMAX(AgentLearner):
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
         observations = multi_env.reset()
-        buffer = PPOBuffer()
+        buffer = TmaxPPOBuffer()
 
         trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)
         reachability_buffer = ReachabilityBuffer(self.params)
         neighbors = np.zeros(
-            (multi_env.num_envs, self.params.max_neighborhood_size) + observations[0].shape, dtype=np.uint8,
+            [multi_env.num_envs, self.params.max_neighborhood_size] + self.obs_shape, dtype=np.uint8,
         )
 
         maps = [TopologicalMap(obs) for obs in observations]
@@ -831,7 +846,7 @@ class AgentTMAX(AgentLearner):
             # collecting experience
             num_steps = 0
             for rollout_step in range(self.params.rollout):
-                num_neighbors = self._get_neighbors(maps, neighbors)
+                num_neighbors = self.get_neighbors(maps, neighbors)
                 actions, action_probs, values = self.actor_critic.invoke(
                     self.session, observations, neighbors, num_neighbors,
                 )
@@ -843,14 +858,14 @@ class AgentTMAX(AgentLearner):
                 rewards += bonuses
 
                 # add experience from all environments to the current buffer(s)
-                buffer.add(observations, actions, action_probs, rewards, dones, values)
+                buffer.add(observations, actions, action_probs, rewards, dones, values, neighbors, num_neighbors)
                 trajectory_buffer.add(observations, actions, dones)
                 observations = new_observations
 
                 num_steps += num_env_steps(infos, multi_env.num_envs)
 
             # last step values are required for TD-return calculation
-            num_neighbors = self._get_neighbors(maps, neighbors)
+            num_neighbors = self.get_neighbors(maps, neighbors)
             _, _, values = self.actor_critic.invoke(self.session, observations, neighbors, num_neighbors)
             buffer.values.append(values)
 

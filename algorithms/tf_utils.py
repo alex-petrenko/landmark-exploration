@@ -125,7 +125,6 @@ def put_kernels_on_grid(kernel, pad=1):
                 return i, int(n / i)
 
     (grid_Y, grid_X) = factorization(kernel.get_shape()[3].value)
-    log.info('grid: %d = (%d, %d)' % (kernel.get_shape()[3].value, grid_Y, grid_X))
 
     x_min = tf.reduce_min(kernel)
     x_max = tf.reduce_max(kernel)

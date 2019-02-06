@@ -1,3 +1,4 @@
+import numpy as np
 import sys
 import time
 from threading import Thread
@@ -29,7 +30,7 @@ def on_release(key):
         return False
 
 
-def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=25):
+def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=1000):
     def make_env_func():
         e = create_env(env_id, mode='test')
         e.seed(0)
@@ -51,6 +52,7 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=25)
     num_frames = 0
 
     graph = None
+    neighbors = np.zeros([1, agent.params.max_neighborhood_size] + agent.obs_shape, dtype=np.uint8)
 
     def max_frames_reached(frames):
         return max_num_frames is not None and frames > max_num_frames
@@ -72,7 +74,8 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=25)
             if pause:
                 continue
 
-            action = agent.best_action(obs, deterministic=False)
+            num_neighbors = agent.get_neighbors([graph], neighbors)
+            action = agent.best_action_tmax([obs], neighbors, num_neighbors, deterministic=False)
             obs, rew, done, _ = env.step(action)
 
             if not done:
