@@ -74,7 +74,7 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=100
             if pause:
                 continue
 
-            num_neighbors = agent.get_neighbors([graph], neighbors)
+            neighbors, num_neighbors = agent.get_neighbors([graph], neighbors)
             action = agent.best_action_tmax([obs], neighbors, num_neighbors, deterministic=False)
             obs, rew, done, _ = env.step(action)
 

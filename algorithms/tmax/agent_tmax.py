@@ -35,12 +35,16 @@ def encode_obs_and_neighbors(env, observations, neighbors, num_neighbors, reg, p
     )
     current_obs_encoded = obs_encoder(observations).encoded_input
 
-    obs_shape = tf_shape(observations)[1:]
-    neighbors = tf.reshape(neighbors, [-1] + obs_shape)  # turn into a single big batch to encode all at once
-    neighbors = obs_encoder(neighbors).encoded_input
-    neighborhood_encoder = make_graph_encoder(neighbors, num_neighbors, params, 'graph_enc')
+    if params.use_neighborhood_encoder:
+        obs_shape = tf_shape(observations)[1:]
+        neighbors = tf.reshape(neighbors, [-1] + obs_shape)  # turn into a single big batch to encode all at once
+        neighbors = obs_encoder(neighbors).encoded_input
+        neighborhood_encoder = make_graph_encoder(neighbors, num_neighbors, params, 'graph_enc')
 
-    encoded_input = tf.concat([current_obs_encoded, neighborhood_encoder.encoded_neighborhoods], axis=1)
+        encoded_input = tf.concat([current_obs_encoded, neighborhood_encoder.encoded_neighborhoods], axis=1)
+    else:
+        encoded_input = current_obs_encoded
+
     return encoded_input
 
 
@@ -77,11 +81,11 @@ class ActorCritic:
         log.info('Total parameters in the model: %d', count_total_parameters())
 
     def input_dict(self, observations, neighbors, num_neighbors):
-        return {
-            self.ph_observations: observations,
-            self.ph_neighbors: neighbors,
-            self.ph_num_neighbors: num_neighbors,
-        }
+        feed_dict = {self.ph_observations: observations}
+        if self.ph_neighbors is not None and self.ph_num_neighbors is not None:
+            feed_dict[self.ph_neighbors] = neighbors
+            feed_dict[self.ph_num_neighbors] = num_neighbors
+        return feed_dict
 
     def invoke(self, session, observations, neighbors, num_neighbors, deterministic=False):
         ops = [
@@ -117,7 +121,7 @@ class TmaxPPOBuffer:
         args = copy.copy(locals())
         s = str(args)
         for arg_name, arg_value in args.items():
-            if arg_name in self.__dict__:
+            if arg_name in self.__dict__ and arg_value is not None:
                 self.__dict__[arg_name].append(arg_value)
 
     def finalize_batch(self, gamma, gae_lambda):
@@ -125,7 +129,7 @@ class TmaxPPOBuffer:
         for item, x in self.__dict__.items():
             if x is None:
                 continue
-            self.__dict__[item] = np.asarray(x, np.float32)
+            self.__dict__[item] = np.asarray(x)
 
         # calculate discounted returns and GAE
         self.advantages, self.returns = calculate_gae(self.rewards, self.dones, self.values, gamma, gae_lambda)
@@ -140,9 +144,15 @@ class TmaxPPOBuffer:
             raise Exception(f'Batch size {batch_size} does not divide experience size {num_transitions}')
 
         chaos = np.random.permutation(num_transitions)
+        num_batches = num_transitions // batch_size
 
         for item, x in self.__dict__.items():
-            if x is None or x.size == 0:
+            if x is None:
+                continue
+
+            if x.size == 0 or len(x.shape) < 2:
+                # "fake" batch data to simplify the code downstream
+                self.__dict__[item] = np.array([None] * num_batches)  # each "batch" will just contain a None value
                 continue
 
             data_shape = x.shape[2:]
@@ -151,7 +161,6 @@ class TmaxPPOBuffer:
             x = x.reshape((-1, batch_size) + data_shape)  # split into batches
             self.__dict__[item] = x
 
-        num_batches = num_transitions // batch_size
         assert self.obs.shape[0] == num_batches
         assert self.rewards.shape[0] == num_batches
         assert self.neighbors.shape[0] == num_batches
@@ -306,7 +315,8 @@ class AgentTMAX(AgentLearner):
             self.min_entropy_loss_coeff = 0.002
 
             # TMAX-specific parameters
-            self.graph_enc_name = 'rnn'
+            self.use_neighborhood_encoder = False
+            self.graph_enc_name = 'deepsets'  # 'rnn', 'deepsets'
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
 
@@ -351,8 +361,10 @@ class AgentTMAX(AgentLearner):
         self.ph_advantages, self.ph_returns, self.ph_old_action_probs = placeholders(None, None, None)
 
         # placeholders for the graph neighborhood
-        self.ph_neighbors = tf.placeholder(tf.float32, shape=[None, params.max_neighborhood_size] + self.obs_shape)
-        self.ph_num_neighbors = tf.placeholder(tf.int32, shape=[None])
+        self.ph_neighbors, self.ph_num_neighbors = None, None
+        if params.use_neighborhood_encoder:
+            self.ph_neighbors = tf.placeholder(tf.float32, shape=[None, params.max_neighborhood_size] + self.obs_shape)
+            self.ph_num_neighbors = tf.placeholder(tf.int32, shape=[None])
 
         self.actor_critic = ActorCritic(
             env, self.ph_observations, self.ph_neighbors, self.ph_num_neighbors, self.params,
@@ -802,6 +814,9 @@ class AgentTMAX(AgentLearner):
         return bonuses
 
     def get_neighbors(self, maps, neighbors_buffer):
+        if not self.params.use_neighborhood_encoder:
+            return None, None
+
         neighbors_buffer.fill(0)
         num_neighbors = [0] * len(maps)
 
@@ -820,7 +835,7 @@ class AgentTMAX(AgentLearner):
                 neighbors_buffer[env_idx, i] = m.landmarks[n_idx]
             num_neighbors[env_idx] = min(len(n_indices), self.params.max_neighborhood_size)
 
-        return num_neighbors
+        return neighbors_buffer, num_neighbors
 
     def _learn_loop(self, multi_env):
         """Main training loop."""
@@ -831,6 +846,7 @@ class AgentTMAX(AgentLearner):
 
         trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)
         reachability_buffer = ReachabilityBuffer(self.params)
+
         neighbors = np.zeros(
             [multi_env.num_envs, self.params.max_neighborhood_size] + self.obs_shape, dtype=np.uint8,
         )
@@ -847,7 +863,7 @@ class AgentTMAX(AgentLearner):
             # collecting experience
             num_steps = 0
             for rollout_step in range(self.params.rollout):
-                num_neighbors = self.get_neighbors(maps, neighbors)
+                neighbors, num_neighbors = self.get_neighbors(maps, neighbors)
                 actions, action_probs, values = self.actor_critic.invoke(
                     self.session, observations, neighbors, num_neighbors,
                 )
@@ -866,7 +882,7 @@ class AgentTMAX(AgentLearner):
                 num_steps += num_env_steps(infos, multi_env.num_envs)
 
             # last step values are required for TD-return calculation
-            num_neighbors = self.get_neighbors(maps, neighbors)
+            neighbors, num_neighbors = self.get_neighbors(maps, neighbors)
             _, _, values = self.actor_critic.invoke(self.session, observations, neighbors, num_neighbors)
             buffer.values.append(values)
 
