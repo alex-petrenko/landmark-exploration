@@ -16,6 +16,7 @@ numpy = "<1.16"  # numpy 1.16.0 is known for memory leaks! https://github.com/nu
 networkx = "*"
 bokeh = "*"
 psutil = "*"
+pillow-simd = "*"
 
 [requires]
 python_version = "3.6"

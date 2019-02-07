@@ -17,6 +17,7 @@ from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     observation_summaries, summary_avg_min_max, merge_summaries, tf_shape
 from algorithms.tmax.graph_encoders import make_graph_encoder
+from algorithms.tmax.locomotion import LocomotionNetwork
 from algorithms.tmax.reachability import ReachabilityNetwork
 from algorithms.tmax.topological_map import TopologicalMap
 from utils.distributions import CategoricalProbabilityDistribution
@@ -54,8 +55,6 @@ class ActorCritic:
         self.ph_neighbors = ph_neighbors
         self.ph_num_neighbors = ph_num_neighbors
 
-        num_actions = env.action_space.n
-
         reg = None  # don't use L2 regularization
 
         # actor computation graph
@@ -64,7 +63,7 @@ class ActorCritic:
         actor_model = make_model(actor_encoded_obs, reg, params, 'act_mdl')
 
         actions_fc = dense(actor_model.latent, params.model_fc_size // 2, reg)
-        action_logits = tf.contrib.layers.fully_connected(actions_fc, num_actions, activation_fn=None)
+        action_logits = tf.contrib.layers.fully_connected(actions_fc, env.action_space.n, activation_fn=None)
         self.best_action_deterministic = tf.argmax(action_logits, axis=1)
         self.actions_distribution = CategoricalProbabilityDistribution(action_logits)
         self.act = self.actions_distribution.sample()
@@ -350,6 +349,7 @@ class AgentTMAX(AgentLearner):
         self.actor_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='actor_step')
         self.critic_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='critic_step')
         self.reach_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='reach_step')
+        self.locomotion_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='locomotion_step')
 
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
@@ -370,6 +370,7 @@ class AgentTMAX(AgentLearner):
         )
 
         self.reachability = ReachabilityNetwork(env, params)
+        self.locomotion = LocomotionNetwork(env, params)
 
         env.close()
 
@@ -390,12 +391,16 @@ class AgentTMAX(AgentLearner):
         reach_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='reach_opt')
         self.train_reachability = reach_opt.minimize(self.reachability.loss, global_step=self.reach_step)
 
+        locomotion_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='locomotion_opt')
+        self.train_locomotion = locomotion_opt.minimize(self.locomotion.loss, global_step=self.locomotion_step)
+
         # summaries
         self.add_summaries()
 
         self.actor_summaries = merge_summaries(collections=['actor'])
         self.critic_summaries = merge_summaries(collections=['critic'])
         self.reach_summaries = merge_summaries(collections=['reachability'])
+        self.locomotion_summaries = merge_summaries(collections=['locomotion'])
 
         self.saver = tf.train.Saver(max_to_keep=3)
 
@@ -485,14 +490,21 @@ class AgentTMAX(AgentLearner):
             reachability_scalar = partial(tf.summary.scalar, collections=['reachability'])
             reachability_scalar('reach_loss', self.reachability.loss)
 
+        with tf.name_scope('locomotion'):
+            locomotion_scalar = partial(tf.summary.scalar, collections=['locomotion'])
+            locomotion_scalar('locomotion_loss', self.locomotion.loss)
+            locomotion_scalar('entropy', tf.reduce_mean(self.locomotion.actions_distribution.entropy()))
+
     def _maybe_print(self, step, env_step, avg_rewards, avg_length, fps, t):
         log.info('<====== Step %d, env step %.2fM ======>', step, env_step / 1000000)
         log.info('Avg FPS: %.1f', fps)
         log.info('Experience for batch took %.3f sec (%.1f batches/s)', t.experience, 1.0 / t.experience)
         log.info('Train step for batch took %.3f sec (%.1f batches/s)', t.train, 1.0 / t.train)
         log.info('Train reachability took %.3f sec (%.1f batches/s)', t.reach, 1.0 / t.reach)
+        log.info('Train locomotion took %.3f sec (%.1f batches/s)', t.locomotion, 1.0 / t.locomotion)
 
         if math.isnan(avg_rewards) or math.isnan(avg_length):
+            log.info('Not enough episodes to calculate avg. reward...')
             return
 
         log.info('Avg. %d episode lenght: %.3f', self.params.stats_episodes, avg_length)
@@ -645,6 +657,10 @@ class AgentTMAX(AgentLearner):
         self._train_critic(buffer, env_steps)
         return step
 
+    def _is_bootstrap(self, env_steps):
+        """Check whether we're still in the initial bootstrapping stage."""
+        return env_steps < self.params.bootstrap_env_steps
+
     def _maybe_train_reachability(self, buffer, env_steps):
         if not buffer.has_enough_data():
             return
@@ -694,9 +710,9 @@ class AgentTMAX(AgentLearner):
                 break
             prev_loss = avg_loss
 
-    def _is_bootstrap(self, env_steps):
-        """Check whether we're still in the initial bootstrapping stage."""
-        return env_steps < self.params.bootstrap_env_steps
+    def _maybe_train_locomotion(self, buffer, env_steps):
+        # TODO
+        pass
 
     def update_maps(self, maps, obs, dones, env_steps=None, verbose=False):
         """Omnipotent function for the management of topological maps."""
@@ -845,6 +861,7 @@ class AgentTMAX(AgentLearner):
 
         trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)
         reachability_buffer = ReachabilityBuffer(self.params)
+        locomotion_buffer = []
 
         neighbors = np.zeros(
             [multi_env.num_envs, self.params.max_neighborhood_size] + self.obs_shape, dtype=np.uint8,
@@ -903,6 +920,11 @@ class AgentTMAX(AgentLearner):
             trajectory_buffer.reset_trajectories()
             self._maybe_train_reachability(reachability_buffer, env_steps)
             timing.reach = time.time() - timing.reach
+
+            # update locomotion net
+            timing.locomotion = time.time()
+            self._maybe_train_locomotion(locomotion_buffer, env_steps)
+            timing.locomotion = time.time() - timing.locomotion
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)

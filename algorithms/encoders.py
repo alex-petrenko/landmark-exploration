@@ -30,7 +30,7 @@ class EncoderCNN(Encoder):
             elif img_enc_name == 'convnet_42px':
                 conv_filters = self._convnet_simple([(32, 3, 2)] * 4)  # to fairly compare with previous algos
             elif img_enc_name == 'convnet_84px':
-                conv_filters = self._convnet_simple([(8, 3, 2), (16, 3, 2)] + [(32, 3, 2)] * 3)
+                conv_filters = self._convnet_simple([(16, 3, 2)] + [(32, 3, 2)] * 4)
             else:
                 raise Exception('Unknown model name')
 

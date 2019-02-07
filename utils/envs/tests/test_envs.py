@@ -29,6 +29,6 @@ class TestDoom(TestCase):
         total_time = time.time() - start
 
         fps = total_num_frames / total_time
-        log.debug('Took %.3f sec to collect %d frames on one CPU, %.1f FPS', total_time, total_num_frames, fps)
+        log.debug('Took %.3f sec to collect %d frames on one CPU, %.1f FPS', total_time, total_num_frames, fps * 4)
 
         env.close()

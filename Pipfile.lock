@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "04a754314a533b7f8f02046ca7e24901a683d72892a7b01b6829ee3219179693"
+            "sha256": "3ee3fd6ee3d8bfc3fe1af4e3d0c3d2bc538012e6f6513b3327a0d11574aff4b8"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -333,6 +333,13 @@
                 "sha256:fc9a12aad714af36cf3ad0275a96a733526571e52710319855628f476dcb144e"
             ],
             "version": "==5.4.1"
+        },
+        "pillow-simd": {
+            "hashes": [
+                "sha256:84c7ffb65aee4c2a7aa87800ec734f747d013a0c2f76e1874c62d356040ad597"
+            ],
+            "index": "pypi",
+            "version": "==5.3.0.post0"
         },
         "protobuf": {
             "hashes": [

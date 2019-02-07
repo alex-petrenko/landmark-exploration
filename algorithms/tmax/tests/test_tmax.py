@@ -9,6 +9,7 @@ from algorithms.agent import TrainStatus
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.enjoy_tmax import enjoy
+from algorithms.tmax.locomotion import LocomotionNetwork
 from algorithms.tmax.reachability import ReachabilityNetwork
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.tmax.train_tmax import train
@@ -56,6 +57,28 @@ class TestTMAX(TestCase):
             self.assertAlmostEqual(sum(probabilities), 1.0, places=5)  # probs sum up to 1
             reachability = reachability_net.get_reachability(sess, [obs], [obs])[0]
             self.assertEqual(probabilities[1], reachability)
+
+        env.close()
+
+        g.finalize()
+
+    def test_locomotion(self):
+        g = tf.Graph()
+
+        env = make_doom_env(env_by_name(TEST_ENV_NAME))
+        args, params = parse_args_tmax(AgentTMAX.Params)
+
+        with g.as_default():
+            locomotion_net = LocomotionNetwork(env, params)
+
+        obs = env.reset()
+
+        with tf.Session(graph=g) as sess:
+            sess.run(tf.global_variables_initializer())
+
+            action = locomotion_net.navigate(sess, [obs], [obs])[0]
+            self.assertGreaterEqual(action, 0)
+            self.assertLess(action, env.action_space.n)
 
         env.close()
 
