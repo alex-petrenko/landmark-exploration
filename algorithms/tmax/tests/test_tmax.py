@@ -1,5 +1,6 @@
 import os
 import shutil
+from os.path import join
 from unittest import TestCase
 
 import tensorflow as tf
@@ -12,6 +13,7 @@ from algorithms.tmax.reachability import ReachabilityNetwork
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.tmax.train_tmax import train
 from utils.envs.doom.doom_utils import make_doom_env, env_by_name
+from utils.utils import experiments_dir
 
 
 class TestTMAX(TestCase):
@@ -33,7 +35,7 @@ class TestTMAX(TestCase):
         self.assertTrue(os.path.isdir(root_dir))
 
         enjoy(params, args.env, max_num_episodes=1, max_num_frames=50, fps=1000)
-        shutil.rmtree(root_dir)
+        shutil.rmtree(join(experiments_dir(), params.experiments_root))
 
         self.assertFalse(os.path.isdir(root_dir))
 

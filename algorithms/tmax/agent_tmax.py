@@ -119,7 +119,6 @@ class TmaxPPOBuffer:
     def add(self, obs, actions, action_probs, rewards, dones, values, neighbors, num_neighbors):
         """Append one-step data to the current batch of observations."""
         args = copy.copy(locals())
-        s = str(args)
         for arg_name, arg_value in args.items():
             if arg_name in self.__dict__ and arg_value is not None:
                 self.__dict__[arg_name].append(arg_value)
@@ -487,7 +486,7 @@ class AgentTMAX(AgentLearner):
             reachability_scalar('reach_loss', self.reachability.loss)
 
     def _maybe_print(self, step, env_step, avg_rewards, avg_length, fps, t):
-        log.info('<====== Step %d, env step %.1fM ======>', step, env_step / 1000000)
+        log.info('<====== Step %d, env step %.2fM ======>', step, env_step / 1000000)
         log.info('Avg FPS: %.1f', fps)
         log.info('Experience for batch took %.3f sec (%.1f batches/s)', t.experience, 1.0 / t.experience)
         log.info('Train step for batch took %.3f sec (%.1f batches/s)', t.train, 1.0 / t.train)

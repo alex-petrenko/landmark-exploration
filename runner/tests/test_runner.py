@@ -1,4 +1,6 @@
 import logging
+import shutil
+from os.path import join
 
 import numpy as np
 
@@ -6,6 +8,7 @@ from unittest import TestCase
 
 from runner.run_descriptions.run_description import ParamGrid, ParamList, Experiment, RunDescription
 from runner.run_many import run_many
+from utils.utils import experiments_dir
 
 
 class TestParams(TestCase):
@@ -75,6 +78,9 @@ class TestRunner(TestCase):
             Experiment('test_echo1', 'echo', echo_params.generate_params(randomize=True)),
             Experiment('test_echo2', 'echo', echo_params.generate_params(randomize=False)),
         ]
-        rd = RunDescription('test_run', experiments, max_parallel=10)
+        root_dir_name = '__test_run__'
+        rd = RunDescription(root_dir_name, experiments, max_parallel=10)
         run_many(rd)
         logging.disable(logging.NOTSET)
+
+        shutil.rmtree(join(experiments_dir(), root_dir_name))

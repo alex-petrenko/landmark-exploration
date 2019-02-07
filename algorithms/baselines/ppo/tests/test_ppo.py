@@ -2,6 +2,7 @@ import gc
 import os
 import shutil
 import time
+from os.path import join
 from unittest import TestCase
 
 import numpy as np
@@ -15,7 +16,7 @@ from algorithms.baselines.ppo.train_ppo import train
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tf_utils import placeholder_from_space, placeholders
 from utils.envs.doom.doom_utils import make_doom_env, env_by_name
-from utils.utils import log, AttrDict
+from utils.utils import log, AttrDict, experiments_dir
 
 
 class TestPPO(TestCase):
@@ -36,7 +37,7 @@ class TestPPO(TestCase):
         self.assertTrue(os.path.isdir(root_dir))
 
         enjoy(params, args.env, max_num_episodes=1, fps=1000)
-        shutil.rmtree(root_dir)
+        shutil.rmtree(join(experiments_dir(), params.experiments_root))
 
         self.assertFalse(os.path.isdir(root_dir))
 

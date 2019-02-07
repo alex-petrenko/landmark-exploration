@@ -1,4 +1,5 @@
 import gc
+import shutil
 
 import numpy as np
 import tensorflow as tf
@@ -18,7 +19,7 @@ from utils.utils import log
 
 class TestAlgos(TestCase):
     def test_summary_step(self):
-        params = AgentLearner.AgentParams('test')
+        params = AgentLearner.AgentParams('__test__')
         agent = AgentLearner(params)
 
         self.assertFalse(agent._should_write_summaries(0))
@@ -28,6 +29,8 @@ class TestAlgos(TestCase):
         self.assertTrue(agent._should_write_summaries(1002000 - 1))
         self.assertFalse(agent._should_write_summaries(1001000 - 1))
         self.assertFalse(agent._should_write_summaries(1000100 - 1))
+
+        shutil.rmtree(params.experiment_dir())
 
     def test_run_loop(self):
         env = TimeLimitWrapper(make_doom_env(env_by_name(TEST_ENV_NAME), mode='test'), 50, 0)
