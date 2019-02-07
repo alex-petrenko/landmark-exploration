@@ -21,8 +21,8 @@ class SimilarityNetwork:
 
         encoder_template = tf.make_template('encoder_template', make_encoder_cnn)
 
-        left = encoder_template(self._ob1, 'convnet_simple', name)
-        right = encoder_template(self._ob2, 'convnet_simple', name)
+        left = encoder_template(self._ob1, 'convnet_42px', name)
+        right = encoder_template(self._ob2, 'convnet_42px', name)
         out = tf.concat([left, right], 1)
         out = dense(out, 128)
         out = dense(out, 16)

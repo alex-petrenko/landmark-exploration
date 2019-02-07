@@ -159,8 +159,8 @@ class ResizeAndGrayscaleWrapper(gym.core.Wrapper):
         self.h = h
 
     def _observation(self, obs):
+        obs = cv2.resize(obs, (self.w, self.h), interpolation=cv2.INTER_NEAREST)
         obs = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
-        obs = cv2.resize(obs, (self.w, self.h), interpolation=cv2.INTER_AREA)
         return obs
 
     def reset(self):

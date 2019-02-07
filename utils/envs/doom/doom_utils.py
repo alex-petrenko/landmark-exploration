@@ -7,7 +7,7 @@ from algorithms.env_wrappers import ResizeAndGrayscaleWrapper, StackFramesWrappe
 from utils.envs.doom.wrappers.observation_space import SetResolutionWrapper
 from utils.envs.doom.wrappers.step_human_input import StepHumanInput
 
-DOOM_W = DOOM_H = 42
+DOOM_W = DOOM_H = 84
 
 
 class DoomCfg:

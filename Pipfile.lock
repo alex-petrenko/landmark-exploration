@@ -112,10 +112,10 @@
         },
         "gym": {
             "hashes": [
-                "sha256:69f8281e250cf3d841e725a024aa8277706a9387e8739e57f5d6f4b18eb51a2d"
+                "sha256:f9c79fc295b8b20cfda5ab0a671e72c95615dc77517ae414f8f8b10e9375f155"
             ],
             "index": "pypi",
-            "version": "==0.10.11"
+            "version": "==0.11.0"
         },
         "h5py": {
             "hashes": [
@@ -173,10 +173,10 @@
         },
         "keras-preprocessing": {
             "hashes": [
-                "sha256:6e669aa713727f0bc08f756616f64e0dfa75d822226cfc0dcf33297ab05cef7d",
-                "sha256:c0cbc80c0cd2d9052afd4977a29ed3a8d12e8d131adfde9db62134c0d48c48c0"
+                "sha256:0170b799a7562f80ad7931d22d56de22cf4bdd502e11c48f31a46380137a70a8",
+                "sha256:5e3700117981c2db762e512ed6586638124fac5842170701628088a11aeb51ac"
             ],
-            "version": "==1.0.8"
+            "version": "==1.0.9"
         },
         "markdown": {
             "hashes": [
@@ -386,10 +386,10 @@
         },
         "python-dateutil": {
             "hashes": [
-                "sha256:063df5763652e21de43de7d9e00ccf239f953a832941e37be541614732cdfc93",
-                "sha256:88f9287c0174266bb0d8cedd395cfba9c58e87e5ad86b2ce58859bc11be3cf02"
+                "sha256:7e6584c74aeed623791615e26efd690f29817a27c73085b78e4bad02493df2fb",
+                "sha256:c89805f6f4d64db21ed966fda138f8a5ed7a4fdbc1a8ee329ce1b74e3c74da9e"
             ],
-            "version": "==2.7.5"
+            "version": "==2.8.0"
         },
         "pyyaml": {
             "hashes": [

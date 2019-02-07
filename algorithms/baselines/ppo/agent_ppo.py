@@ -145,7 +145,7 @@ class AgentPPO(AgentLearner):
             self.num_workers = 16  # number of workers used to run the environments
 
             # actor-critic (encoders and models)
-            self.image_enc_name = 'convnet_doom_small'
+            self.image_enc_name = 'convnet_84px'
             self.model_fc_layers = 1
             self.model_fc_size = 256
             self.model_recurrent = False

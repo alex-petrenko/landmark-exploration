@@ -3,7 +3,6 @@ from unittest import TestCase
 import numpy as np
 
 from utils.decay import LinearDecay
-from utils.envs.doom.doom_utils import make_doom_env, env_by_name
 from utils.utils import numpy_all_the_way, numpy_flatten, max_with_idx, min_with_idx
 
 
@@ -70,9 +69,3 @@ class TestUtil(TestCase):
         min_x, min_idx = min_with_idx(x)
         self.assertEqual(min_x, min(x))
         self.assertEqual(min_idx, 4)
-
-
-class TestDoom(TestCase):
-    def test_doom_env(self):
-        env = make_doom_env(env_by_name('maze'))
-        self.assertIsNotNone(env)
