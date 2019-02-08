@@ -168,6 +168,7 @@ class TestPPOPerformance(TestCase):
     def test_performance(self):
         params = AgentPPO.Params('test_performance')
         params.ppo_epochs = 2
+        params.rollout = 16
         env = make_doom_env(env_by_name(TEST_ENV_NAME))
 
         observation_shape = env.observation_space.shape

@@ -17,9 +17,10 @@ from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     observation_summaries, summary_avg_min_max, merge_summaries, tf_shape
 from algorithms.tmax.graph_encoders import make_graph_encoder
-from algorithms.tmax.locomotion import LocomotionNetwork
-from algorithms.tmax.reachability import ReachabilityNetwork
+from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer
+from algorithms.tmax.reachability import ReachabilityNetwork, ReachabilityBuffer
 from algorithms.tmax.topological_map import TopologicalMap
+from algorithms.tmax.trajectory import TrajectoryBuffer
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.utils import log, AttrDict, max_with_idx
 
@@ -77,7 +78,7 @@ class ActorCritic:
         value_fc = dense(value_model.latent, params.model_fc_size // 2, reg)
         self.value = tf.squeeze(tf.contrib.layers.fully_connected(value_fc, 1, activation_fn=None), axis=[1])
 
-        log.info('Total parameters in the model: %d', count_total_parameters())
+        log.info('Total parameters so far: %d', count_total_parameters())
 
     def input_dict(self, observations, neighbors, num_neighbors):
         feed_dict = {self.ph_observations: observations}
@@ -165,120 +166,6 @@ class TmaxPPOBuffer:
         return num_batches
 
 
-class TrajectoryBuffer:
-    """Store trajectories for multiple parallel environments."""
-
-    def __init__(self, num_envs):
-        """For now we don't need anything except obs and actions."""
-        self.obs = [[] for _ in range(num_envs)]
-        self.actions = [[] for _ in range(num_envs)]
-
-        self.complete_trajectories = []
-
-    def reset_trajectories(self):
-        """Discard old trajectories and start collecting new ones."""
-        self.complete_trajectories = []
-
-    def add(self, obs, actions, dones):
-        assert len(obs) == len(actions)
-        for env_idx in range(len(obs)):
-            if dones[env_idx]:
-                # finalize the trajectory and put it into a separate buffer
-                trajectory = AttrDict({'obs': self.obs[env_idx], 'actions': self.actions[env_idx]})
-                self.complete_trajectories.append(trajectory)
-                self.obs[env_idx] = []
-                self.actions[env_idx] = []
-            else:
-                self.obs[env_idx].append(obs[env_idx])
-                self.actions[env_idx].append(actions[env_idx])
-
-
-class ReachabilityBuffer:
-    """Training data for the reachability network (observation pairs and labels)."""
-
-    def __init__(self, params):
-        self.obs_first, self.obs_second, self.labels = [], [], []
-        self.params = params
-
-    def extract_data(self, trajectories, bootstrap_period):
-        obs_first, obs_second, labels = [], [], []
-        for trajectory in trajectories:
-            obs = trajectory.obs
-            episode_len = len(obs)
-
-            obs_pairs_fraction = self.params.obs_pairs_per_episode if bootstrap_period else 1.0
-            num_obs_pairs = int(obs_pairs_fraction * episode_len)
-
-            reachable_thr = self.params.reachable_threshold
-            unreachable_thr = self.params.unreachable_threshold
-
-            try:
-                for _ in range(num_obs_pairs):
-                    # toss a coin to determine if we want a reachable pair or not
-                    reachable = np.random.rand() <= 0.5
-                    threshold = reachable_thr if reachable else unreachable_thr
-
-                    # sample first obs in a pair
-                    first_idx = np.random.randint(0, episode_len - threshold - 1)
-
-                    # sample second obs
-                    if reachable:
-                        second_idx = np.random.randint(first_idx, first_idx + reachable_thr)
-                    else:
-                        second_idx = np.random.randint(first_idx + unreachable_thr, episode_len)
-
-                    obs_first.append(obs[first_idx])
-                    obs_second.append(obs[second_idx])
-                    labels.append(int(reachable))
-            except ValueError:
-                # just in case, if some episode is e.g. too short for unreachable pair
-                log.exception(f'Value error in Reachability buffer! Episode len {episode_len}')
-
-        if len(obs_first) <= 0:
-            return
-
-        if len(self.obs_first) <= 0:
-            self.obs_first = np.array(obs_first)
-            self.obs_second = np.array(obs_second)
-            self.labels = np.array(labels, dtype=np.int32)
-        else:
-            self.obs_first = np.append(self.obs_first, obs_first, axis=0)
-            self.obs_second = np.append(self.obs_second, obs_second, axis=0)
-            self.labels = np.append(self.labels, labels, axis=0)
-
-        self._discard_data()
-
-        assert len(self.obs_first) == len(self.obs_second)
-        assert len(self.obs_first) == len(self.labels)
-
-    def _discard_data(self):
-        """Remove some data if the current buffer is too big."""
-        target_size = self.params.reachability_target_buffer_size
-        if len(self.obs_first) <= target_size:
-            return
-
-        self.shuffle_data()
-        self.obs_first = self.obs_first[:target_size]
-        self.obs_second = self.obs_second[:target_size]
-        self.labels = self.labels[:target_size]
-
-    def has_enough_data(self):
-        len_data, min_data = len(self.obs_first), self.params.reachability_target_buffer_size // 2
-        if len_data < min_data:
-            log.info('Not enough data to train reachability net, %d/%d', len_data, min_data)
-            return False
-        return True
-
-    def shuffle_data(self):
-        if len(self.obs_first) <= 0:
-            return
-
-        chaos = np.random.permutation(len(self.obs_first))
-        self.obs_first = self.obs_first[chaos]
-        self.obs_second = self.obs_second[chaos]
-        self.labels = self.labels[chaos]
-
-
 class AgentTMAX(AgentLearner):
     """Agent based on PPO+TMAX algorithm."""
 
@@ -328,6 +215,11 @@ class AgentTMAX(AgentLearner):
             self.new_landmark_reachability = 0.15  # condition for considering current observation a "new landmark"
             self.loop_closure_reachability = 0.5  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.05  # reward for finding new vertex or new edge in the topological map
+
+            self.locomotion_max_trajectory = 50  # max trajectory length to be utilized for locomotion training
+            self.locomotion_target_buffer_size = 50000  # target number of (obs, goal, action) tuples to store
+            self.locomotion_train_epochs = 1
+            self.locomotion_batch_size = 128
 
             self.bootstrap_env_steps = 750 * 1000
 
@@ -504,7 +396,7 @@ class AgentTMAX(AgentLearner):
         log.info('Train locomotion took %.3f sec (%.1f batches/s)', t.locomotion, 1.0 / t.locomotion)
 
         if math.isnan(avg_rewards) or math.isnan(avg_length):
-            log.info('Not enough episodes to calculate avg. reward...')
+            log.info('Need to gather more data to calculate avg. reward...')
             return
 
         log.info('Avg. %d episode lenght: %.3f', self.params.stats_episodes, avg_length)
@@ -652,7 +544,7 @@ class AgentTMAX(AgentLearner):
                 break
             prev_loss = avg_loss
 
-    def _train(self, buffer, env_steps):
+    def _train_actor_critic(self, buffer, env_steps):
         step = self._train_actor(buffer, env_steps)
         self._train_critic(buffer, env_steps)
         return step
@@ -711,10 +603,50 @@ class AgentTMAX(AgentLearner):
             prev_loss = avg_loss
 
     def _maybe_train_locomotion(self, buffer, env_steps):
-        # TODO
-        pass
+        if not buffer.has_enough_data():
+            return
 
-    def update_maps(self, maps, obs, dones, env_steps=None, verbose=False):
+        batch_size = self.params.locomotion_batch_size
+        summary = None
+        loco_step = self.locomotion_step.eval(session=self.session)
+
+        prev_loss = 1e10
+        losses = []
+        for epoch in range(self.params.locomotion_train_epochs):
+            buffer.shuffle_data()
+            obs_curr, obs_goal, actions = buffer.obs_curr, buffer.obs_goal, buffer.actions
+
+            for i in range(0, len(obs_curr) - 1, batch_size):
+                with_summaries = self._should_write_summaries(loco_step) and summary is None
+                summaries = [self.locomotion_summaries] if with_summaries else []
+
+                start, end = i, i + batch_size
+
+                result = self.session.run(
+                    [self.locomotion.loss, self.train_locomotion] + summaries,
+                    feed_dict={
+                        self.locomotion.ph_obs_curr: obs_curr[start:end],
+                        self.locomotion.ph_obs_goal: obs_goal[start:end],
+                        self.locomotion.ph_actions: actions[start:end],
+                    }
+                )
+
+                loco_step += 1
+                losses.append(result[0])
+
+                if with_summaries:
+                    summary = result[-1]
+                    self.summary_writer.add_summary(summary, global_step=env_steps)
+
+            # check loss improvement at the end of each epoch, early stop if necessary
+            avg_loss = np.mean(losses)
+            if avg_loss > 0.999 * prev_loss:
+                log.info('Early stopping after %d epochs because locomotion did not improve enough', epoch)
+                log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
+                break
+            prev_loss = avg_loss
+
+    def update_maps(self, maps, obs, dones, trajectory_buffer=None, env_steps=None, verbose=False):
         """Omnipotent function for the management of topological maps."""
         assert len(obs) == len(maps)
         num_envs = len(maps)
@@ -783,7 +715,7 @@ class AgentTMAX(AgentLearner):
         # Agents in some environments discovered landmarks that are far away from all landmarks in the immediate
         # neighborhood. There are two possibilities:
         # 1) A new landmark should be created and added to the graph
-        # 2) We found a "loop closure" - a new edge in a graph
+        # 2) We're close to some other vertex in the graph - we've found a "loop closure", a new edge in a graph
 
         non_neighborhood_obs = []
         non_neighborhoods = {}
@@ -821,6 +753,8 @@ class AgentTMAX(AgentLearner):
             else:
                 # vertex is relatively far away from all vertex in the graph, we've found a new landmark!
                 new_landmark_idx = m.add_landmark(obs[env_i])
+                if trajectory_buffer is not None:
+                    trajectory_buffer.set_landmark(env_i)  # this obs should already be in the trajectory buffer
                 m.set_curr_landmark(new_landmark_idx)
 
             bonuses[env_i] += self.params.map_expansion_reward  # we found a new vertex or edge! Cool!
@@ -859,9 +793,9 @@ class AgentTMAX(AgentLearner):
         observations = multi_env.reset()
         buffer = TmaxPPOBuffer()
 
-        trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)
+        trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)  # separate buffer for complete episode trajectories
         reachability_buffer = ReachabilityBuffer(self.params)
-        locomotion_buffer = []
+        locomotion_buffer = LocomotionBuffer(self.params)
 
         neighbors = np.zeros(
             [multi_env.num_envs, self.params.max_neighborhood_size] + self.obs_shape, dtype=np.uint8,
@@ -887,12 +821,12 @@ class AgentTMAX(AgentLearner):
                 # wait for all the workers to complete an environment step
                 new_observations, rewards, dones, infos = multi_env.step(actions)
 
-                bonuses = self.update_maps(maps, new_observations, dones, env_steps)
+                trajectory_buffer.add(observations, actions, dones)
+                bonuses = self.update_maps(maps, new_observations, dones, trajectory_buffer, env_steps)
                 rewards += bonuses
 
                 # add experience from all environments to the current buffer(s)
                 buffer.add(observations, actions, action_probs, rewards, dones, values, neighbors, num_neighbors)
-                trajectory_buffer.add(observations, actions, dones)
                 observations = new_observations
 
                 num_steps += num_env_steps(infos, multi_env.num_envs)
@@ -911,20 +845,22 @@ class AgentTMAX(AgentLearner):
             # update actor and critic
             timing.train = time.time()
             if not self._is_bootstrap(env_steps):
-                step = self._train(buffer, env_steps)
+                step = self._train_actor_critic(buffer, env_steps)
             timing.train = time.time() - timing.train
 
             # update reachability net
             timing.reach = time.time()
             reachability_buffer.extract_data(trajectory_buffer.complete_trajectories, self._is_bootstrap(env_steps))
-            trajectory_buffer.reset_trajectories()
             self._maybe_train_reachability(reachability_buffer, env_steps)
             timing.reach = time.time() - timing.reach
 
             # update locomotion net
             timing.locomotion = time.time()
+            locomotion_buffer.extract_data(trajectory_buffer.complete_trajectories)
             self._maybe_train_locomotion(locomotion_buffer, env_steps)
             timing.locomotion = time.time() - timing.locomotion
+
+            trajectory_buffer.reset_trajectories()
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)

@@ -13,6 +13,7 @@ from algorithms.tmax.locomotion import LocomotionNetwork
 from algorithms.tmax.reachability import ReachabilityNetwork
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.tmax.train_tmax import train
+from algorithms.tmax.trajectory import TrajectoryBuffer
 from utils.envs.doom.doom_utils import make_doom_env, env_by_name
 from utils.utils import experiments_dir
 
@@ -83,3 +84,20 @@ class TestTMAX(TestCase):
         env.close()
 
         g.finalize()
+
+    def test_trajectory(self):
+        num_envs = 10
+        buffer = TrajectoryBuffer(num_envs)
+        self.assertEqual(len(buffer.current_trajectories[0].landmarks), 1)
+
+        buffer.add([0] * num_envs, [0] * num_envs, [False] * 10)
+        buffer.add([0] * num_envs, [0] * num_envs, [False] * 10)
+        buffer.set_landmark(3)
+        buffer.add([0] * num_envs, [0] * num_envs, [True] * 10)
+
+        self.assertEqual(len(buffer.complete_trajectories), num_envs)
+
+        for i in range(num_envs):
+            if len(buffer.complete_trajectories[i].landmarks) > 1:
+                self.assertEqual(i, 3)
+                self.assertEqual(buffer.complete_trajectories[i].landmarks, [0, 1])
