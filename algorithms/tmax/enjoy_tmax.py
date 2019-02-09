@@ -6,7 +6,7 @@ from threading import Thread
 import cv2
 from pynput.keyboard import Key, Listener
 
-from algorithms.tmax.agent_tmax import AgentTMAX, TmaxManager
+from algorithms.tmax.agent_tmax import AgentTMAX, TmaxManager, Intention
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.tmax.topological_map import TopologicalMap
 from utils.envs.envs import create_env
@@ -63,8 +63,10 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=100
         if tmax_mgr is None:
             tmax_mgr = TmaxManager([obs], agent.params)
             intentions = tmax_mgr.get_intentions()
+            intentions = [Intention.vector(Intention.EXPLORER)]
         else:
             bonuses, intentions = tmax_mgr.update(agent, [obs], [True], verbose=True)
+            intentions = [Intention.vector(Intention.EXPLORER)]
 
         start_episode = time.time()
         while not done and not terminate and not max_frames_reached(num_frames):

@@ -178,9 +178,9 @@ class Intention:
     EXPLORER, CURIOUS, GREEDY = range(NUM_MODES)
 
     MODES = {
-        EXPLORER: [EXTRINSIC_REWARD],
+        EXPLORER: [INTRINSIC_REWARD],
         CURIOUS: [EXTRINSIC_REWARD, INTRINSIC_REWARD],
-        GREEDY: [INTRINSIC_REWARD],
+        GREEDY: [EXTRINSIC_REWARD],
     }
 
     @classmethod
@@ -195,8 +195,9 @@ class Intention:
 
     @classmethod
     def sample_random(cls):
-        mode = np.random.randint(0, cls.NUM_MODES)
-        return mode
+        modes = [cls.EXPLORER, cls.CURIOUS]
+        mode = np.random.randint(0, len(modes))
+        return modes[mode]
 
 
 class TmaxManager:
@@ -406,7 +407,7 @@ class AgentTMAX(AgentLearner):
 
             self.new_landmark_reachability = 0.15  # condition for considering current observation a "new landmark"
             self.loop_closure_reachability = 0.5  # condition for graph loop closure (finding new edge)
-            self.map_expansion_reward = 0.1  # reward for finding new vertex or new edge in the topological map
+            self.map_expansion_reward = 0.05  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 50  # max trajectory length to be utilized for locomotion training
             self.locomotion_target_buffer_size = 25000  # target number of (obs, goal, action) tuples to store
