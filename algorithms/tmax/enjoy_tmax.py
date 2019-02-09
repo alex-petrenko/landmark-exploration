@@ -6,7 +6,7 @@ from threading import Thread
 import cv2
 from pynput.keyboard import Key, Listener
 
-from algorithms.tmax.agent_tmax import AgentTMAX
+from algorithms.tmax.agent_tmax import AgentTMAX, TmaxManager
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.tmax.topological_map import TopologicalMap
 from utils.envs.envs import create_env
@@ -51,7 +51,7 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=100
     episode_rewards = []
     num_frames = 0
 
-    graph = None
+    tmax_mgr = None
     neighbors = np.zeros([1, agent.params.max_neighborhood_size] + agent.obs_shape, dtype=np.uint8)
 
     def max_frames_reached(frames):
@@ -60,10 +60,11 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=100
     for _ in range(max_num_episodes):
         obs, done = env.reset(), False
         episode_reward, episode_frames = 0, 0
-        if graph is None:
-            graph = TopologicalMap(obs, verbose=True)
+        if tmax_mgr is None:
+            tmax_mgr = TmaxManager([obs], agent.params)
+            intentions = tmax_mgr.get_intentions()
         else:
-            agent.update_maps([graph], [obs], [True])
+            bonuses, intentions = tmax_mgr.update(agent, [obs], [True], verbose=True)
 
         start_episode = time.time()
         while not done and not terminate and not max_frames_reached(num_frames):
@@ -74,12 +75,12 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=100
             if pause:
                 continue
 
-            neighbors, num_neighbors = agent.get_neighbors([graph], neighbors)
-            action = agent.best_action_tmax([obs], neighbors, num_neighbors, deterministic=False)
+            neighbors, num_neighbors = tmax_mgr.get_neighbors(neighbors)
+            action = agent.best_action_tmax([obs], neighbors, num_neighbors, intentions, deterministic=False)
             obs, rew, done, _ = env.step(action)
 
             if not done:
-                bonus = agent.update_maps([graph], [obs], [done], verbose=True)
+                bonus = tmax_mgr.update(agent, [obs], [done], verbose=True)
                 bonus = bonus[0]
                 if bonus > 0:
                     log.info('Bonus %.3f received', bonus)

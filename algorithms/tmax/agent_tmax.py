@@ -15,7 +15,7 @@ from algorithms.env_wrappers import get_observation_space
 from algorithms.models import make_model
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
-    observation_summaries, summary_avg_min_max, merge_summaries, tf_shape
+    observation_summaries, summary_avg_min_max, merge_summaries, tf_shape, placeholder
 from algorithms.tmax.graph_encoders import make_graph_encoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer
 from algorithms.tmax.reachability import ReachabilityNetwork, ReachabilityBuffer
@@ -51,17 +51,19 @@ def encode_obs_and_neighbors(env, observations, neighbors, num_neighbors, reg, p
 
 
 class ActorCritic:
-    def __init__(self, env, ph_observations, ph_neighbors, ph_num_neighbors, params):
+    def __init__(self, env, ph_observations, ph_neighbors, ph_num_neighbors, ph_intentions, params):
         self.ph_observations = ph_observations
         self.ph_neighbors = ph_neighbors
         self.ph_num_neighbors = ph_num_neighbors
+        self.ph_intentions = ph_intentions
 
         reg = None  # don't use L2 regularization
 
         # actor computation graph
         actor_encoder = tf.make_template('act_enc', encode_obs_and_neighbors, create_scope_now_=True)
         actor_encoded_obs = actor_encoder(env, ph_observations, ph_neighbors, ph_num_neighbors, reg, params)
-        actor_model = make_model(actor_encoded_obs, reg, params, 'act_mdl')
+        actor_all_input = tf.concat([actor_encoded_obs, ph_intentions], axis=1)
+        actor_model = make_model(actor_all_input, reg, params, 'act_mdl')
 
         actions_fc = dense(actor_model.latent, params.model_fc_size // 2, reg)
         action_logits = tf.contrib.layers.fully_connected(actions_fc, env.action_space.n, activation_fn=None)
@@ -73,50 +75,51 @@ class ActorCritic:
         # critic computation graph
         value_encoder = tf.make_template('val_enc', encode_obs_and_neighbors, create_scope_now_=True)
         value_encoded_obs = value_encoder(env, ph_observations, ph_neighbors, ph_num_neighbors, reg, params)
-        value_model = make_model(value_encoded_obs, reg, params, 'val_mdl')
+        value_all_input = tf.concat([value_encoded_obs, ph_intentions], axis=1)
+        value_model = make_model(value_all_input, reg, params, 'val_mdl')
 
         value_fc = dense(value_model.latent, params.model_fc_size // 2, reg)
         self.value = tf.squeeze(tf.contrib.layers.fully_connected(value_fc, 1, activation_fn=None), axis=[1])
 
         log.info('Total parameters so far: %d', count_total_parameters())
 
-    def input_dict(self, observations, neighbors, num_neighbors):
-        feed_dict = {self.ph_observations: observations}
+    def input_dict(self, observations, neighbors, num_neighbors, intentions):
+        feed_dict = {self.ph_observations: observations, self.ph_intentions: intentions}
         if self.ph_neighbors is not None and self.ph_num_neighbors is not None:
             feed_dict[self.ph_neighbors] = neighbors
             feed_dict[self.ph_num_neighbors] = num_neighbors
         return feed_dict
 
-    def invoke(self, session, observations, neighbors, num_neighbors, deterministic=False):
+    def invoke(self, session, observations, neighbors, num_neighbors, intentions, deterministic=False):
         ops = [
             self.best_action_deterministic if deterministic else self.act,
             self.action_prob,
             self.value,
         ]
-        feed_dict = self.input_dict(observations, neighbors, num_neighbors)
+        feed_dict = self.input_dict(observations, neighbors, num_neighbors, intentions)
         actions, action_prob, values = session.run(ops, feed_dict=feed_dict)
         return actions, action_prob, values
 
-    def best_action(self, session, observations, neighbors, num_neighbors, deterministic=False):
-        feed_dict = self.input_dict(observations, neighbors, num_neighbors)
-        actions = session.run(
-            self.best_action_deterministic if deterministic else self.act, feed_dict=feed_dict,
-        )
+    def best_action(self, session, observations, neighbors, num_neighbors, intentions, deterministic=False):
+        feed_dict = self.input_dict(observations, neighbors, num_neighbors, intentions)
+        actions = session.run(self.best_action_deterministic if deterministic else self.act, feed_dict=feed_dict)
         return actions
 
 
 class TmaxPPOBuffer:
     def __init__(self):
         self.obs = self.actions = self.action_probs = self.rewards = self.dones = self.values = None
-        self.advantages = self.returns = None
         self.neighbors, self.num_neighbors = None, None
+        self.intentions = None
+        self.advantages = self.returns = None
 
     def reset(self):
         self.obs, self.actions, self.action_probs, self.rewards, self.dones, self.values = [], [], [], [], [], []
         self.neighbors, self.num_neighbors = [], []
+        self.intentions = []
         self.advantages = self.returns = None
 
-    def add(self, obs, actions, action_probs, rewards, dones, values, neighbors, num_neighbors):
+    def add(self, obs, actions, action_probs, rewards, dones, values, neighbors, num_neighbors, intentions):
         """Append one-step data to the current batch of observations."""
         args = copy.copy(locals())
         for arg_name, arg_value in args.items():
@@ -163,7 +166,196 @@ class TmaxPPOBuffer:
         assert self.obs.shape[0] == num_batches
         assert self.rewards.shape[0] == num_batches
         assert self.neighbors.shape[0] == num_batches
+        assert self.intentions.shape[0] == num_batches
         return num_batches
+
+
+class Intention:
+    """The mode of operation: whether we care about only external reward, or only internal reward, or both."""
+    EXTRINSIC_REWARD, INTRINSIC_REWARD = range(2)
+
+    NUM_MODES = 3
+    EXPLORER, CURIOUS, GREEDY = range(NUM_MODES)
+
+    MODES = {
+        EXPLORER: [EXTRINSIC_REWARD],
+        CURIOUS: [EXTRINSIC_REWARD, INTRINSIC_REWARD],
+        GREEDY: [INTRINSIC_REWARD],
+    }
+
+    @classmethod
+    def vector(cls, mode):
+        """Determines what kind of reward the agent should care about."""
+        intention = [0, 0]
+        for reward_type in cls.MODES[mode]:
+            intention[reward_type] = 1
+
+        assert sum(intention) > 0  # having no reward at all does not make sense
+        return intention
+
+    @classmethod
+    def sample_random(cls):
+        mode = np.random.randint(0, cls.NUM_MODES)
+        return mode
+
+
+class TmaxManager:
+    """
+    This class takes care of topological memory and other aspects of policy execution and learning in the
+    (potentially) multi-env setting.
+    """
+
+    def __init__(self, initial_obs, params):
+        self.params = params
+        self.num_envs = len(initial_obs)
+        self.maps = [TopologicalMap(obs) for obs in initial_obs]
+        self.intentions = [Intention.EXPLORER for _ in range(self.num_envs)]
+
+    def update(self, agent, obs, dones, trajectory_buffer=None, is_bootstrap=False, verbose=False):
+        """Omnipotent function for the management of topological maps and policy modes."""
+        maps = self.maps
+
+        assert len(obs) == len(maps)
+        num_envs = len(maps)
+
+        bonuses = np.zeros([num_envs])
+
+        if is_bootstrap:
+            # don't bother updating the graph when the reachability net isn't trained yet
+            return bonuses, self.get_intentions()
+
+        def log_verbose(s, *args):
+            if verbose:
+                log.debug(s, *args)
+
+        for i, m in enumerate(maps):
+            if dones[i]:
+                m.reset(obs[i])  # reset graph on episode termination (TODO! there must be a better policy)
+                self.intentions[i] = Intention.sample_random()
+
+        # create a batch of all neighborhood observations from all envs for fast processing on GPU
+        neighborhood_obs = []
+        current_obs = []
+        for i, m in enumerate(maps):
+            neighbor_indices = m.neighbor_indices()
+            neighborhood_obs.extend([m.landmarks[i] for i in neighbor_indices])
+            current_obs.extend([obs[i]] * len(neighbor_indices))
+
+        assert len(neighborhood_obs) == len(current_obs)
+
+        # calculate reachability for all neighborhoods in all envs
+        reachabilities = agent.reachability.get_reachability(agent.session, neighborhood_obs, current_obs)
+
+        new_landmark_candidates = []
+
+        j = 0
+        for env_i, m in enumerate(maps):
+            neighbor_indices = m.neighbor_indices()
+            j_next = j + len(neighbor_indices)
+            reachability = reachabilities[j:j_next]
+
+            # optional diagnostic logging
+            log_reachability = True
+            if verbose and log_reachability:
+                neighbor_reachability = {}
+                for i, neighbor_idx in enumerate(neighbor_indices):
+                    neighbor_reachability[neighbor_idx] = '{:.3f}'.format(reachability[i])
+                log_verbose('Env %d reachability: %r', env_i, neighbor_reachability)
+
+            # check if we're far enough from all landmarks in the neighborhood
+            max_r = max(reachability)
+            if max_r < self.params.new_landmark_reachability:
+                # we're far enough from all obs in the neighborhood, might have found something new!
+                new_landmark_candidates.append(env_i)
+            else:
+                # we're still sufficiently close to our neighborhood, but maybe "current landmark" has changed
+                max_r, max_r_idx = max_with_idx(reachability)
+                m.set_curr_landmark(neighbor_indices[max_r_idx])
+
+            j = j_next
+
+        del neighborhood_obs
+        del current_obs
+
+        # Agents in some environments discovered landmarks that are far away from all landmarks in the immediate
+        # neighborhood. There are two possibilities:
+        # 1) A new landmark should be created and added to the graph
+        # 2) We're close to some other vertex in the graph - we've found a "loop closure", a new edge in a graph
+
+        non_neighborhood_obs = []
+        non_neighborhoods = {}
+        current_obs = []
+        for env_i in new_landmark_candidates:
+            m = maps[env_i]
+            non_neighbor_indices = m.non_neighbor_indices()
+            non_neighborhoods[env_i] = non_neighbor_indices
+            non_neighborhood_obs.extend([m.landmarks[i] for i in non_neighbor_indices])
+            current_obs.extend([obs[env_i]] * len(non_neighbor_indices))
+
+        # this can be potentially a very large batch, should we divide it into mini-batches?
+        assert len(non_neighborhood_obs) == len(current_obs)
+
+        # calculate reachability for all non-neighbors
+        reachabilities = []
+        if len(non_neighborhood_obs) != 0:
+            reachabilities = agent.reachability.get_reachability(agent.session, non_neighborhood_obs, current_obs)
+
+        j = 0
+        for env_i in new_landmark_candidates:
+            m = maps[env_i]
+            non_neighbor_indices = non_neighborhoods[env_i]
+            j_next = j + len(non_neighbor_indices)
+            reachability = reachabilities[j:j_next]
+
+            max_r, max_r_idx = -math.inf, -math.inf
+            if len(reachability) > 0:
+                max_r, max_r_idx = max_with_idx(reachability)
+
+            if max_r > self.params.loop_closure_reachability:
+                # current observation is close to some other landmark, "close the loop" by creating a new edge
+                m.set_curr_landmark(non_neighbor_indices[max_r_idx])
+                log_verbose('Change current landmark to %d (loop closure)', m.curr_landmark_idx)
+            else:
+                # vertex is relatively far away from all vertex in the graph, we've found a new landmark!
+                new_landmark_idx = m.add_landmark(obs[env_i])
+                if trajectory_buffer is not None:
+                    trajectory_buffer.set_landmark(env_i)  # this obs should already be in the trajectory buffer
+                m.set_curr_landmark(new_landmark_idx)
+
+            bonuses[env_i] += self.params.map_expansion_reward  # we found a new vertex or edge! Cool!
+            j = j_next
+
+        return bonuses, self.get_intentions()
+
+    def get_neighbors(self, neighbors_buffer):
+        if not self.params.use_neighborhood_encoder:
+            return None, None
+
+        maps = self.maps
+
+        neighbors_buffer.fill(0)
+        num_neighbors = [0] * len(maps)
+
+        for env_idx, m in enumerate(maps):
+            n_indices = m.neighbor_indices()
+            random.shuffle(n_indices)  # order of neighbors does not matter
+
+            for i, n_idx in enumerate(n_indices):
+                if i >= self.params.max_neighborhood_size:
+                    log.warning(
+                        'Too many neighbors %d, max encoded is %d. Had to ignore some neighbors.',
+                        len(n_indices), self.params.max_neighborhood_size,
+                    )
+                    break
+
+                neighbors_buffer[env_idx, i] = m.landmarks[n_idx]
+            num_neighbors[env_idx] = min(len(n_indices), self.params.max_neighborhood_size)
+
+        return neighbors_buffer, num_neighbors
+
+    def get_intentions(self):
+        intentions = [Intention.vector(intention) for intention in self.intentions]
+        return intentions
 
 
 class AgentTMAX(AgentLearner):
@@ -214,7 +406,7 @@ class AgentTMAX(AgentLearner):
 
             self.new_landmark_reachability = 0.15  # condition for considering current observation a "new landmark"
             self.loop_closure_reachability = 0.5  # condition for graph loop closure (finding new edge)
-            self.map_expansion_reward = 0.05  # reward for finding new vertex or new edge in the topological map
+            self.map_expansion_reward = 0.1  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 50  # max trajectory length to be utilized for locomotion training
             self.locomotion_target_buffer_size = 25000  # target number of (obs, goal, action) tuples to store
@@ -251,14 +443,16 @@ class AgentTMAX(AgentLearner):
         self.ph_actions = placeholder_from_space(env.action_space)  # actions sampled from the policy
         self.ph_advantages, self.ph_returns, self.ph_old_action_probs = placeholders(None, None, None)
 
+        self.ph_intentions = placeholder(2)  # 3 possible intentions (0, 1), (1, 1), and (1, 0)
+
         # placeholders for the graph neighborhood
         self.ph_neighbors, self.ph_num_neighbors = None, None
         if params.use_neighborhood_encoder:
-            self.ph_neighbors = tf.placeholder(tf.float32, shape=[None, params.max_neighborhood_size] + self.obs_shape)
+            self.ph_neighbors = placeholder([params.max_neighborhood_size] + self.obs_shape)
             self.ph_num_neighbors = tf.placeholder(tf.int32, shape=[None])
 
         self.actor_critic = ActorCritic(
-            env, self.ph_observations, self.ph_neighbors, self.ph_num_neighbors, self.params,
+            env, self.ph_observations, self.ph_neighbors, self.ph_num_neighbors, self.ph_intentions, self.params,
         )
 
         self.reachability = ReachabilityNetwork(env, params)
@@ -452,8 +646,10 @@ class AgentTMAX(AgentLearner):
     def best_action(self, observation):
         raise NotImplementedError('Not supported! Use best_action_tmax')
 
-    def best_action_tmax(self, observations, neighbors, num_neighbors, deterministic=False):
-        actions = self.actor_critic.best_action(self.session, observations, neighbors, num_neighbors, deterministic)
+    def best_action_tmax(self, observations, neighbors, num_neighbors, intentions, deterministic=False):
+        actions = self.actor_critic.best_action(
+            self.session, observations, neighbors, num_neighbors, intentions, deterministic,
+        )
         return actions[0]
 
     def _train_actor(self, buffer, env_steps):
@@ -471,6 +667,10 @@ class AgentTMAX(AgentLearner):
                 with_summaries = self._should_write_summaries(actor_step) and summary is None
                 summaries = [self.actor_summaries] if with_summaries else []
 
+                policy_input = self.actor_critic.input_dict(
+                    buffer.obs[i], buffer.neighbors[i], buffer.num_neighbors[i], buffer.intentions[i],
+                )
+
                 result = self.session.run(
                     [self.objectives.sample_kl, self.train_actor] + summaries,
                     feed_dict={
@@ -478,7 +678,7 @@ class AgentTMAX(AgentLearner):
                         self.ph_old_action_probs: buffer.action_probs[i],
                         self.ph_advantages: buffer.advantages[i],
                         self.ph_returns: buffer.returns[i],
-                        **self.actor_critic.input_dict(buffer.obs[i], buffer.neighbors[i], buffer.num_neighbors[i]),
+                        **policy_input,
                     }
                 )
 
@@ -521,12 +721,13 @@ class AgentTMAX(AgentLearner):
                 with_summaries = self._should_write_summaries(critic_step) and summary is None
                 summaries = [self.critic_summaries] if with_summaries else []
 
+                policy_input = self.actor_critic.input_dict(
+                    buffer.obs[i], buffer.neighbors[i], buffer.num_neighbors[i], buffer.intentions[i],
+                )
+
                 result = self.session.run(
                     [self.objectives.critic_loss, self.train_critic] + summaries,
-                    feed_dict={
-                        self.ph_returns: buffer.returns[i],
-                        **self.actor_critic.input_dict(buffer.obs[i], buffer.neighbors[i], buffer.num_neighbors[i]),
-                    }
+                    feed_dict={self.ph_returns: buffer.returns[i], **policy_input},
                 )
 
                 critic_step += 1
@@ -646,145 +847,16 @@ class AgentTMAX(AgentLearner):
                 break
             prev_loss = avg_loss
 
-    def update_maps(self, maps, obs, dones, trajectory_buffer=None, env_steps=None, verbose=False):
-        """Omnipotent function for the management of topological maps."""
-        assert len(obs) == len(maps)
-        num_envs = len(maps)
+    @staticmethod
+    def _combine_rewards(num_envs, extrinsic, intrinsic, intentions):
+        rewards = [0] * num_envs
 
-        bonuses = np.zeros([num_envs])
+        for env_idx in range(num_envs):
+            intention = intentions[env_idx]
+            rewards[env_idx] += extrinsic[env_idx] * intention[Intention.EXTRINSIC_REWARD]
+            rewards[env_idx] += intrinsic[env_idx] * intention[Intention.INTRINSIC_REWARD]
 
-        if env_steps is None:
-            env_steps = self.session.run(self.total_env_steps)
-
-        if self._is_bootstrap(env_steps):
-            # don't bother updating the graph when the reachability net isn't trained yet
-            return bonuses
-
-        def log_verbose(s, *args):
-            if verbose:
-                log.debug(s, *args)
-
-        for i, m in enumerate(maps):
-            if dones[i]:
-                m.reset(obs[i])  # reset graph on episode termination (TODO! there must be a better policy)
-
-        # create a batch of all neighborhood observations from all envs for fast processing on GPU
-        neighborhood_obs = []
-        current_obs = []
-        for i, m in enumerate(maps):
-            neighbor_indices = m.neighbor_indices()
-            neighborhood_obs.extend([m.landmarks[i] for i in neighbor_indices])
-            current_obs.extend([obs[i]] * len(neighbor_indices))
-
-        assert len(neighborhood_obs) == len(current_obs)
-
-        # calculate reachability for all neighborhoods in all envs
-        reachabilities = self.reachability.get_reachability(self.session, neighborhood_obs, current_obs)
-
-        new_landmark_candidates = []
-
-        j = 0
-        for env_i, m in enumerate(maps):
-            neighbor_indices = m.neighbor_indices()
-            j_next = j + len(neighbor_indices)
-            reachability = reachabilities[j:j_next]
-
-            # optional diagnostic logging
-            log_reachability = True
-            if verbose and log_reachability:
-                neighbor_reachability = {}
-                for i, neighbor_idx in enumerate(neighbor_indices):
-                    neighbor_reachability[neighbor_idx] = '{:.3f}'.format(reachability[i])
-                log_verbose('Env %d reachability: %r', env_i, neighbor_reachability)
-
-            # check if we're far enough from all landmarks in the neighborhood
-            max_r = max(reachability)
-            if max_r < self.params.new_landmark_reachability:
-                # we're far enough from all obs in the neighborhood, might have found something new!
-                new_landmark_candidates.append(env_i)
-            else:
-                # we're still sufficiently close to our neighborhood, but maybe "current landmark" has changed
-                max_r, max_r_idx = max_with_idx(reachability)
-                m.set_curr_landmark(neighbor_indices[max_r_idx])
-
-            j = j_next
-
-        del neighborhood_obs
-        del current_obs
-
-        # Agents in some environments discovered landmarks that are far away from all landmarks in the immediate
-        # neighborhood. There are two possibilities:
-        # 1) A new landmark should be created and added to the graph
-        # 2) We're close to some other vertex in the graph - we've found a "loop closure", a new edge in a graph
-
-        non_neighborhood_obs = []
-        non_neighborhoods = {}
-        current_obs = []
-        for env_i in new_landmark_candidates:
-            m = maps[env_i]
-            non_neighbor_indices = m.non_neighbor_indices()
-            non_neighborhoods[env_i] = non_neighbor_indices
-            non_neighborhood_obs.extend([m.landmarks[i] for i in non_neighbor_indices])
-            current_obs.extend([obs[env_i]] * len(non_neighbor_indices))
-
-        # this can be potentially a very large batch, should we divide it into mini-batches?
-        assert len(non_neighborhood_obs) == len(current_obs)
-
-        # calculate reachability for all non-neighbors
-        reachabilities = []
-        if len(non_neighborhood_obs) != 0:
-            reachabilities = self.reachability.get_reachability(self.session, non_neighborhood_obs, current_obs)
-
-        j = 0
-        for env_i in new_landmark_candidates:
-            m = maps[env_i]
-            non_neighbor_indices = non_neighborhoods[env_i]
-            j_next = j + len(non_neighbor_indices)
-            reachability = reachabilities[j:j_next]
-
-            max_r, max_r_idx = -math.inf, -math.inf
-            if len(reachability) > 0:
-                max_r, max_r_idx = max_with_idx(reachability)
-
-            if max_r > self.params.loop_closure_reachability:
-                # current observation is close to some other landmark, "close the loop" by creating a new edge
-                m.set_curr_landmark(non_neighbor_indices[max_r_idx])
-                log_verbose('Change current landmark to %d (loop closure)', m.curr_landmark_idx)
-            else:
-                # vertex is relatively far away from all vertex in the graph, we've found a new landmark!
-                new_landmark_idx = m.add_landmark(obs[env_i])
-                if trajectory_buffer is not None:
-                    trajectory_buffer.set_landmark(env_i)  # this obs should already be in the trajectory buffer
-                m.set_curr_landmark(new_landmark_idx)
-
-            bonuses[env_i] += self.params.map_expansion_reward  # we found a new vertex or edge! Cool!
-            j = j_next
-
-        return bonuses
-
-    def get_neighbors(self, maps, neighbors_buffer):
-        if not self.params.use_neighborhood_encoder:
-            return None, None
-
-        neighbors_buffer.fill(0)
-        num_neighbors = [0] * len(maps)
-
-        for env_idx, m in enumerate(maps):
-            n_indices = m.neighbor_indices()
-            random.shuffle(n_indices)  # order of neighbors does not matter
-
-            for i, n_idx in enumerate(n_indices):
-                if i >= self.params.max_neighborhood_size:
-                    log.warning(
-                        'Too many neighbors %d, max encoded is %d. Had to ignore some neighbors.',
-                        len(n_indices), self.params.max_neighborhood_size,
-                    )
-                    break
-
-                neighbors_buffer[env_idx, i] = m.landmarks[n_idx]
-            num_neighbors[env_idx] = min(len(n_indices), self.params.max_neighborhood_size)
-
-        return neighbors_buffer, num_neighbors
+        return rewards
 
     def _learn_loop(self, multi_env):
         """Main training loop."""
@@ -801,7 +873,8 @@ class AgentTMAX(AgentLearner):
             [multi_env.num_envs, self.params.max_neighborhood_size] + self.obs_shape, dtype=np.uint8,
         )
 
-        maps = [TopologicalMap(obs) for obs in observations]
+        tmax_mgr = TmaxManager(observations, self.params)
+        intentions = tmax_mgr.get_intentions()
 
         def end_of_training(s, es):
             return s >= self.params.train_for_steps or es > self.params.train_for_env_steps
@@ -809,31 +882,34 @@ class AgentTMAX(AgentLearner):
         while not end_of_training(step, env_steps):
             timing = AttrDict({'experience': time.time(), 'rollout': time.time()})
             buffer.reset()
+            is_bootstrap = self._is_bootstrap(env_steps)
 
             # collecting experience
             num_steps = 0
             for rollout_step in range(self.params.rollout):
-                neighbors, num_neighbors = self.get_neighbors(maps, neighbors)
+                neighbors, num_neighbors = tmax_mgr.get_neighbors(neighbors)
                 actions, action_probs, values = self.actor_critic.invoke(
-                    self.session, observations, neighbors, num_neighbors,
+                    self.session, observations, neighbors, num_neighbors, intentions,
                 )
 
                 # wait for all the workers to complete an environment step
                 new_observations, rewards, dones, infos = multi_env.step(actions)
 
                 trajectory_buffer.add(observations, actions, dones)
-                bonuses = self.update_maps(maps, new_observations, dones, trajectory_buffer, env_steps)
-                rewards += bonuses
+                bonuses, intentions = tmax_mgr.update(self, new_observations, dones, trajectory_buffer, is_bootstrap)
+                rewards = self._combine_rewards(multi_env.num_envs, rewards, bonuses, intentions)
 
                 # add experience from all environments to the current buffer(s)
-                buffer.add(observations, actions, action_probs, rewards, dones, values, neighbors, num_neighbors)
+                buffer.add(
+                    observations, actions, action_probs, rewards, dones, values, neighbors, num_neighbors, intentions,
+                )
                 observations = new_observations
 
                 num_steps += num_env_steps(infos, multi_env.num_envs)
 
             # last step values are required for TD-return calculation
-            neighbors, num_neighbors = self.get_neighbors(maps, neighbors)
-            _, _, values = self.actor_critic.invoke(self.session, observations, neighbors, num_neighbors)
+            neighbors, num_neighbors = tmax_mgr.get_neighbors(neighbors)
+            _, _, values = self.actor_critic.invoke(self.session, observations, neighbors, num_neighbors, intentions)
             buffer.values.append(values)
 
             timing.experience = time.time() - timing.experience
@@ -850,7 +926,7 @@ class AgentTMAX(AgentLearner):
 
             # update reachability net
             timing.reach = time.time()
-            reachability_buffer.extract_data(trajectory_buffer.complete_trajectories, self._is_bootstrap(env_steps))
+            reachability_buffer.extract_data(trajectory_buffer.complete_trajectories, is_bootstrap)
             self._maybe_train_reachability(reachability_buffer, env_steps)
             timing.reach = time.time() - timing.reach
 
@@ -868,7 +944,7 @@ class AgentTMAX(AgentLearner):
 
             self._maybe_print(step, env_steps, avg_reward, avg_length, fps, timing)
             self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps)
-            self._maybe_map_summaries(maps, env_steps)
+            self._maybe_map_summaries(tmax_mgr.maps, env_steps)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
 
     def learn(self):
