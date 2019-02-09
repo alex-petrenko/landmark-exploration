@@ -15,9 +15,9 @@ class LocomotionNetwork:
         self.ph_obs_curr, self.ph_obs_goal = placeholders_from_spaces(obs_space, obs_space)
         self.ph_actions = placeholder_from_space(env.action_space)
 
-        with tf.variable_scope('locomotion'):
+        with tf.variable_scope('loco'):
             encoder = tf.make_template(
-                'siamese_enc_loc', make_encoder, create_scope_now_=True, env=env, regularizer=None, params=params,
+                'siamese_enc_loco', make_encoder, create_scope_now_=True, env=env, regularizer=None, params=params,
             )
 
             obs_curr_encoded = encoder(self.ph_obs_curr).encoded_input
@@ -33,7 +33,7 @@ class LocomotionNetwork:
             self.actions_distribution = CategoricalProbabilityDistribution(action_logits)
             self.act = self.actions_distribution.sample()
 
-            self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
+            self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=self.ph_actions, logits=action_logits,
             ))
 
@@ -105,7 +105,7 @@ class LocomotionBuffer:
         self.actions = self.actions[:target_size]
 
     def has_enough_data(self):
-        len_data, min_data = len(self.obs_curr), self.params.locomotion_target_buffer_size // 10
+        len_data, min_data = len(self.obs_curr), self.params.locomotion_target_buffer_size // 5
         if len_data < min_data:
             log.info('Need to gather more data to train locomotion net, %d/%d', len_data, min_data)
             return False

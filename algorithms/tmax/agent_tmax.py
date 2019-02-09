@@ -217,7 +217,7 @@ class AgentTMAX(AgentLearner):
             self.map_expansion_reward = 0.05  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 50  # max trajectory length to be utilized for locomotion training
-            self.locomotion_target_buffer_size = 50000  # target number of (obs, goal, action) tuples to store
+            self.locomotion_target_buffer_size = 25000  # target number of (obs, goal, action) tuples to store
             self.locomotion_train_epochs = 1
             self.locomotion_batch_size = 128
 
