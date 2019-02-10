@@ -40,7 +40,7 @@ def make_atari_env(atari_cfg, mode='train'):
     if 'Montezuma' in atari_cfg.env_id or 'Pitfall' in atari_cfg.env_id:
         env = AtariVisitedRoomsInfoWrapper(env)
 
-    env = ResizeAndGrayscaleWrapper(env, ATARI_W, ATARI_H, add_channel_dim=True)
+    env = ResizeAndGrayscaleWrapper(env, ATARI_W, ATARI_H, add_channel_dim=True, area_interpolation=True)
     env = ClipRewardWrapper(env)
 
     if mode == 'test':
