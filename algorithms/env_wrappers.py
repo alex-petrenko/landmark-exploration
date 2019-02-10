@@ -155,6 +155,7 @@ class ResizeAndGrayscaleWrapper(gym.core.Wrapper):
         super(ResizeAndGrayscaleWrapper, self).__init__(env)
         low, high = env.observation_space.low.flat[0], env.observation_space.high.flat[0]
         new_shape = [w, h, 1] if add_channel_dim else [w, h]
+        self.add_channel_dim = add_channel_dim
         self.observation_space = spaces.Box(low, high, shape=new_shape, dtype=env.observation_space.dtype)
         self.w = w
         self.h = h
@@ -163,7 +164,10 @@ class ResizeAndGrayscaleWrapper(gym.core.Wrapper):
     def _observation(self, obs):
         obs = cv2.resize(obs, (self.w, self.h), interpolation=self.interpolation)
         obs = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
-        return obs[:, :, None]  # add new dimension (expected by tensorflow)
+        if self.add_channel_dim:
+            return obs[:, :, None]  # add new dimension (expected by tensorflow)
+        else:
+            return obs
 
     def reset(self):
         return self._observation(self.env.reset())
