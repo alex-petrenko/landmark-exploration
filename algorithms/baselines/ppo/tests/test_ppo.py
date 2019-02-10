@@ -15,7 +15,7 @@ from algorithms.baselines.ppo.ppo_utils import parse_args_ppo
 from algorithms.baselines.ppo.train_ppo import train
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tf_utils import placeholder_from_space, placeholders
-from utils.envs.doom.doom_utils import make_doom_env, env_by_name
+from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
 from utils.utils import log, AttrDict, experiments_dir
 
 
@@ -169,7 +169,7 @@ class TestPPOPerformance(TestCase):
         params = AgentPPO.Params('test_performance')
         params.ppo_epochs = 2
         params.rollout = 16
-        env = make_doom_env(env_by_name(TEST_ENV_NAME))
+        env = make_doom_env(doom_env_by_name(TEST_ENV_NAME))
 
         observation_shape = env.observation_space.shape
         experience_size = params.num_envs * params.rollout

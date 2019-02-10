@@ -195,7 +195,7 @@ class Intention:
 
     @classmethod
     def sample_random(cls):
-        modes = [cls.EXPLORER, cls.CURIOUS]
+        modes = [cls.EXPLORER]
         mode = np.random.randint(0, len(modes))
         return modes[mode]
 

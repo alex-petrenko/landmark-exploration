@@ -13,7 +13,7 @@ from algorithms.env_wrappers import TimeLimitWrapper, get_observation_space
 from algorithms.exploit import run_policy_loop
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tf_utils import placeholder_from_space
-from utils.envs.doom.doom_utils import make_doom_env, env_by_name
+from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
 from utils.utils import log
 
 
@@ -33,7 +33,7 @@ class TestAlgos(TestCase):
         shutil.rmtree(params.experiment_dir())
 
     def test_run_loop(self):
-        env = TimeLimitWrapper(make_doom_env(env_by_name(TEST_ENV_NAME), mode='test'), 50, 0)
+        env = TimeLimitWrapper(make_doom_env(doom_env_by_name(TEST_ENV_NAME), mode='test'), 50, 0)
 
         def make_env_func():
             return env
@@ -77,7 +77,7 @@ class TestAlgoUtils(TestCase):
 
 class TestEncoders(TestCase):
     def test_normalize(self):
-        env = make_doom_env(env_by_name(TEST_ENV_NAME))
+        env = make_doom_env(doom_env_by_name(TEST_ENV_NAME))
         obs_space = get_observation_space(env)
 
         env.reset()

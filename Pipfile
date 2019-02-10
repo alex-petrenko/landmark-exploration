@@ -7,7 +7,7 @@ verify_ssl = true
 
 [packages]
 tensorflow-gpu = "*"
-gym = "*"
+gym = {extras = ["atari"],version = "*"}
 vizdoomgym = {git = "https://github.com/alex-petrenko/vizdoomgym",editable = true}
 colorlog = "*"
 opencv-python = "*"

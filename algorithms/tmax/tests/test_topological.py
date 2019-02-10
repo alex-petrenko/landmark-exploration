@@ -3,12 +3,12 @@ from unittest import TestCase
 
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tmax.topological_map import TopologicalMap
-from utils.envs.doom.doom_utils import make_doom_env, env_by_name
+from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
 
 
 class TestGraph(TestCase):
     def test_topological_graph(self):
-        env = make_doom_env(env_by_name(TEST_ENV_NAME))
+        env = make_doom_env(doom_env_by_name(TEST_ENV_NAME))
         initial_obs = env.reset()
 
         m = TopologicalMap(initial_obs)

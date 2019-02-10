@@ -14,7 +14,7 @@ from algorithms.tmax.reachability import ReachabilityNetwork
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.tmax.train_tmax import train
 from algorithms.tmax.trajectory import TrajectoryBuffer
-from utils.envs.doom.doom_utils import make_doom_env, env_by_name
+from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
 from utils.utils import experiments_dir
 
 
@@ -44,7 +44,7 @@ class TestTMAX(TestCase):
     def test_reachability(self):
         g = tf.Graph()
 
-        env = make_doom_env(env_by_name(TEST_ENV_NAME))
+        env = make_doom_env(doom_env_by_name(TEST_ENV_NAME))
         args, params = parse_args_tmax(AgentTMAX.Params)
 
         with g.as_default():
@@ -66,7 +66,7 @@ class TestTMAX(TestCase):
     def test_locomotion(self):
         g = tf.Graph()
 
-        env = make_doom_env(env_by_name(TEST_ENV_NAME))
+        env = make_doom_env(doom_env_by_name(TEST_ENV_NAME))
         args, params = parse_args_tmax(AgentTMAX.Params)
 
         with g.as_default():

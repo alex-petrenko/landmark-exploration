@@ -7,6 +7,7 @@ from algorithms.env_wrappers import ResizeAndGrayscaleWrapper, StackFramesWrappe
 from utils.envs.doom.wrappers.observation_space import SetResolutionWrapper
 from utils.envs.doom.wrappers.step_human_input import StepHumanInput
 
+
 DOOM_W = DOOM_H = 84
 
 
@@ -20,14 +21,14 @@ class DoomCfg:
 
 
 DOOM_ENVS = [
-    DoomCfg('basic', 'VizdoomBasic-v0', 0.01, 300),
-    DoomCfg('maze', 'VizdoomMyWayHome-v0', 1.0, 2100),
-    DoomCfg('maze_sparse', 'VizdoomMyWayHomeSparse-v0', 1.0, 2100),
-    DoomCfg('maze_very_sparse', 'VizdoomMyWayHomeVerySparse-v0', 1.0, 2100),
+    DoomCfg('doom_basic', 'VizdoomBasic-v0', 0.01, 300),
+    DoomCfg('doom_maze', 'VizdoomMyWayHome-v0', 1.0, 2100),
+    DoomCfg('doom_maze_sparse', 'VizdoomMyWayHomeSparse-v0', 1.0, 2100),
+    DoomCfg('doom_maze_very_sparse', 'VizdoomMyWayHomeVerySparse-v0', 1.0, 2100),
 ]
 
 
-def env_by_name(name):
+def doom_env_by_name(name):
     for cfg in DOOM_ENVS:
         if cfg.name == name:
             return cfg

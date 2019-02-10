@@ -242,3 +242,12 @@ class RemainingTimeWrapper(ObservationWrapper):
             'obs': observation,
         }
         return dict_obs
+
+
+class ClipRewardWrapper(gym.RewardWrapper):
+    def __init__(self, env):
+        gym.RewardWrapper.__init__(self, env)
+
+    def reward(self, reward):
+        """Bin reward to {+1, 0, -1} by its sign."""
+        return float(np.sign(reward))

@@ -10,10 +10,10 @@ from algorithms.algo_utils import EPS
 from algorithms.env_wrappers import NormalizeWrapper, StackFramesWrapper, unwrap_env, ResizeAndGrayscaleWrapper, \
     SkipAndStackFramesWrapper, TimeLimitWrapper, RemainingTimeWrapper
 from algorithms.multi_env import MultiEnv
-from utils.envs.doom.doom_utils import make_doom_env, DOOM_W, DOOM_H, env_by_name
+from utils.envs.doom.doom_utils import make_doom_env, DOOM_W, DOOM_H, doom_env_by_name
 
-TEST_ENV_NAME = 'maze'
-TEST_ENV = env_by_name(TEST_ENV_NAME).env_id
+TEST_ENV_NAME = 'doom_maze'
+TEST_ENV = doom_env_by_name(TEST_ENV_NAME).env_id
 TEST_LOWDIM_ENV = 'CartPole-v0'
 
 
@@ -121,7 +121,7 @@ class TestWrappers(TestCase):
         env.close()
 
     def test_unwrap(self):
-        env = make_doom_env(env_by_name(TEST_ENV_NAME))
+        env = make_doom_env(doom_env_by_name(TEST_ENV_NAME))
         unwrapped = unwrap_env(env)
         self.assertIsNot(type(unwrapped), gym.core.Wrapper)
 
@@ -131,7 +131,7 @@ class TestMultiEnv(TestCase):
 
     @staticmethod
     def make_env_func():
-        env = make_doom_env(env_by_name(TEST_ENV_NAME))
+        env = make_doom_env(doom_env_by_name(TEST_ENV_NAME))
         return env
 
     def test_multi_env(self):
