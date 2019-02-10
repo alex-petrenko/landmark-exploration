@@ -7,7 +7,7 @@ from utils.utils import log, experiment_dir
 
 # noinspection PyMethodMayBeStatic
 class Params:
-    def __init__(self, experiment_name):
+    def __init__(self, experiment_name, **kwargs):
         self.experiments_root = None
 
         # internal params, not for CLI

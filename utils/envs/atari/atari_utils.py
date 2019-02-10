@@ -1,8 +1,8 @@
 import gym
 
 from algorithms.env_wrappers import ResizeAndGrayscaleWrapper, ClipRewardWrapper
-from utils.envs.atari.atari_wrappers import StickyActionWrapper, MaxAndSkipWrapper, AtariVisitedRoomsInfoWrapper
-
+from utils.envs.atari.atari_wrappers import StickyActionWrapper, MaxAndSkipWrapper, AtariVisitedRoomsInfoWrapper, \
+    RenderWrapper
 
 ATARI_W = ATARI_H = 84
 
@@ -27,7 +27,7 @@ def atari_env_by_name(name):
     raise Exception('Unknown Atari env')
 
 
-def make_atari_env(atari_cfg):
+def make_atari_env(atari_cfg, mode='train'):
     """Heavily inspired by https://github.com/openai/random-network-distillation"""
 
     env = gym.make(atari_cfg.env_id)
@@ -40,6 +40,10 @@ def make_atari_env(atari_cfg):
     if 'Montezuma' in atari_cfg.env_id or 'Pitfall' in atari_cfg.env_id:
         env = AtariVisitedRoomsInfoWrapper(env)
 
-    env = ResizeAndGrayscaleWrapper(env, ATARI_W, ATARI_H)
+    env = ResizeAndGrayscaleWrapper(env, ATARI_W, ATARI_H, add_channel_dim=True)
     env = ClipRewardWrapper(env)
+
+    if mode == 'test':
+        env = RenderWrapper(env)
+
     return env

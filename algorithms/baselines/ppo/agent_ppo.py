@@ -134,7 +134,7 @@ class AgentPPO(AgentLearner):
     class Params(AgentLearner.AgentParams):
         """Hyperparams for the algorithm and the training process."""
 
-        def __init__(self, experiment_name):
+        def __init__(self, experiment_name, env=None):
             """Default parameter values set in ctor."""
             super(AgentPPO.Params, self).__init__(experiment_name)
 
@@ -166,6 +166,15 @@ class AgentPPO(AgentLearner):
             self.train_for_steps = self.train_for_env_steps = 10 * 1000 * 1000 * 1000
             self.use_gpu = True
             self.initial_save_rate = 1000
+
+            self.set_env_custom_params(env)
+
+        def set_env_custom_params(self, env):
+            if env is None:
+                return
+
+            if 'atari' in env:
+                self.gae_lambda = 0.95
 
         @staticmethod
         def filename_prefix():

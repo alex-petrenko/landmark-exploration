@@ -1,17 +1,15 @@
-import numpy as np
 import sys
 import time
 from threading import Thread
 
 import cv2
+import numpy as np
 from pynput.keyboard import Key, Listener
 
 from algorithms.tmax.agent_tmax import AgentTMAX, TmaxManager, Intention
 from algorithms.tmax.tmax_utils import parse_args_tmax
-from algorithms.tmax.topological_map import TopologicalMap
 from utils.envs.envs import create_env
 from utils.utils import log
-
 
 pause = False
 terminate = False
@@ -63,10 +61,10 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=100
         if tmax_mgr is None:
             tmax_mgr = TmaxManager([obs], agent.params)
             intentions = tmax_mgr.get_intentions()
-            intentions = [Intention.vector(Intention.EXPLORER)]
+            intentions = [Intention.vector(Intention.CURIOUS)]
         else:
             bonuses, intentions = tmax_mgr.update(agent, [obs], [True], verbose=True)
-            intentions = [Intention.vector(Intention.EXPLORER)]
+            intentions = [Intention.vector(Intention.CURIOUS)]
 
         start_episode = time.time()
         while not done and not terminate and not max_frames_reached(num_frames):
@@ -86,6 +84,8 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=100
                 bonus = bonus[0]
                 if bonus > 0:
                     log.info('Bonus %.3f received', bonus)
+                if rew != 0:
+                    log.info('Reward %.3f received', rew)
 
             episode_reward += rew
 

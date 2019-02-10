@@ -151,17 +151,18 @@ class NormalizeWrapper(gym.core.Wrapper):
 class ResizeAndGrayscaleWrapper(gym.core.Wrapper):
     """Resize observation frames to specified (w,h) and convert to grayscale."""
 
-    def __init__(self, env, w, h):
+    def __init__(self, env, w, h, add_channel_dim=False):
         super(ResizeAndGrayscaleWrapper, self).__init__(env)
         low, high = env.observation_space.low.flat[0], env.observation_space.high.flat[0]
-        self.observation_space = spaces.Box(low, high, shape=[w, h], dtype=env.observation_space.dtype)
+        new_shape = [w, h, 1] if add_channel_dim else [w, h]
+        self.observation_space = spaces.Box(low, high, shape=new_shape, dtype=env.observation_space.dtype)
         self.w = w
         self.h = h
 
     def _observation(self, obs):
         obs = cv2.resize(obs, (self.w, self.h), interpolation=cv2.INTER_NEAREST)
         obs = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
-        return obs
+        return obs[:, :, None]  # add new dimension (expected by tensorflow)
 
     def reset(self):
         return self._observation(self.env.reset())

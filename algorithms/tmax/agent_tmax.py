@@ -195,7 +195,7 @@ class Intention:
 
     @classmethod
     def sample_random(cls):
-        modes = [cls.EXPLORER]
+        modes = [cls.CURIOUS]
         mode = np.random.randint(0, len(modes))
         return modes[mode]
 
@@ -365,7 +365,7 @@ class AgentTMAX(AgentLearner):
     class Params(AgentLearner.AgentParams):
         """Hyperparams for the algorithm and the training process."""
 
-        def __init__(self, experiment_name):
+        def __init__(self, experiment_name, env=None):
             """Default parameter values set in ctor."""
             super(AgentTMAX.Params, self).__init__(experiment_name)
 
@@ -380,7 +380,6 @@ class AgentTMAX(AgentLearner):
             self.model_fc_layers = 1
             self.model_fc_size = 256
             self.model_recurrent = False
-            self.rnn_rollout = 16
 
             # ppo-specific
             self.ppo_clip_ratio = 1.1  # we use clip(x, e, 1/e) instead of clip(x, 1+e, 1-e) in the paper
@@ -399,8 +398,8 @@ class AgentTMAX(AgentLearner):
             self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
 
             self.obs_pairs_per_episode = 0.25  # e.g. for episode of len 300 we will create 75 training pairs
-            self.reachable_threshold = 8  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 24  # num. of frames between obs, such that one is unreachable from the other
+            self.reachable_threshold = 15  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 35  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 25000  # target number of training examples to store
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 128
@@ -421,6 +420,15 @@ class AgentTMAX(AgentLearner):
             self.train_for_steps = self.train_for_env_steps = 10 * 1000 * 1000 * 1000
             self.use_gpu = True
             self.initial_save_rate = 1000
+
+            self.set_env_custom_params(env)
+
+        def set_env_custom_params(self, env):
+            if env is None:
+                return
+
+            if 'atari' in env:
+                self.gae_lambda = 0.95
 
         @staticmethod
         def filename_prefix():
