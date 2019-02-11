@@ -1,10 +1,5 @@
 from os.path import join
 
-from bokeh import palettes
-from bokeh.io import output_file, show
-from bokeh.models import Circle, HoverTool, MultiLine, Plot, Range1d, TapTool
-# noinspection PyProtectedMember
-from bokeh.models.graphs import from_networkx, NodesAndLinkedEdges, NodesOnly
 from matplotlib import pyplot as plt
 import networkx as nx
 import tensorboardX
@@ -12,9 +7,9 @@ import tensorboardX
 from utils.utils import ensure_dir_exists, experiments_dir, project_root
 
 
-def visualize_graph_tensorboard(graph, key='matplotlib/figure'):
+def visualize_graph_tensorboard(graph, log_dir=experiments_dir(),  key='matplotlib/figure'):
     nx.draw(graph, nx.kamada_kawai_layout(graph), node_size=50, node_color=list(graph.nodes), edge_color='#cccccc', cmap=plt.cm.get_cmap('plasma'))
-    writer = tensorboardX.SummaryWriter(log_dir=experiments_dir())
+    writer = tensorboardX.SummaryWriter(log_dir=log_dir)
     writer.add_figure(key, plt.gcf())
     writer.close()
 
@@ -27,6 +22,12 @@ def visualize_graph_html(graph, title_text='', layout='kamada_kawai'):
     :param title_text: String to be displayed above the visualization.
     :param layout: Which layout function to use.
     """
+    from bokeh import palettes
+    from bokeh.io import output_file, show
+    from bokeh.models import Circle, HoverTool, MultiLine, Plot, Range1d, TapTool
+    # noinspection PyProtectedMember
+    from bokeh.models.graphs import from_networkx, NodesAndLinkedEdges, NodesOnly
+
     if layout == 'pos':
         pos = nx.get_node_attributes(graph, 'pos')
     elif layout == 'fruchterman_reingold':

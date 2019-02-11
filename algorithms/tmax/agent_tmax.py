@@ -23,7 +23,8 @@ from algorithms.tmax.reachability import ReachabilityNetwork, ReachabilityBuffer
 from algorithms.tmax.topological_map import TopologicalMap
 from algorithms.tmax.trajectory import TrajectoryBuffer
 from utils.distributions import CategoricalProbabilityDistribution
-from utils.utils import log, AttrDict, max_with_idx
+from utils.graph import visualize_graph_tensorboard
+from utils.utils import log, AttrDict, max_with_idx, summaries_dir
 
 
 def encode_obs_and_neighbors(env, observations, neighbors, num_neighbors, reg, params):
@@ -710,6 +711,9 @@ class AgentTMAX(AgentLearner):
 
         self.summary_writer.add_summary(summary_obj, env_steps)
         self.summary_writer.flush()
+
+        log_dir = summaries_dir(self.params.experiment_dir())
+        visualize_graph_tensorboard(random.choice(maps), log_dir=log_dir)
 
     def best_action(self, observation):
         raise NotImplementedError('Not supported! Use best_action_tmax')
