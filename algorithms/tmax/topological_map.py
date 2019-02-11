@@ -1,16 +1,24 @@
+from hashlib import sha1
+
 from utils.utils import log
+
+
+def hash_observation(o):
+    """Not the fastest way to do it, but plenty fast enough for our purposes."""
+    return sha1(o).hexdigest()
 
 
 class TopologicalMap:
     def __init__(self, initial_obs, verbose=False):
         self.verbose = verbose
-        self.landmarks = self.adjacency = None
+        self.landmarks = self.hashes = self.adjacency = None
         self.curr_landmark_idx = 0
         self.reset(initial_obs)
 
     def reset(self, obs):
         """Create the graph with only one vertex."""
         self.landmarks = [obs]
+        self.hashes = [hash_observation(obs)]
         self.adjacency = [[]]  # initial vertex has no neighbors
         self.curr_landmark_idx = 0
 
@@ -55,6 +63,8 @@ class TopologicalMap:
     def add_landmark(self, obs):
         new_landmark_idx = len(self.landmarks)
         self.landmarks.append(obs)
+        self.hashes.append(hash_observation(obs))
+
         self.adjacency.append([])
         self._add_undirected_edge(self.curr_landmark_idx, new_landmark_idx)
         assert len(self.adjacency) == len(self.landmarks)

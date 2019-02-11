@@ -14,8 +14,8 @@ class SimilarityNetwork:
         self._ob1 = ph_ob1
         self._ob2 = ph_ob2
 
-        def make_encoder_cnn(ph_observations, image_enc_name, name):
-            cnn = EncoderCNN(ph_observations, None, image_enc_name, name).encoded_input
+        def make_encoder_cnn(ph_observations, image_enc_name, name_):
+            cnn = EncoderCNN(ph_observations, None, image_enc_name, name_).encoded_input
             cnn = dense(cnn, 256)
             return cnn
 
