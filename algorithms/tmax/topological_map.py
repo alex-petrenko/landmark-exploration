@@ -1,10 +1,14 @@
 from hashlib import sha1
 
+import numpy as np
+
 from utils.utils import log
 
 
 def hash_observation(o):
     """Not the fastest way to do it, but plenty fast enough for our purposes."""
+    if not o.flags['C_CONTIGUOUS']:
+        o = np.ascontiguousarray(o)
     return sha1(o).hexdigest()
 
 
@@ -41,10 +45,14 @@ class TopologicalMap:
         non_neighbors = [i for i in range(len(self.landmarks)) if i not in neighbors]
         return non_neighbors
 
+    def _add_directed_edge(self, i1, i2):
+        self.adjacency[i1].append(i2)
+        self._log_verbose('New dir. edge %d-%d', i1, i2)
+
     def _add_undirected_edge(self, i1, i2):
         self.adjacency[i1].append(i2)
         self.adjacency[i2].append(i1)
-        self._log_verbose('New edge %d-%d', i1, i2)
+        self._log_verbose('New und. edge %d-%d', i1, i2)
 
     def set_curr_landmark(self, landmark_idx):
         """Replace current landmark with the given landmark. Create necessary edges if needed."""
