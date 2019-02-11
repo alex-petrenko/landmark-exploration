@@ -5,23 +5,38 @@ from bokeh.io import output_file, show
 from bokeh.models import Circle, HoverTool, MultiLine, Plot, Range1d, TapTool
 # noinspection PyProtectedMember
 from bokeh.models.graphs import from_networkx, NodesAndLinkedEdges, NodesOnly
+from matplotlib import pyplot as plt
 import networkx as nx
+import tensorboardX
 
-from utils.utils import ensure_dir_exists, project_root
+from utils.utils import ensure_dir_exists, experiments_dir, project_root
 
 
-def visualize_graph(graph, title_text=''):
+def visualize_graph_tensorboard(graph, key='matplotlib/figure'):
+    nx.draw(graph, nx.kamada_kawai_layout(graph), node_size=50, node_color=list(graph.nodes), edge_color='#cccccc', cmap=plt.cm.get_cmap('plasma'))
+    writer = tensorboardX.SummaryWriter(log_dir=experiments_dir())
+    writer.add_figure(key, plt.gcf())
+    writer.close()
+
+
+def visualize_graph_html(graph, title_text='', layout='kamada_kawai'):
     """
     This method visualizes a NetworkX graph using Bokeh.
 
     :param graph: NetworkX graph with node attributes containing image filenames.
     :param title_text: String to be displayed above the visualization.
+    :param layout: Which layout function to use.
     """
-    pos = nx.get_node_attributes(graph, 'pos')
+    if layout == 'pos':
+        pos = nx.get_node_attributes(graph, 'pos')
+    elif layout == 'fruchterman_reingold':
+        pos = nx.fruchterman_reingold_layout(graph)
+    elif layout == 'kamada_kawai':
+        pos = nx.kamada_kawai_layout(graph)
 
     hover_tool = HoverTool(tooltips='<img src="@imgs" height="200" alt="@imgs" width="200"></img>', show_arrow=False)
 
-    plot = Plot(plot_width=400, plot_height=400, x_range=Range1d(-0.1, 1.1), y_range=Range1d(-0.1, 1.1))
+    plot = Plot(plot_width=800, plot_height=800, x_range=Range1d(-1.1, 1.1), y_range=Range1d(-1.1, 1.1))
     if title_text != '':
         plot.title.text = title_text
     plot.title.align = 'center'
