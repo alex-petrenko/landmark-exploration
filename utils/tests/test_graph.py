@@ -9,8 +9,8 @@ from utils.graph import visualize_graph_html, visualize_graph_tensorboard
 from utils.utils import project_root, vis_dir
 
 
-@unittest.skip('Uses external data')  # TODO
 class TestGraph(TestCase):
+    @unittest.skip('Uses external data')  # TODO
     def test_visualize_graph_html(self):
         imglist = ['elephant.jpg', 'lion.jpg', 'ostrich.jpg', 'snake.jpg']
         img_folder = vis_dir(project_root())
