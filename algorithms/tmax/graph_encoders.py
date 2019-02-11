@@ -47,6 +47,8 @@ class NeighborhoodEncoderDeepSets(Encoder):
         super(NeighborhoodEncoderDeepSets, self).__init__(regularizer=None, name=name)
 
         with tf.variable_scope(self.name):
+            # TODO! fc layer before reduce mean!!!
+            # TODO! divide by num_neighbors instead of reduce_mean
 
             # convert neighborhoods from [?, obs_shape] to [?, max_neighborhood_size, obs_shape]
             obs_shape = tf_shape(neighbors)[1:]

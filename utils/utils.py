@@ -43,6 +43,7 @@ class AttrDict(dict):
     __setattr__ = dict.__setitem__
 
     def __init__(self, d=None):
+        super(AttrDict, self).__init__()
         if d is not None:
             for key, value in d.items():
                 self[key] = value

@@ -104,7 +104,7 @@ class RenderWrapper(gym.Wrapper):
     def step(self, action):
         return self.env.step(action)
 
-    def render(self, mode='human'):
+    def render(self, mode='human', **kwargs):
         atari_img = self.env.render(mode='rgb_array')
 
         if mode == 'rgb_array':
