@@ -3,10 +3,9 @@ import time
 from threading import Thread
 
 import cv2
-import numpy as np
 from pynput.keyboard import Key, Listener
 
-from algorithms.tmax.agent_tmax import AgentTMAX, TmaxManager, Intention
+from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from utils.envs.envs import create_env
 from utils.utils import log
@@ -28,7 +27,7 @@ def on_release(key):
         return False
 
 
-def enjoy(params, env_id, max_num_episodes=1, max_num_frames=None, fps=1000):
+def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, fps=1000):
     def make_env_func():
         e = create_env(env_id, mode='test')
         e.seed(0)
@@ -80,7 +79,7 @@ def enjoy(params, env_id, max_num_episodes=1, max_num_frames=None, fps=1000):
                 bonus = bonus[0]
                 if bonus > 0:
                     log.info('Bonus %.3f received', bonus)
-                if rew != 0:
+                if abs(rew) >= 0.01:
                     log.info('Reward %.3f received', rew)
 
             episode_reward += rew

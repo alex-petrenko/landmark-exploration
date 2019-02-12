@@ -80,8 +80,7 @@ class TopologicalMap:
         num_edges = sum([len(adj) for adj in self.adjacency])
         return num_edges
 
-    @property
-    def nx_graph(self):
+    def to_nx_graph(self):
         import networkx as nx
         graph = nx.DiGraph()
         for i in range(len(self.landmarks)):

@@ -443,7 +443,7 @@ class AgentTMAX(AgentLearner):
 
             self.obs_pairs_per_episode = 0.25  # e.g. for episode of len 300 we will create 75 training pairs
             self.reachable_threshold = 15  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 35  # num. of frames between obs, such that one is unreachable from the other
+            self.unreachable_threshold = 45  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 25000  # target number of training examples to store
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 128
@@ -695,7 +695,7 @@ class AgentTMAX(AgentLearner):
         self.summary_writer.add_summary(summary_obj, env_steps)
 
         map_for_summary = random.choice(maps)
-        random_graph_summary = visualize_graph_tensorboard(map_for_summary.nx_graph, tag='map/random_env_graph')
+        random_graph_summary = visualize_graph_tensorboard(map_for_summary.to_nx_graph(), tag='map/random_env_graph')
         self.summary_writer.add_summary(random_graph_summary, env_steps)
 
         max_graph_idx = 0
@@ -703,7 +703,7 @@ class AgentTMAX(AgentLearner):
             if len(m.landmarks) > len(maps[max_graph_idx].landmarks):
                 max_graph_idx = i
 
-        max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].nx_graph, tag='map/max_graph')
+        max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].to_nx_graph(), tag='map/max_graph')
         self.summary_writer.add_summary(max_graph_summary, env_steps)
 
         self.summary_writer.flush()
@@ -833,6 +833,8 @@ class AgentTMAX(AgentLearner):
         if self._is_bootstrap(env_steps):
             num_epochs = max(10, num_epochs * 2)  # during bootstrap do more epochs to train faster!
 
+        log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer.obs_first), batch_size, num_epochs)
+
         for epoch in range(num_epochs):
             buffer.shuffle_data()
             obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
@@ -956,8 +958,8 @@ class AgentTMAX(AgentLearner):
                 # wait for all the workers to complete an environment step
                 new_observations, rewards, dones, infos = multi_env.step(actions)
 
-                trajectory_buffer.add(observations, actions, dones)
-                bonuses, intentions = self.tmax_mgr.update(new_observations, dones, trajectory_buffer, is_bootstrap)
+                trajectory_buffer.add(observations, actions, dones, tmax_mgr.maps)
+                bonuses, intentions = tmax_mgr.update(new_observations, dones, trajectory_buffer, is_bootstrap)
                 rewards = self._combine_rewards(multi_env.num_envs, rewards, bonuses, intentions)
 
                 # add experience from all environments to the current buffer(s)
