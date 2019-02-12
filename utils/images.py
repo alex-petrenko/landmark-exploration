@@ -1,5 +1,7 @@
+from subprocess import Popen, PIPE
+
+
 def encode_gif(images, fps):
-    from subprocess import Popen, PIPE
     if len(images[0].shape) == 3:
         h, w, c = images[0].shape
     else:
