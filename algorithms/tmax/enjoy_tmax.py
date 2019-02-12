@@ -28,13 +28,15 @@ def on_release(key):
         return False
 
 
-def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=1000):
+def enjoy(params, env_id, max_num_episodes=1, max_num_frames=None, fps=1000):
     def make_env_func():
         e = create_env(env_id, mode='test')
         e.seed(0)
         return e
 
-    agent = AgentTMAX(make_env_func, params.load())
+    params = params.load()
+    params.num_envs = 1  # during execution we're only using one env
+    agent = AgentTMAX(make_env_func, params)
     env = make_env_func()
 
     # this helps with screen recording
@@ -49,22 +51,17 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=100
     episode_rewards = []
     num_frames = 0
 
-    tmax_mgr = None
-    neighbors = np.zeros([1, agent.params.max_neighborhood_size] + agent.obs_shape, dtype=np.uint8)
-
     def max_frames_reached(frames):
         return max_num_frames is not None and frames > max_num_frames
 
     for _ in range(max_num_episodes):
         obs, done = env.reset(), False
         episode_reward, episode_frames = 0, 0
-        if tmax_mgr is None:
-            tmax_mgr = TmaxManager([obs], agent.params)
-            intentions = tmax_mgr.get_intentions()
-            intentions = [Intention.vector(Intention.CURIOUS)]
+
+        if agent.tmax_mgr.initialized:
+            agent.tmax_mgr.update([obs], [True], verbose=True)
         else:
-            bonuses, intentions = tmax_mgr.update(agent, [obs], [True], verbose=True)
-            intentions = [Intention.vector(Intention.CURIOUS)]
+            agent.tmax_mgr.initialize([obs])
 
         start_episode = time.time()
         while not done and not terminate and not max_frames_reached(num_frames):
@@ -75,12 +72,11 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=100
             if pause:
                 continue
 
-            neighbors, num_neighbors = tmax_mgr.get_neighbors(neighbors)
-            action = agent.best_action_tmax([obs], neighbors, num_neighbors, intentions, deterministic=False)
+            action = agent.best_action([obs], deterministic=False)
             obs, rew, done, _ = env.step(action)
 
             if not done:
-                bonus = tmax_mgr.update(agent, [obs], [done], verbose=True)
+                bonus, intention = agent.tmax_mgr.update([obs], [done], verbose=True)
                 bonus = bonus[0]
                 if bonus > 0:
                     log.info('Bonus %.3f received', bonus)
@@ -93,7 +89,7 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=None, fps=100
             episode_frames += 1
 
         env.render()
-        log.info('Actual fps: %.1f', 1.0 / (time.time() - start_episode))
+        log.info('Actual fps: %.1f', episode_frames / (time.time() - start_episode))
         time.sleep(0.2)
 
         episode_rewards.append(episode_reward)

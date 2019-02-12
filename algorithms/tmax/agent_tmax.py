@@ -24,40 +24,18 @@ from algorithms.tmax.topological_map import TopologicalMap
 from algorithms.tmax.trajectory import TrajectoryBuffer
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.graph import visualize_graph_tensorboard
-from utils.utils import log, AttrDict, max_with_idx, summaries_dir
-
-
-def encode_obs_and_neighbors(env, observations, neighbors, num_neighbors, reg, params):
-    """
-    As an input we're given (current_observation, current_neighborhood), where current_observation is
-    just an env. observation, and current_neighborhood is a set of env. observations topologically close to the
-    current one (0 or 1 edges away in the topological graph).
-    """
-
-    obs_encoder = tf.make_template(
-        'obs_enc', make_encoder, create_scope_now_=True, env=env, regularizer=reg, params=params,
-    )
-    current_obs_encoded = obs_encoder(observations).encoded_input
-
-    if params.use_neighborhood_encoder:
-        obs_shape = tf_shape(observations)[1:]
-        neighbors = tf.reshape(neighbors, [-1] + obs_shape)  # turn into a single big batch to encode all at once
-        neighbors = obs_encoder(neighbors).encoded_input
-        neighborhood_encoder = make_graph_encoder(neighbors, num_neighbors, params, 'graph_enc')
-
-        encoded_input = tf.concat([current_obs_encoded, neighborhood_encoder.encoded_neighborhoods], axis=1)
-    else:
-        encoded_input = current_obs_encoded
-
-    return encoded_input
+from utils.utils import log, AttrDict, max_with_idx
 
 
 class ActorCritic:
-    def __init__(self, env, ph_observations, ph_neighbors, ph_num_neighbors, ph_intentions, params):
+    def __init__(self, env, ph_observations, ph_intentions, params):
         self.ph_observations = ph_observations
         self.ph_intentions = ph_intentions
-        self.ph_landmarks = ph_neighbors
-        self.ph_num_neighbors = ph_num_neighbors
+
+        # placeholders for the topological map
+        self.ph_neighbors, self.ph_num_neighbors = None, None
+        if params.use_neighborhood_encoder:
+            self.ph_num_neighbors = tf.placeholder(tf.int32, shape=[None])
 
         reg = None  # don't use L2 regularization
 
@@ -66,17 +44,18 @@ class ActorCritic:
             'act_obs_enc', make_encoder, create_scope_now_=True, env=env, regularizer=reg, params=params,
         )
         act_encoded_obs = act_encoder(self.ph_observations).encoded_input
-        obs_encoder = act_encoder  # using actor encoder as a main observation encoder
+        self.encoded_obs = act_encoded_obs  # use actor encoder as main observation encoder (including landmarks, etc.)
+        self.encoded_obs_size = tf_shape(self.encoded_obs)[-1]
 
         if params.use_neighborhood_encoder:
-            self.landmarks_encoded = obs_encoder(ph_neighbors).encoded_input
+            self.ph_neighbors = placeholder([params.max_neighborhood_size, self.encoded_obs_size])
             act_neighborhood_encoder = make_graph_encoder(
-                self.landmarks_encoded, ph_num_neighbors, params, 'act_graph_enc',
+                self.ph_neighbors, self.ph_num_neighbors, params, 'act_graph_enc',
             )
             encoded_neighborhoods = act_neighborhood_encoder.encoded_neighborhoods
             act_obs_and_neighborhoods = tf.concat([act_encoded_obs, encoded_neighborhoods], axis=1)
         else:
-            self.landmarks_encoded = None
+            self.ph_neighbors = None
             act_obs_and_neighborhoods = act_encoded_obs
 
         actor_all_input = tf.concat([act_obs_and_neighborhoods, ph_intentions], axis=1)
@@ -97,7 +76,7 @@ class ActorCritic:
 
         if params.use_neighborhood_encoder:
             value_neighborhood_encoder = make_graph_encoder(
-                self.landmarks_encoded, ph_num_neighbors, params, 'value_graph_enc',
+                self.ph_neighbors, self.ph_num_neighbors, params, 'value_graph_enc',
             )
             encoded_neighborhoods = value_neighborhood_encoder.encoded_neighborhoods
             value_obs_and_neighborhoods = tf.concat([value_encoded_obs, encoded_neighborhoods], axis=1)
@@ -114,8 +93,8 @@ class ActorCritic:
 
     def input_dict(self, observations, neighbors_encoded, num_neighbors, intentions):
         feed_dict = {self.ph_observations: observations, self.ph_intentions: intentions}
-        if self.ph_landmarks is not None and self.ph_num_neighbors is not None:
-            feed_dict[self.landmarks_encoded] = neighbors_encoded
+        if self.ph_neighbors is not None and self.ph_num_neighbors is not None:
+            feed_dict[self.ph_neighbors] = neighbors_encoded
             feed_dict[self.ph_num_neighbors] = num_neighbors
         return feed_dict
 
@@ -136,10 +115,7 @@ class ActorCritic:
 
     def encode_landmarks(self, session, landmarks):
         """This is mainly used to precalculate the landmark embeddings."""
-        return session.run(self.landmarks_encoded, feed_dict={self.ph_landmarks: landmarks})
-
-    def encode_function(self, session):
-        return partial(self.encode_landmarks, session=session)
+        return session.run(self.encoded_obs, feed_dict={self.ph_observations: landmarks})
 
 
 class TmaxPPOBuffer:
@@ -242,14 +218,24 @@ class TmaxManager:
     (potentially) multi-env setting.
     """
 
-    def __init__(self, initial_obs, params):
-        self.params = params
-        self.num_envs = len(initial_obs)
-        self.maps = [TopologicalMap(obs) for obs in initial_obs]
-        self.intentions = [Intention.EXPLORER for _ in range(self.num_envs)]
-        self.landmarks_encoder = LandmarksEncoder()
+    def __init__(self, agent):
+        self.initialized = False
 
-    def update(self, agent, obs, dones, trajectory_buffer=None, is_bootstrap=False, verbose=False):
+        self.agent = agent
+        self.params = agent.params
+        self.num_envs = self.params.num_envs
+        self.neighbors_buffer = np.zeros([
+            self.params.num_envs, self.params.max_neighborhood_size, agent.encoded_landmark_size,
+        ])
+        self.maps = None
+        self.intentions = [Intention.EXPLORER for _ in range(self.num_envs)]
+        self.landmarks_encoder = LandmarksEncoder(agent.actor_critic.encode_landmarks)
+
+    def initialize(self, initial_obs):
+        self.maps = [TopologicalMap(obs) for obs in initial_obs]
+        self.initialized = True
+
+    def update(self, obs, dones, trajectory_buffer=None, is_bootstrap=False, verbose=False):
         """Omnipotent function for the management of topological maps and policy modes."""
         maps = self.maps
 
@@ -282,7 +268,7 @@ class TmaxManager:
         assert len(neighborhood_obs) == len(current_obs)
 
         # calculate reachability for all neighborhoods in all envs
-        reachabilities = agent.reachability.get_reachability(agent.session, neighborhood_obs, current_obs)
+        reachabilities = self.agent.reachability.get_reachability(self.agent.session, neighborhood_obs, current_obs)
 
         new_landmark_candidates = []
 
@@ -336,7 +322,9 @@ class TmaxManager:
         # calculate reachability for all non-neighbors
         reachabilities = []
         if len(non_neighborhood_obs) != 0:
-            reachabilities = agent.reachability.get_reachability(agent.session, non_neighborhood_obs, current_obs)
+            reachabilities = self.agent.reachability.get_reachability(
+                self.agent.session, non_neighborhood_obs, current_obs,
+            )
 
         j = 0
         for env_i in new_landmark_candidates:
@@ -365,10 +353,11 @@ class TmaxManager:
 
         return bonuses, self.get_intentions()
 
-    def get_neighbors(self, neighbors_buffer):
+    def get_neighbors(self):
         if not self.params.use_neighborhood_encoder:
             return None, None
 
+        neighbors_buffer = self.neighbors_buffer
         maps = self.maps
 
         neighbors_buffer.fill(0)
@@ -400,7 +389,7 @@ class TmaxManager:
             num_neighbors[env_idx] = min(len(n_indices), self.params.max_neighborhood_size)
 
         # calculate embeddings in one big batch
-        self.landmarks_encoder.encode(neighbor_landmarks, neighbor_hashes)
+        self.landmarks_encoder.encode(self.agent.session, neighbor_landmarks, neighbor_hashes)
 
         # populate the buffer using cached embeddings
         for i, neighbor_hash in enumerate(neighbor_hashes):
@@ -447,8 +436,8 @@ class AgentTMAX(AgentLearner):
             self.min_entropy_loss_coeff = 0.002
 
             # TMAX-specific parameters
-            self.use_neighborhood_encoder = False
-            self.graph_enc_name = 'deepsets'  # 'rnn', 'deepsets'
+            self.use_neighborhood_encoder = True
+            self.graph_enc_name = 'rnn'  # 'rnn', 'deepsets'
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
 
@@ -509,23 +498,15 @@ class AgentTMAX(AgentLearner):
 
         self.ph_intentions = placeholder(2)  # 3 possible intentions (0, 1), (1, 1), and (1, 0)
 
-        # placeholders for the topological map
-        self.ph_landmarks, self.ph_num_neighbors = None, None
-        if params.use_neighborhood_encoder:
-            self.ph_landmarks = placeholder(self.obs_shape)
-            self.ph_num_neighbors = tf.placeholder(tf.int32, shape=[None])
-
-        self.actor_critic = ActorCritic(
-            env, self.ph_observations, self.ph_landmarks, self.ph_num_neighbors, self.ph_intentions, self.params,
-        )
+        self.actor_critic = ActorCritic(env, self.ph_observations, self.ph_intentions, self.params)
 
         self.reachability = ReachabilityNetwork(env, params)
         self.locomotion = LocomotionNetwork(env, params)
 
-        if self.actor_critic.landmarks_encoded is None:
+        if self.params.use_neighborhood_encoder is None:
             self.encoded_landmark_size = 1
         else:
-            self.encoded_landmark_size = tf_shape(self.actor_critic.landmarks_encoded)[1:]
+            self.encoded_landmark_size = self.actor_critic.encoded_obs_size
 
         env.close()
 
@@ -561,6 +542,9 @@ class AgentTMAX(AgentLearner):
 
         all_vars = tf.trainable_variables()
         slim.model_analyzer.analyze_vars(all_vars, print_info=True)
+
+        # auxiliary stuff not related to the computation graph
+        self.tmax_mgr = TmaxManager(self)
 
     @staticmethod
     def add_ppo_objectives(actor_critic, actions, old_action_probs, advantages, returns, params, step):
@@ -711,15 +695,22 @@ class AgentTMAX(AgentLearner):
         self.summary_writer.add_summary(summary_obj, env_steps)
 
         map_for_summary = random.choice(maps)
-        graph_summary = visualize_graph_tensorboard(map_for_summary.nx_graph, tag='map/graph')
-        self.summary_writer.add_summary(graph_summary, env_steps)
+        random_graph_summary = visualize_graph_tensorboard(map_for_summary.nx_graph, tag='map/random_env_graph')
+        self.summary_writer.add_summary(random_graph_summary, env_steps)
+
+        max_graph_idx = 0
+        for i, m in enumerate(maps):
+            if len(m.landmarks) > len(maps[max_graph_idx].landmarks):
+                max_graph_idx = i
+
+        max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].nx_graph, tag='map/max_graph')
+        self.summary_writer.add_summary(max_graph_summary, env_steps)
 
         self.summary_writer.flush()
 
-    def best_action(self, observation):
-        raise NotImplementedError('Not supported! Use best_action_tmax')
-
-    def best_action_tmax(self, observations, neighbors, num_neighbors, intentions, deterministic=False):
+    def best_action(self, observations, deterministic=False):
+        neighbors, num_neighbors = self.tmax_mgr.get_neighbors()
+        intentions = self.tmax_mgr.get_intentions()
         actions = self.actor_critic.best_action(
             self.session, observations, neighbors, num_neighbors, intentions, deterministic,
         )
@@ -942,10 +933,9 @@ class AgentTMAX(AgentLearner):
         reachability_buffer = ReachabilityBuffer(self.params)
         locomotion_buffer = LocomotionBuffer(self.params)
 
-        tmax_mgr = TmaxManager(observations, self.params)
+        tmax_mgr = self.tmax_mgr
+        tmax_mgr.initialize(observations)
         intentions = tmax_mgr.get_intentions()
-        neighbors = np.zeros([multi_env.num_envs, self.params.max_neighborhood_size, self.encoded_landmark_size])
-        tmax_mgr.landmarks_encoder.reset(self.actor_critic.encode_function)
 
         def end_of_training(s, es):
             return s >= self.params.train_for_steps or es > self.params.train_for_env_steps
@@ -958,7 +948,7 @@ class AgentTMAX(AgentLearner):
             # collecting experience
             num_steps = 0
             for rollout_step in range(self.params.rollout):
-                neighbors, num_neighbors = tmax_mgr.get_neighbors(neighbors)
+                neighbors, num_neighbors = self.tmax_mgr.get_neighbors()
                 actions, action_probs, values = self.actor_critic.invoke(
                     self.session, observations, neighbors, num_neighbors, intentions,
                 )
@@ -967,7 +957,7 @@ class AgentTMAX(AgentLearner):
                 new_observations, rewards, dones, infos = multi_env.step(actions)
 
                 trajectory_buffer.add(observations, actions, dones)
-                bonuses, intentions = tmax_mgr.update(self, new_observations, dones, trajectory_buffer, is_bootstrap)
+                bonuses, intentions = self.tmax_mgr.update(new_observations, dones, trajectory_buffer, is_bootstrap)
                 rewards = self._combine_rewards(multi_env.num_envs, rewards, bonuses, intentions)
 
                 # add experience from all environments to the current buffer(s)
@@ -979,7 +969,7 @@ class AgentTMAX(AgentLearner):
                 num_steps += num_env_steps(infos, multi_env.num_envs)
 
             # last step values are required for TD-return calculation
-            neighbors, num_neighbors = tmax_mgr.get_neighbors(neighbors)
+            neighbors, num_neighbors = tmax_mgr.get_neighbors()
             _, _, values = self.actor_critic.invoke(self.session, observations, neighbors, num_neighbors, intentions)
             buffer.values.append(values)
 
@@ -1009,7 +999,7 @@ class AgentTMAX(AgentLearner):
 
             trajectory_buffer.reset_trajectories()
             # encoder changed, so we need to re-encode all landmarks
-            tmax_mgr.landmarks_encoder.reset(self.actor_critic.encode_function)
+            tmax_mgr.landmarks_encoder.reset()
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)

@@ -21,8 +21,8 @@ class NeighborhoodEncoderRNN(Encoder):
         with tf.variable_scope(self.name):
 
             # convert neighborhoods from [?, obs_shape] to [?, max_neighborhood_size, obs_shape]
-            obs_shape = tf_shape(neighbors)[1:]
-            neighbors = tf.reshape(neighbors, [-1, params.max_neighborhood_size] + obs_shape)
+            # obs_shape = tf_shape(neighbors)[1:]
+            # neighbors = tf.reshape(neighbors, [-1, params.max_neighborhood_size] + obs_shape)
 
             cell = tf.nn.rnn_cell.GRUCell(params.graph_encoder_rnn_size)
             # noinspection PyUnresolvedReferences
@@ -51,8 +51,8 @@ class NeighborhoodEncoderDeepSets(Encoder):
             # TODO! divide by num_neighbors instead of reduce_mean
 
             # convert neighborhoods from [?, obs_shape] to [?, max_neighborhood_size, obs_shape]
-            obs_shape = tf_shape(neighbors)[1:]
-            neighbors = tf.reshape(neighbors, [-1, params.max_neighborhood_size] + obs_shape)
+            # obs_shape = tf_shape(neighbors)[1:]
+            # neighbors = tf.reshape(neighbors, [-1, params.max_neighborhood_size] + obs_shape)
 
             mask = tf.sequence_mask(num_neighbors, params.max_neighborhood_size)
             mask = tf.cast(mask, dtype=tf.float32)

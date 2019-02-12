@@ -8,6 +8,7 @@ import numpy as np
 import gym
 
 from algorithms.env_wrappers import unwrap_env
+from utils.utils import log
 
 
 class StickyActionWrapper(gym.Wrapper):
@@ -91,7 +92,7 @@ class AtariVisitedRoomsInfoWrapper(gym.Wrapper):
 
 
 class RenderWrapper(gym.Wrapper):
-    def __init__(self, env, render_w=420, render_h=420, fps=15):
+    def __init__(self, env, render_w=420, render_h=420, fps=25):
         super(RenderWrapper, self).__init__(env)
         self.w = render_w
         self.h = render_h
@@ -118,5 +119,6 @@ class RenderWrapper(gym.Wrapper):
 
         since_last_frame = time.time() - self.last_frame
         wait_time_sec = max(1.0 / self.fps - since_last_frame, 0.001)
-        cv2.waitKey(int(1000 * wait_time_sec))
+        wait_time_ms = max(int(1000 * wait_time_sec), 1)
+        cv2.waitKey(wait_time_ms)
         self.last_frame = time.time()
