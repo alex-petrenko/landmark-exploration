@@ -5,7 +5,7 @@ import networkx as nx
 import tensorflow as tf
 from matplotlib import pyplot as plt
 
-from utils.utils import ensure_dir_exists, project_root
+from utils.utils import ensure_dir_exists, project_root, vis_dir
 
 
 def visualize_graph_tensorboard(nx_graph, tag):
@@ -27,11 +27,12 @@ def visualize_graph_tensorboard(nx_graph, tag):
     return summary
 
 
-def visualize_graph_html(graph, title_text='', layout='kamada_kawai'):
+def visualize_graph_html(graph, output_dir=None, title_text='', layout='kamada_kawai'):
     """
     This method visualizes a NetworkX graph using Bokeh.
 
     :param graph: NetworkX graph with node attributes containing image filenames.
+    :param output_dir: Optional output directory for saving html.
     :param title_text: String to be displayed above the visualization.
     :param layout: Which layout function to use.
     """
@@ -77,8 +78,8 @@ def visualize_graph_html(graph, title_text='', layout='kamada_kawai'):
 
     plot.renderers.append(graph_renderer)
 
-    output_dir = join(project_root(), '.visualize')
-    ensure_dir_exists(output_dir)
-    output_file(join(output_dir, 'visualize_graph.html'))
+    if output_dir:
+        ensure_dir_exists(output_dir)
+        output_file(join(output_dir, 'visualize_graph.html'))
 
     show(plot)
