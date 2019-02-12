@@ -25,10 +25,9 @@ class TestGraph(TestCase):
 
         self.assertEqual(len(m.landmarks), 2)
         self.assertEqual(len(m.adjacency), 2)
-        self.assertEqual(len(m.adjacency[m.curr_landmark_idx]), 1)
-        self.assertIn(0, m.adjacency[m.curr_landmark_idx])
+        self.assertEqual(len(m.adjacency[m.curr_landmark_idx]), 0)  # directed edge
         self.assertIn(1, m.adjacency[0])
         self.assertTrue(np.array_equal(obs, m.curr_landmark))
 
-        self.assertEqual(len(m.neighbor_indices()), 2)
-        self.assertEqual(len(m.non_neighbor_indices()), 0)
+        self.assertEqual(len(m.neighbor_indices()), 1)
+        self.assertEqual(len(m.non_neighbor_indices()), 1)

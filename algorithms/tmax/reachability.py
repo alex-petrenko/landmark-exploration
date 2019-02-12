@@ -55,6 +55,8 @@ class ReachabilityBuffer:
 
     def extract_data(self, trajectories, bootstrap_period):
         obs_first, obs_second, labels = [], [], []
+        total_num_reachable = total_num_unreachable = 0
+
         for trajectory in trajectories:
             obs = trajectory.obs
             episode_len = len(obs)
@@ -65,10 +67,15 @@ class ReachabilityBuffer:
             reachable_thr = self.params.reachable_threshold
             unreachable_thr = self.params.unreachable_threshold
 
+            num_reachable = num_unreachable = attempt = 0
+
             try:
-                for _ in range(num_obs_pairs):
-                    # toss a coin to determine if we want a reachable pair or not
-                    reachable = np.random.rand() <= 0.5
+                while num_reachable + num_unreachable < num_obs_pairs and attempt < 3 * num_obs_pairs:
+                    # some attempts to sample a training pair might fail, we want to account for that
+                    attempt += 1
+
+                    # determine if we want a reachable pair or not
+                    reachable = total_num_reachable <= total_num_unreachable
                     threshold = reachable_thr if reachable else unreachable_thr
 
                     # sample first obs in a pair
@@ -79,10 +86,22 @@ class ReachabilityBuffer:
                         second_idx = np.random.randint(first_idx, first_idx + reachable_thr)
                     else:
                         second_idx = np.random.randint(first_idx + unreachable_thr, episode_len)
+                        if trajectory.current_landmark_idx[second_idx] in trajectory.neighbor_indices[first_idx]:
+                            # selected "unreachable" observation is actually in the graph neighborhood of
+                            # the first observation, so skip this pair
+                            log.info('Skipped unreachable pair %d %d', first_idx, second_idx)
+                            continue
 
                     obs_first.append(obs[first_idx])
                     obs_second.append(obs[second_idx])
                     labels.append(int(reachable))
+
+                    if reachable:
+                        num_reachable += 1
+                        total_num_reachable += 1
+                    else:
+                        num_unreachable += 1
+                        total_num_unreachable += 1
             except ValueError:
                 # just in case, if some episode is e.g. too short for unreachable pair
                 log.exception(f'Value error in Reachability buffer! Episode len {episode_len}')
