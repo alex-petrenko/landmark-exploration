@@ -2,11 +2,12 @@ import shutil
 import time
 from os.path import join
 import random
-import unittest
 from unittest import TestCase
 
 import networkx as nx
+import numpy as np
 import tensorflow as tf
+from PIL import Image
 
 from algorithms.agent import AgentLearner
 from utils.graph import visualize_graph_html, visualize_graph_tensorboard
@@ -14,15 +15,20 @@ from utils.utils import project_root, vis_dir, summaries_dir, log
 
 
 class TestGraph(TestCase):
-    @unittest.skip('Uses external data')  # TODO
     def test_visualize_graph_html(self):
-        imglist = ['elephant.jpg', 'lion.jpg', 'ostrich.jpg', 'snake.jpg']
-        img_folder = vis_dir(project_root())
-        imglist = [join(img_folder, img) for img in imglist]
+        params = AgentLearner.AgentParams('__test_graph__')
+        img_folder = vis_dir(params.experiment_dir())
 
-        # graph = nx.random_geometric_graph(100, 0.15)
-        # for n in graph.nodes():
-        #     graph.node[n]['img'] = imglist[int(n) % len(imglist)]
+        num_images = 4
+        imglist = range(num_images)
+        imglist = [join(img_folder, str(img) + '.png') for img in imglist]
+
+        # generate some test images
+        for i, img_file in enumerate(imglist):
+            arr = np.zeros((5, 5, 3))
+            arr[0, i % 5, i % 3] = 1
+            pil_image = Image.fromarray(arr, 'RGB')
+            pil_image.save(img_file)
 
         graph = nx.DiGraph()
         for i in range(100):
@@ -34,7 +40,9 @@ class TestGraph(TestCase):
             graph.add_edge(chosen_nonedge[0], chosen_nonedge[1])
 
         # visualize_graph(graph, layout='fruchterman_reingold')
-        visualize_graph_html(graph, layout='kamada_kawai')
+        visualize_graph_html(graph, layout='kamada_kawai', output_dir=img_folder)
+
+        # shutil.rmtree(params.experiment_dir())  # this line deletes the html file
 
     def test_graph_tensorboard(self):
         graph = nx.DiGraph()
@@ -55,6 +63,5 @@ class TestGraph(TestCase):
         summary = visualize_graph_tensorboard(graph, tag='test/graph')
         log.debug('Took %.3f seconds to write graph summary', time.time() - start_summary)
         summary_writer.add_summary(summary, global_step=1)
-
 
         shutil.rmtree(params.experiment_dir())
