@@ -675,7 +675,7 @@ class AgentTMAX(AgentLearner):
     def _maybe_map_summaries(self, maps, env_steps):
         num_landmarks = [len(m.landmarks) for m in maps]
         num_neighbors = [len(m.neighbor_indices()) for m in maps]
-        num_edges = [m.num_undirected_edges() for m in maps]
+        num_edges = [m.num_edges() for m in maps]
 
         avg_num_landmarks = sum(num_landmarks) / len(num_landmarks)
         avg_num_neighbors = sum(num_neighbors) / len(num_neighbors)

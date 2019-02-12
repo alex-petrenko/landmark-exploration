@@ -67,7 +67,7 @@ class TestWrappers(TestCase):
     def test_repeat(self):
         env = gym.make(TEST_ENV)
         env = ResizeAndGrayscaleWrapper(env, DOOM_W, DOOM_H)
-        env = SkipAndStackFramesWrapper(env, num_frames=4)
+        env = SkipAndStackFramesWrapper(env, skip_frames=4, stack_frames=3)
         env.reset()
         _, _, _, info = env.step(0)
         self.assertEqual(info['num_frames'], 4)

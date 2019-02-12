@@ -89,9 +89,9 @@ class StackFramesWrapper(gym.core.Wrapper):
 class SkipAndStackFramesWrapper(StackFramesWrapper):
     """Wrapper for action repeat + stack multiple frames to capture dynamics."""
 
-    def __init__(self, env, num_frames=4):
-        super(SkipAndStackFramesWrapper, self).__init__(env, stack_past_frames=num_frames)
-        self._skip_frames = num_frames
+    def __init__(self, env, skip_frames=4, stack_frames=3):
+        super(SkipAndStackFramesWrapper, self).__init__(env, stack_past_frames=stack_frames)
+        self._skip_frames = skip_frames
 
     def step(self, action):
         done = False

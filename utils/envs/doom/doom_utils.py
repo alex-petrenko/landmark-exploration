@@ -55,10 +55,10 @@ def make_doom_env(doom_cfg, mode='train', has_timer=False, human_input=False):
 
     if mode == 'test':
         # disable action repeat during test time
-        env = StackFramesWrapper(env, stack_past_frames=4)
+        env = StackFramesWrapper(env, stack_past_frames=3)
     else:
         # during training we repeat the last action n times and stack the same number of frames to capture dynamics
-        env = SkipAndStackFramesWrapper(env, num_frames=4)
+        env = SkipAndStackFramesWrapper(env, skip_frames=4, stack_frames=3)
 
     env = RewardScalingWrapper(env, doom_cfg.reward_scaling)
 

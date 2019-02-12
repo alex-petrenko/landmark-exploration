@@ -59,8 +59,7 @@ class TopologicalMap:
 
         if landmark_idx not in self.adjacency[self.curr_landmark_idx]:
             # create new edges, we found a loop closure!
-            assert self.curr_landmark_idx not in self.adjacency[landmark_idx]
-            self._add_undirected_edge(self.curr_landmark_idx, landmark_idx)
+            self._add_directed_edge(self.curr_landmark_idx, landmark_idx)
 
         self._log_verbose('Change current landmark to %d', landmark_idx)
         self.curr_landmark_idx = landmark_idx
@@ -71,15 +70,14 @@ class TopologicalMap:
         self.hashes.append(hash_observation(obs))
 
         self.adjacency.append([])
-        self._add_undirected_edge(self.curr_landmark_idx, new_landmark_idx)
+        self._add_directed_edge(self.curr_landmark_idx, new_landmark_idx)
         assert len(self.adjacency) == len(self.landmarks)
         self._log_verbose('Added new landmark %d', new_landmark_idx)
         return new_landmark_idx
 
-    def num_undirected_edges(self):
+    def num_edges(self):
         """Helper function for summaries."""
-        num_edges = [len(adj) for adj in self.adjacency]
-        num_edges = sum(num_edges) / 2
+        num_edges = sum([len(adj) for adj in self.adjacency])
         return num_edges
 
     @property
