@@ -708,11 +708,11 @@ class AgentTMAX(AgentLearner):
 
         self.summary_writer.flush()
 
-    def _maybe_trajectory_summaries(self, trajectory_buffer, env_steps, num_envs=3):
+    def _maybe_trajectory_summaries(self, trajectory_buffer, step=0, num_envs=3):
         if not trajectory_buffer.complete_trajectories:
             return
         trajectories = [numpy_all_the_way(t.obs) for t in trajectory_buffer.complete_trajectories[:num_envs]]
-        self.log_gifs(tag='obs_trajectories', gif_images=trajectories, step=env_steps)
+        self.log_gifs(tag='obs_trajectories', gif_images=trajectories, step=step)
 
     def best_action(self, observations, deterministic=False):
         neighbors, num_neighbors = self.tmax_mgr.get_neighbors()
@@ -1005,7 +1005,7 @@ class AgentTMAX(AgentLearner):
             self._maybe_train_locomotion(locomotion_buffer, env_steps)
             timing.locomotion = time.time() - timing.locomotion
 
-            self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
+            self._maybe_trajectory_summaries(trajectory_buffer, step=env_steps)
             trajectory_buffer.reset_trajectories()
             # encoder changed, so we need to re-encode all landmarks
             tmax_mgr.landmarks_encoder.reset()
