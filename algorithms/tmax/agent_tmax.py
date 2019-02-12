@@ -459,6 +459,8 @@ class AgentTMAX(AgentLearner):
 
             self.bootstrap_env_steps = 750 * 1000
 
+            self.gif_save_rate = 120  # number of seconds to wait before saving another gif to tensorboard
+
             # training process
             self.learning_rate = 1e-4
             self.train_for_steps = self.train_for_env_steps = 10 * 1000 * 1000 * 1000
@@ -545,6 +547,8 @@ class AgentTMAX(AgentLearner):
 
         # auxiliary stuff not related to the computation graph
         self.tmax_mgr = TmaxManager(self)
+
+        self._last_trajectory_time = 0
 
     @staticmethod
     def add_ppo_objectives(actor_critic, actions, old_action_probs, advantages, returns, params, step):
@@ -708,9 +712,13 @@ class AgentTMAX(AgentLearner):
 
         self.summary_writer.flush()
 
-    def _maybe_trajectory_summaries(self, trajectory_buffer, step=0, num_envs=3):
-        if not trajectory_buffer.complete_trajectories:
+    def _maybe_trajectory_summaries(self, trajectory_buffer, step, num_envs=3):
+        time_since_last = time.time() - self._last_trajectory_time
+        if time_since_last < self.params.gif_save_rate or not trajectory_buffer.complete_trajectories:
             return
+
+        self._last_trajectory_time = time.time()
+
         trajectories = [numpy_all_the_way(t.obs)[:, :, :, 2] for t in
                         trajectory_buffer.complete_trajectories[:num_envs]]
         self.log_gifs(tag='obs_trajectories', gif_images=trajectories, step=step)
@@ -1006,7 +1014,7 @@ class AgentTMAX(AgentLearner):
             self._maybe_train_locomotion(locomotion_buffer, env_steps)
             timing.locomotion = time.time() - timing.locomotion
 
-            self._maybe_trajectory_summaries(trajectory_buffer, step=env_steps)
+            self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
             trajectory_buffer.reset_trajectories()
             # encoder changed, so we need to re-encode all landmarks
             tmax_mgr.landmarks_encoder.reset()
