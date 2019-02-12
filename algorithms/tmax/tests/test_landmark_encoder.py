@@ -4,15 +4,16 @@ from unittest import TestCase
 import numpy as np
 
 from algorithms.agent import AgentRandom
+from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tmax.topological_map import hash_observation
-from utils.envs.atari.atari_utils import make_atari_env, atari_env_by_name
+from utils.envs.doom.doom_utils import doom_env_by_name, make_doom_env
 from utils.utils import log
 
 
 class TestLandmarkEncoder(TestCase):
     @staticmethod
     def make_env():
-        return make_atari_env(atari_env_by_name('atari_montezuma'))
+        return make_doom_env(doom_env_by_name(TEST_ENV_NAME))
 
     def test_hashing(self):
         env = self.make_env()

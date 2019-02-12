@@ -1,14 +1,11 @@
 from hashlib import sha1
 
-import numpy as np
-
-from utils.utils import log
+from utils.utils import log, ensure_contigious
 
 
 def hash_observation(o):
     """Not the fastest way to do it, but plenty fast enough for our purposes."""
-    if not o.flags['C_CONTIGUOUS']:
-        o = np.ascontiguousarray(o)
+    o = ensure_contigious(o)
     return sha1(o).hexdigest()
 
 

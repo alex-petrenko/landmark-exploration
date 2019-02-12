@@ -85,6 +85,12 @@ def numpy_flatten(list_of_arrays):
     return np.concatenate(list_of_arrays, axis=0)
 
 
+def ensure_contigious(x):
+    if not x.flags['C_CONTIGUOUS']:
+        x = np.ascontiguousarray(x)
+    return x
+
+
 # os-related stuff
 
 def memory_consumption_mb():
