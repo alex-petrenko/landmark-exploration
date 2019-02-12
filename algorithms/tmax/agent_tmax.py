@@ -711,7 +711,8 @@ class AgentTMAX(AgentLearner):
     def _maybe_trajectory_summaries(self, trajectory_buffer, step=0, num_envs=3):
         if not trajectory_buffer.complete_trajectories:
             return
-        trajectories = [numpy_all_the_way(t.obs) for t in trajectory_buffer.complete_trajectories[:num_envs]]
+        trajectories = [numpy_all_the_way(t.obs)[:, :, :, 2] for t in
+                        trajectory_buffer.complete_trajectories[:num_envs]]
         self.log_gifs(tag='obs_trajectories', gif_images=trajectories, step=step)
 
     def best_action(self, observations, deterministic=False):

@@ -153,14 +153,14 @@ class AgentLearner(Agent):
 
     def log_gifs(self, tag, gif_images, step, fps=12):
         """Logs list of input image vectors (nx[time x w h x c]) into GIFs."""
-        def gen_gif_summary(gif_images):
-            img_list = np.split(gif_images, gif_images.shape[0], axis=0)
+        def gen_gif_summary(img_stack):
+            img_list = np.split(img_stack, img_stack.shape[0], axis=0)
             enc_gif = encode_gif([i[0] for i in img_list], fps=fps)
-            thwc = gif_images.shape
+            thwc = img_stack.shape
             im_summ = tf.Summary.Image()
             im_summ.height = thwc[1]
             im_summ.width = thwc[2]
-            im_summ.colorspace = thwc[3]  # fix to 3 = RGB
+            im_summ.colorspace = 1  # greyscale (RGB=3, RGBA=4)
             im_summ.encoded_image_string = enc_gif
             return im_summ
 
