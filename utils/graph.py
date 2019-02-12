@@ -23,6 +23,7 @@ def visualize_graph_tensorboard(nx_graph, tag):
     graph_summary = tf.Summary.Value(tag=tag, image=graph_image_summary)
 
     summary = tf.Summary(value=[graph_summary])
+    figure.clear()
     return summary
 
 
