@@ -1,3 +1,4 @@
+import numpy as np
 import os
 import shutil
 from os.path import join
@@ -12,6 +13,7 @@ from algorithms.tmax.enjoy_tmax import enjoy
 from algorithms.tmax.locomotion import LocomotionNetwork
 from algorithms.tmax.reachability import ReachabilityNetwork
 from algorithms.tmax.tmax_utils import parse_args_tmax
+from algorithms.tmax.topological_map import TopologicalMap
 from algorithms.tmax.train_tmax import train
 from algorithms.tmax.trajectory import TrajectoryBuffer
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
@@ -87,13 +89,14 @@ class TestTMAX(TestCase):
 
     def test_trajectory(self):
         num_envs = 10
+        maps = [TopologicalMap(np.zeros([1])) for _ in range(num_envs)]
         buffer = TrajectoryBuffer(num_envs)
         self.assertEqual(len(buffer.current_trajectories[0].landmarks), 1)
 
-        buffer.add([0] * num_envs, [0] * num_envs, [False] * 10)
-        buffer.add([0] * num_envs, [0] * num_envs, [False] * 10)
+        buffer.add([0] * num_envs, [0] * num_envs, [False] * 10, maps)
+        buffer.add([0] * num_envs, [0] * num_envs, [False] * 10, maps)
         buffer.set_landmark(3)
-        buffer.add([0] * num_envs, [0] * num_envs, [True] * 10)
+        buffer.add([0] * num_envs, [0] * num_envs, [True] * 10, maps)
 
         self.assertEqual(len(buffer.complete_trajectories), num_envs)
 
