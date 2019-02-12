@@ -4,8 +4,10 @@ Base classes for RL agent implementations with some boilerplate.
 """
 import gc
 
+import numpy as np
 import tensorflow as tf
 
+from utils.images import encode_gif
 from utils.params import Params
 
 from utils.utils import log, model_dir, summaries_dir, memory_consumption_mb
@@ -148,3 +150,26 @@ class AgentLearner(Agent):
 
         self.summary_writer.add_summary(summary, env_steps)
         self.summary_writer.flush()
+
+    def log_gifs(self, tag, gif_images, step):
+        """Logs list of input image vectors (nx[time x w h x c]) into GIFs."""
+        def gen_gif_summary(gif_images):
+            img_list = np.split(gif_images, gif_images.shape[0], axis=0)
+            enc_gif = encode_gif([i[0] for i in img_list], fps=3)
+            thwc = gif_images.shape
+            im_summ = tf.Summary.Image()
+            im_summ.height = thwc[1]
+            im_summ.width = thwc[2]
+            im_summ.colorspace = thwc[3]  # fix to 3 = RGB
+            im_summ.encoded_image_string = enc_gif
+            return im_summ
+
+        gif_summaries = []
+        for nr, img_stack in enumerate(gif_images):
+            gif_summ = gen_gif_summary(img_stack)
+            # Create a Summary Value
+            gif_summaries.append(tf.Summary.Value(tag='%s/%d' % (tag, nr),
+                                                  image=gif_summ))
+        # Create and write Summary
+        summary = tf.Summary(value=gif_summaries)
+        self.summary_writer.add_summary(summary, step)
