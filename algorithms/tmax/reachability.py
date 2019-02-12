@@ -86,11 +86,12 @@ class ReachabilityBuffer:
                         second_idx = np.random.randint(first_idx, first_idx + reachable_thr)
                     else:
                         second_idx = np.random.randint(first_idx + unreachable_thr, episode_len)
-                        if trajectory.current_landmark_idx[second_idx] in trajectory.neighbor_indices[first_idx]:
-                            # selected "unreachable" observation is actually in the graph neighborhood of
-                            # the first observation, so skip this pair
-                            log.info('Skipped unreachable pair %d %d', first_idx, second_idx)
-                            continue
+                        if not bootstrap_period:
+                            if trajectory.current_landmark_idx[second_idx] in trajectory.neighbor_indices[first_idx]:
+                                # selected "unreachable" observation is actually in the graph neighborhood of
+                                # the first observation, so skip this pair
+                                log.info('Skipped unreachable pair %d %d', first_idx, second_idx)
+                                continue
 
                     obs_first.append(obs[first_idx])
                     obs_second.append(obs[second_idx])
