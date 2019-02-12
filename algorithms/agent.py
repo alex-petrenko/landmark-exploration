@@ -151,11 +151,11 @@ class AgentLearner(Agent):
         self.summary_writer.add_summary(summary, env_steps)
         self.summary_writer.flush()
 
-    def log_gifs(self, tag, gif_images, step):
+    def log_gifs(self, tag, gif_images, step, fps=12):
         """Logs list of input image vectors (nx[time x w h x c]) into GIFs."""
         def gen_gif_summary(gif_images):
             img_list = np.split(gif_images, gif_images.shape[0], axis=0)
-            enc_gif = encode_gif([i[0] for i in img_list], fps=3)
+            enc_gif = encode_gif([i[0] for i in img_list], fps=fps)
             thwc = gif_images.shape
             im_summ = tf.Summary.Image()
             im_summ.height = thwc[1]
