@@ -39,10 +39,9 @@ class TestGraph(TestCase):
             chosen_nonedge = random.choice(nonedges)
             graph.add_edge(chosen_nonedge[0], chosen_nonedge[1])
 
-        # visualize_graph(graph, layout='fruchterman_reingold')
         visualize_graph_html(graph, layout='kamada_kawai', output_dir=img_folder)
 
-        # shutil.rmtree(params.experiment_dir())  # this line deletes the html file
+        shutil.rmtree(params.experiment_dir())  # this line deletes the image files before they can be viewed!
 
     def test_graph_tensorboard(self):
         graph = nx.DiGraph()
