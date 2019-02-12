@@ -708,12 +708,13 @@ class AgentTMAX(AgentLearner):
         summary('max_neighbors', max(num_neighbors))
         summary('avg_edges', avg_num_edges)
         summary('max_edges', max(num_edges))
-
         self.summary_writer.add_summary(summary_obj, env_steps)
-        self.summary_writer.flush()
 
-        log_dir = summaries_dir(self.params.experiment_dir())
-        visualize_graph_tensorboard(random.choice(maps), log_dir=log_dir)
+        map_for_summary = random.choice(maps)
+        graph_summary = visualize_graph_tensorboard(map_for_summary.nx_graph, tag='map/graph')
+        self.summary_writer.add_summary(graph_summary, env_steps)
+
+        self.summary_writer.flush()
 
     def best_action(self, observation):
         raise NotImplementedError('Not supported! Use best_action_tmax')

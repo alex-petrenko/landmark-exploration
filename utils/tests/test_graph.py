@@ -1,12 +1,16 @@
+import shutil
+import time
 from os.path import join
 import random
 import unittest
 from unittest import TestCase
 
 import networkx as nx
+import tensorflow as tf
 
+from algorithms.agent import AgentLearner
 from utils.graph import visualize_graph_html, visualize_graph_tensorboard
-from utils.utils import project_root, vis_dir
+from utils.utils import project_root, vis_dir, summaries_dir, log
 
 
 class TestGraph(TestCase):
@@ -42,4 +46,15 @@ class TestGraph(TestCase):
             chosen_nonedge = random.choice(nonedges)
             graph.add_edge(chosen_nonedge[0], chosen_nonedge[1])
 
-        visualize_graph_tensorboard(graph)
+        params = AgentLearner.AgentParams('__test_graph__')
+        summary_dir = summaries_dir(params.experiment_dir())
+
+        summary_writer = tf.summary.FileWriter(summary_dir)
+
+        start_summary = time.time()
+        summary = visualize_graph_tensorboard(graph, tag='test/graph')
+        log.debug('Took %.3f seconds to write graph summary', time.time() - start_summary)
+        summary_writer.add_summary(summary, global_step=1)
+
+
+        shutil.rmtree(params.experiment_dir())

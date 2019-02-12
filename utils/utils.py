@@ -91,6 +91,27 @@ def ensure_contigious(x):
     return x
 
 
+# matplotlib
+
+def figure_to_numpy(figure):
+    """
+    @brief Convert a Matplotlib figure to a 4D numpy array with RGBA channels and return it
+    @param figure a matplotlib figure
+    @return a numpy 3D array of RGBA values
+    """
+    # draw the renderer
+    figure.canvas.draw()
+
+    # Get the RGBA buffer from the figure
+    w, h = figure.canvas.get_width_height()
+    buffer = np.fromstring(figure.canvas.tostring_argb(), dtype=np.uint8)
+    buffer.shape = (w, h, 4)
+
+    # canvas.tostring_argb give pixmap in ARGB mode. Roll the ALPHA channel to have it in RGBA mode
+    buffer = np.roll(buffer, 3, axis=2)
+    return buffer
+
+
 # os-related stuff
 
 def memory_consumption_mb():

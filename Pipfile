@@ -18,7 +18,6 @@ bokeh = "*"
 psutil = "*"
 pillow = "*"
 matplotlib = "*"
-tensorboardx = "*"
 
 [requires]
 python_version = "3.6"

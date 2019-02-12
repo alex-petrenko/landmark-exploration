@@ -51,7 +51,7 @@ class _MultiEnvWorker:
             env.seed(i)
             env.reset()
             envs.append(env)
-            time.sleep(0.1)
+            time.sleep(0.01)
 
     def _terminate(self, real_envs, imagined_envs):
         log.info('Stop worker %s...', list_to_string(self.env_indices))
@@ -172,6 +172,7 @@ class MultiEnv:
             time.sleep(0.1)  # just in case
         for worker in self.workers:
             worker.task_queue.join()
+        log.info('Envs initialized!')
 
         self.curr_episode_reward = [0] * num_envs
         self.episode_rewards = [[] for _ in range(num_envs)]

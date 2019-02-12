@@ -1,17 +1,29 @@
+import io
 from os.path import join
 
-from matplotlib import pyplot as plt
 import networkx as nx
-import tensorboardX
+import tensorflow as tf
+from matplotlib import pyplot as plt
 
-from utils.utils import ensure_dir_exists, experiments_dir, project_root
+from utils.utils import ensure_dir_exists, project_root
 
 
-def visualize_graph_tensorboard(graph, log_dir=experiments_dir(),  key='matplotlib/figure'):
-    nx.draw(graph, nx.kamada_kawai_layout(graph), node_size=50, node_color=list(graph.nodes), edge_color='#cccccc', cmap=plt.cm.get_cmap('plasma'))
-    writer = tensorboardX.SummaryWriter(log_dir=log_dir)
-    writer.add_figure(key, plt.gcf())
-    writer.close()
+def visualize_graph_tensorboard(nx_graph, tag):
+    nx.draw(
+        nx_graph, nx.kamada_kawai_layout(nx_graph),
+        node_size=50, node_color=list(nx_graph.nodes), edge_color='#cccccc', cmap=plt.cm.get_cmap('plasma'),
+    )
+
+    figure = plt.gcf()
+    w, h = figure.canvas.get_width_height()
+
+    buffer = io.BytesIO()
+    plt.savefig(buffer, format='png')
+    graph_image_summary = tf.Summary.Image(encoded_image_string=buffer.getvalue(), height=h, width=w)
+    graph_summary = tf.Summary.Value(tag=tag, image=graph_image_summary)
+
+    summary = tf.Summary(value=[graph_summary])
+    return summary
 
 
 def visualize_graph_html(graph, title_text='', layout='kamada_kawai'):
