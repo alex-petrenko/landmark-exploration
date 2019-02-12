@@ -1,7 +1,7 @@
+import random
 import shutil
 import time
 from os.path import join
-import random
 from unittest import TestCase
 
 import networkx as nx
@@ -11,7 +11,7 @@ from PIL import Image
 
 from algorithms.agent import AgentLearner
 from utils.graph import visualize_graph_html, visualize_graph_tensorboard
-from utils.utils import project_root, vis_dir, summaries_dir, log
+from utils.utils import vis_dir, summaries_dir, log
 
 
 class TestGraph(TestCase):
