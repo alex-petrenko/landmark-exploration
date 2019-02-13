@@ -719,6 +719,8 @@ class AgentTMAX(AgentLearner):
         if time_since_last < self.params.gif_save_rate or not trajectory_buffer.complete_trajectories:
             return
 
+        start_gif_summaries = time.time()
+
         self._last_trajectory_summary = time.time()
         num_envs = self.params.gif_summary_num_envs
 
@@ -726,6 +728,7 @@ class AgentTMAX(AgentLearner):
             numpy_all_the_way(t.obs)[:, :, :, -1] for t in trajectory_buffer.complete_trajectories[:num_envs]
         ]
         self._write_gif_summaries(tag='obs_trajectories', gif_images=trajectories, step=step)
+        log.warning('Took %.3f seconds to write gif summaries', time.time() - start_gif_summaries)
 
     def best_action(self, observations, deterministic=False):
         neighbors, num_neighbors = self.tmax_mgr.get_neighbors()

@@ -92,7 +92,6 @@ class AgentLearner(Agent):
 
         summary_dir = summaries_dir(self.params.experiment_dir())
         self.summary_writer = tf.summary.FileWriter(summary_dir)
-        self.gif_summary_writer = tf.summary.FileWriter(summary_dir, filename_suffix='_gif_summary')
 
     def initialize(self):
         """Start the session."""
@@ -171,4 +170,4 @@ class AgentLearner(Agent):
             gif_summaries.append(tf.Summary.Value(tag='%s/%d' % (tag, nr), image=gif_summ))
 
         summary = tf.Summary(value=gif_summaries)
-        self.gif_summary_writer.add_summary(summary, step)
+        self.summary_writer.add_summary(summary, step)
