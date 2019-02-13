@@ -4,19 +4,19 @@ class Trajectory:
         self.actions = []
         self.current_landmark_idx = []  # indices of closest landmarks
         self.neighbor_indices = []  # indices of neighbors in the graph
-        self.landmarks = [0]  # indices of observations marked as landmarks
+        self.landmarks = []  # indices of observations marked as landmarks
         self.env_idx = env_idx
 
-    def add(self, obs, action, current_landmark_idx, neighbor_indices):
+    def add(self, obs, action, current_landmark_idx, neighbor_indices, is_landmark):
         self.obs.append(obs)
         self.actions.append(action)
         self.current_landmark_idx.append(current_landmark_idx)
         self.neighbor_indices.append(neighbor_indices)
+        if is_landmark:
+            self._set_landmark()
 
-    def set_landmark(self):
+    def _set_landmark(self):
         num_obs = len(self.obs)
-        assert num_obs > 1
-        assert len(self.landmarks) >= 1
         self.landmarks.append(num_obs - 1)
 
 
@@ -32,7 +32,7 @@ class TrajectoryBuffer:
         """Discard old trajectories and start collecting new ones."""
         self.complete_trajectories = []
 
-    def add(self, obs, actions, dones, maps):
+    def add(self, obs, actions, dones, maps, is_landmark):
         assert len(obs) == len(actions)
         for env_idx in range(len(obs)):
             if dones[env_idx]:
@@ -41,9 +41,9 @@ class TrajectoryBuffer:
                 self.current_trajectories[env_idx] = Trajectory(env_idx)
             else:
                 self.current_trajectories[env_idx].add(
-                    obs[env_idx], actions[env_idx], maps[env_idx].curr_landmark_idx, maps[env_idx].neighbor_indices(),
+                    obs[env_idx],
+                    actions[env_idx],
+                    maps[env_idx].curr_landmark_idx,
+                    maps[env_idx].neighbor_indices(),
+                    is_landmark[env_idx],
                 )
-
-    def set_landmark(self, env_idx):
-        """Mark the current observation for env as a landmark. Can be used later for locomotion policy training."""
-        self.current_trajectories[env_idx].set_landmark()

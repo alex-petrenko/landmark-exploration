@@ -91,16 +91,15 @@ class TestTMAX(TestCase):
         num_envs = 10
         maps = [TopologicalMap(np.zeros([1])) for _ in range(num_envs)]
         buffer = TrajectoryBuffer(num_envs)
-        self.assertEqual(len(buffer.current_trajectories[0].landmarks), 1)
+        self.assertEqual(len(buffer.current_trajectories[0].landmarks), 0)
 
-        buffer.add([0] * num_envs, [0] * num_envs, [False] * 10, maps)
-        buffer.add([0] * num_envs, [0] * num_envs, [False] * 10, maps)
-        buffer.set_landmark(3)
-        buffer.add([0] * num_envs, [0] * num_envs, [True] * 10, maps)
+        buffer.add([0] * num_envs, [0] * num_envs, [False] * 10, maps, [True] * 10)
+        buffer.add([0] * num_envs, [0] * num_envs, [False] * 10, maps, [False] * 9 + [True])
+        buffer.add([0] * num_envs, [0] * num_envs, [True] * 10, maps, [False] * 9)
 
         self.assertEqual(len(buffer.complete_trajectories), num_envs)
 
         for i in range(num_envs):
             if len(buffer.complete_trajectories[i].landmarks) > 1:
-                self.assertEqual(i, 3)
+                self.assertEqual(i, 9)
                 self.assertEqual(buffer.complete_trajectories[i].landmarks, [0, 1])

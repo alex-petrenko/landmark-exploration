@@ -75,7 +75,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, fps=1000):
             obs, rew, done, _ = env.step(action)
 
             if not done:
-                bonus, intention = agent.tmax_mgr.update([obs], [done], verbose=True)
+                bonus, intention, is_landmark = agent.tmax_mgr.update([obs], [done], verbose=True)
                 bonus = bonus[0]
                 if bonus > 0:
                     log.info('Bonus %.3f received', bonus)

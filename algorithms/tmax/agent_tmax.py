@@ -234,8 +234,10 @@ class TmaxManager:
     def initialize(self, initial_obs):
         self.maps = [TopologicalMap(obs) for obs in initial_obs]
         self.initialized = True
+        is_landmark = [True for _ in initial_obs]  # initial observations are the first landmarks
+        return is_landmark
 
-    def update(self, obs, dones, trajectory_buffer=None, is_bootstrap=False, verbose=False):
+    def update(self, obs, dones, is_bootstrap=False, verbose=False):
         """Omnipotent function for the management of topological maps and policy modes."""
         maps = self.maps
 
@@ -243,10 +245,11 @@ class TmaxManager:
         num_envs = len(maps)
 
         bonuses = np.zeros([num_envs])
+        is_landmark = [False] * self.num_envs
 
         if is_bootstrap:
             # don't bother updating the graph when the reachability net isn't trained yet
-            return bonuses, self.get_intentions()
+            return bonuses, self.get_intentions(), is_landmark
 
         def log_verbose(s, *args):
             if verbose:
@@ -344,14 +347,13 @@ class TmaxManager:
             else:
                 # vertex is relatively far away from all vertex in the graph, we've found a new landmark!
                 new_landmark_idx = m.add_landmark(obs[env_i])
-                if trajectory_buffer is not None:
-                    trajectory_buffer.set_landmark(env_i)  # this obs should already be in the trajectory buffer
                 m.set_curr_landmark(new_landmark_idx)
+                is_landmark[env_i] = True
 
             bonuses[env_i] += self.params.map_expansion_reward  # we found a new vertex or edge! Cool!
             j = j_next
 
-        return bonuses, self.get_intentions()
+        return bonuses, self.get_intentions(), is_landmark
 
     def get_neighbors(self):
         if not self.params.use_neighborhood_encoder:
@@ -951,7 +953,7 @@ class AgentTMAX(AgentLearner):
         locomotion_buffer = LocomotionBuffer(self.params)
 
         tmax_mgr = self.tmax_mgr
-        tmax_mgr.initialize(observations)
+        is_landmark = tmax_mgr.initialize(observations)
         intentions = tmax_mgr.get_intentions()
 
         def end_of_training(s, es):
@@ -973,8 +975,8 @@ class AgentTMAX(AgentLearner):
                 # wait for all the workers to complete an environment step
                 new_observations, rewards, dones, infos = multi_env.step(actions)
 
-                trajectory_buffer.add(observations, actions, dones, tmax_mgr.maps)
-                bonuses, intentions = tmax_mgr.update(new_observations, dones, trajectory_buffer, is_bootstrap)
+                trajectory_buffer.add(observations, actions, dones, tmax_mgr.maps, is_landmark)
+                bonuses, intentions, is_landmark = tmax_mgr.update(new_observations, dones, is_bootstrap)
                 rewards = self._combine_rewards(multi_env.num_envs, rewards, bonuses, intentions)
 
                 # add experience from all environments to the current buffer(s)
@@ -1014,11 +1016,6 @@ class AgentTMAX(AgentLearner):
             self._maybe_train_locomotion(locomotion_buffer, env_steps)
             timing.locomotion = time.time() - timing.locomotion
 
-            self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
-            trajectory_buffer.reset_trajectories()
-            # encoder changed, so we need to re-encode all landmarks
-            tmax_mgr.landmarks_encoder.reset()
-
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)
             fps = num_steps / (time.time() - timing.rollout)
@@ -1027,6 +1024,11 @@ class AgentTMAX(AgentLearner):
             self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps)
             self._maybe_map_summaries(tmax_mgr.maps, env_steps)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
+            self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
+
+            trajectory_buffer.reset_trajectories()
+            # encoder changed, so we need to re-encode all landmarks
+            tmax_mgr.landmarks_encoder.reset()
 
     def learn(self):
         status = TrainStatus.SUCCESS
