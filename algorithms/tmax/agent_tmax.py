@@ -462,6 +462,7 @@ class AgentTMAX(AgentLearner):
             self.bootstrap_env_steps = 750 * 1000
 
             self.gif_save_rate = 180  # number of seconds to wait before saving another gif to tensorboard
+            self.gif_summary_num_envs = 1
 
             # training process
             self.learning_rate = 1e-4
@@ -713,12 +714,13 @@ class AgentTMAX(AgentLearner):
 
         self.summary_writer.flush()
 
-    def _maybe_trajectory_summaries(self, trajectory_buffer, step, num_envs=2):
+    def _maybe_trajectory_summaries(self, trajectory_buffer, step):
         time_since_last = time.time() - self._last_trajectory_summary
         if time_since_last < self.params.gif_save_rate or not trajectory_buffer.complete_trajectories:
             return
 
         self._last_trajectory_summary = time.time()
+        num_envs = self.params.gif_summary_num_envs
 
         trajectories = [
             numpy_all_the_way(t.obs)[:, :, :, -1] for t in trajectory_buffer.complete_trajectories[:num_envs]
