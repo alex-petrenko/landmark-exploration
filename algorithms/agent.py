@@ -92,6 +92,7 @@ class AgentLearner(Agent):
 
         summary_dir = summaries_dir(self.params.experiment_dir())
         self.summary_writer = tf.summary.FileWriter(summary_dir)
+        self.gif_summary_writer = tf.summary.FileWriter(summary_dir, filename_suffix='_gif_summary')
 
     def initialize(self):
         """Start the session."""
@@ -151,12 +152,12 @@ class AgentLearner(Agent):
         self.summary_writer.add_summary(summary, env_steps)
         self.summary_writer.flush()
 
-    def log_gifs(self, tag, gif_images, step, fps=12):
+    def _write_gif_summaries(self, tag, gif_images, step, fps=12):
         """Logs list of input image vectors (nx[time x w h x c]) into GIFs."""
-        def gen_gif_summary(img_stack):
-            img_list = np.split(img_stack, img_stack.shape[0], axis=0)
+        def gen_gif_summary(img_stack_):
+            img_list = np.split(img_stack_, img_stack_.shape[0], axis=0)
             enc_gif = encode_gif([i[0] for i in img_list], fps=fps)
-            thwc = img_stack.shape
+            thwc = img_stack_.shape
             im_summ = tf.Summary.Image()
             im_summ.height = thwc[1]
             im_summ.width = thwc[2]
@@ -167,9 +168,7 @@ class AgentLearner(Agent):
         gif_summaries = []
         for nr, img_stack in enumerate(gif_images):
             gif_summ = gen_gif_summary(img_stack)
-            # Create a Summary Value
-            gif_summaries.append(tf.Summary.Value(tag='%s/%d' % (tag, nr),
-                                                  image=gif_summ))
-        # Create and write Summary
+            gif_summaries.append(tf.Summary.Value(tag='%s/%d' % (tag, nr), image=gif_summ))
+
         summary = tf.Summary(value=gif_summaries)
-        self.summary_writer.add_summary(summary, step)
+        self.gif_summary_writer.add_summary(summary, step)

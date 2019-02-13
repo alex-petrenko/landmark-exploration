@@ -90,7 +90,7 @@ class ReachabilityBuffer:
                             if trajectory.current_landmark_idx[second_idx] in trajectory.neighbor_indices[first_idx]:
                                 # selected "unreachable" observation is actually in the graph neighborhood of
                                 # the first observation, so skip this pair
-                                log.info('Skipped unreachable pair %d %d', first_idx, second_idx)
+                                # log.info('Skipped unreachable pair %d %d', first_idx, second_idx)
                                 continue
 
                     obs_first.append(obs[first_idx])
