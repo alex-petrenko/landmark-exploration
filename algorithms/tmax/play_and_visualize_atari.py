@@ -1,11 +1,12 @@
 import sys
-import time
 from threading import Thread
 
 import cv2
 from gym.envs.atari.atari_env import ACTION_MEANING
 from pynput.keyboard import Key, Listener
 
+from algorithms.tmax.agent_tmax import AgentTMAX
+from algorithms.tmax.tmax_utils import parse_args_tmax
 from utils.envs.envs import create_env
 from utils.utils import log
 
@@ -28,6 +29,7 @@ action_table = {
 }
 
 
+store_landmark = True
 terminate = False
 current_actions = []
 
@@ -43,6 +45,10 @@ def on_press(key):
         if action_table[key] not in current_actions:
             current_actions.append(action_table[key])
 
+    global store_landmark
+    if key == Key.space:
+        store_landmark = True
+
 
 def on_release(key):
     global current_actions
@@ -51,7 +57,12 @@ def on_release(key):
             current_actions.remove(action_table[key])
 
 
-def main():
+def play_and_visualize(params, env_id):
+    def make_env_func():
+        e = create_env(env_id, mode='test')
+        e.seed(0)
+        return e
+
     # start keypress listener
     def start_listener():
         with Listener(on_press=on_press, on_release=on_release) as listener:
@@ -60,18 +71,20 @@ def main():
     listener_thread = Thread(target=start_listener)
     listener_thread.start()
 
-    env = create_env('atari_montezuma')
+    agent = AgentTMAX(make_env_func, params.load())
+    agent.initialize()
 
-    env.reset()
+    env = make_env_func()
+
+    current_landmark = env.reset()
     done = False
     episode_reward = 0
-    fps = 30
+
+    frame = 0
+    current_landmark_frame = frame
+
     while not done and not terminate:
-        atari_img = env.render(mode='rgb_array')
-        atari_img = cv2.cvtColor(atari_img, cv2.COLOR_BGR2RGB)
-        atari_img_big = cv2.resize(atari_img, (420, 420), interpolation=cv2.INTER_NEAREST)
-        cv2.imshow('atari', atari_img_big)
-        cv2.waitKey(1000 // fps)
+        env.render()
 
         if len(current_actions) > 0:
             # key combinations are not handled, but this is purely for testing
@@ -82,6 +95,17 @@ def main():
         action = action_name_to_action(action_name)
         obs, reward, done, info = env.step(action)
         episode_reward += reward
+        frame += 1
+
+        global store_landmark
+        if store_landmark:
+            log.warning('Store new landmark!')
+            current_landmark = obs
+            current_landmark_frame = frame
+            store_landmark = False
+
+        reachability_probs = agent.reachability.get_reachability(agent.session, [current_landmark], [obs])
+        log.info('Reachability: %.3f frames %d', reachability_probs[0], frame - current_landmark_frame)
 
         if reward != 0:
             log.debug('Reward received: %.3f', reward)
@@ -94,6 +118,11 @@ def main():
 
     env.close()
     return 0
+
+
+def main():
+    args, params = parse_args_tmax(AgentTMAX.Params)
+    return play_and_visualize(params, args.env)
 
 
 if __name__ == '__main__':
