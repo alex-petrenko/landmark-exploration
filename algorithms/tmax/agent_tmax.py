@@ -551,6 +551,7 @@ class AgentTMAX(AgentLearner):
         self.tmax_mgr = TmaxManager(self)
 
         self._last_trajectory_time = 0
+        self.num_gif_envs = 1
 
     @staticmethod
     def add_ppo_objectives(actor_critic, actions, old_action_probs, advantages, returns, params, step):
@@ -714,7 +715,7 @@ class AgentTMAX(AgentLearner):
 
         self.summary_writer.flush()
 
-    def _maybe_trajectory_summaries(self, trajectory_buffer, step, num_envs=3):
+    def _maybe_trajectory_summaries(self, trajectory_buffer, step):
         time_since_last = time.time() - self._last_trajectory_time
         if time_since_last < self.params.gif_save_rate or not trajectory_buffer.complete_trajectories:
             return
@@ -722,7 +723,7 @@ class AgentTMAX(AgentLearner):
         self._last_trajectory_time = time.time()
 
         trajectories = [numpy_all_the_way(t.obs)[:, :, :, 2] for t in
-                        trajectory_buffer.complete_trajectories[:num_envs]]
+                        trajectory_buffer.complete_trajectories[:self.num_gif_envs]]
         self.log_gifs(tag='obs_trajectories', gif_images=trajectories, step=step)
 
     def best_action(self, observations, deterministic=False):
