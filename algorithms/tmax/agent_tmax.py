@@ -259,6 +259,7 @@ class TmaxManager:
             if dones[i]:
                 m.reset(obs[i])  # reset graph on episode termination (TODO! there must be a better policy)
                 self.intentions[i] = Intention.sample_random()
+                is_landmark[i] = True
 
         # create a batch of all neighborhood observations from all envs for fast processing on GPU
         neighborhood_obs = []
