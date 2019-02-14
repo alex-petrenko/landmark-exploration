@@ -39,11 +39,10 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, fps=1000):
     env = make_env_func()
 
     # this helps with screen recording
-    pause_at_the_beginning = False
+    pause_at_the_beginning = True
     if pause_at_the_beginning:
-        env.render()
-        log.info('Press any key to start...')
-        cv2.waitKey()
+        global pause
+        pause = True
 
     agent.initialize()
 
