@@ -228,7 +228,7 @@ class TmaxManager:
             self.params.num_envs, self.params.max_neighborhood_size, agent.encoded_landmark_size,
         ])
         self.maps = None
-        self.intentions = [Intention.EXPLORER for _ in range(self.num_envs)]
+        self.intentions = [Intention.sample_random() for _ in range(self.num_envs)]
         self.landmarks_encoder = LandmarksEncoder(agent.actor_critic.encode_landmarks)
 
     def initialize(self, initial_obs):
@@ -445,7 +445,7 @@ class AgentTMAX(AgentLearner):
 
             self.obs_pairs_per_episode = 0.25  # e.g. for episode of len 300 we will create 75 training pairs
             self.reachable_threshold = 15  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 45  # num. of frames between obs, such that one is unreachable from the other
+            self.unreachable_threshold = 60  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 25000  # target number of training examples to store
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 128
@@ -477,7 +477,10 @@ class AgentTMAX(AgentLearner):
                 return
 
             if 'atari' in env:
-                self.gae_lambda = 0.95
+                self.gae_lambda = 0.9
+
+                self.reachable_threshold = 30
+                self.unreachable_threshold = 90
 
         @staticmethod
         def filename_prefix():
@@ -701,7 +704,7 @@ class AgentTMAX(AgentLearner):
         self.summary_writer.add_summary(summary_obj, env_steps)
 
         map_for_summary = random.choice(maps)
-        random_graph_summary = visualize_graph_tensorboard(map_for_summary.to_nx_graph(), tag='map/random_env_graph')
+        random_graph_summary = visualize_graph_tensorboard(map_for_summary.to_nx_graph(), tag='map/random_graph')
         self.summary_writer.add_summary(random_graph_summary, env_steps)
 
         max_graph_idx = 0
@@ -728,7 +731,7 @@ class AgentTMAX(AgentLearner):
             numpy_all_the_way(t.obs)[:, :, :, -1] for t in trajectory_buffer.complete_trajectories[:num_envs]
         ]
         self._write_gif_summaries(tag='obs_trajectories', gif_images=trajectories, step=step)
-        log.warning('Took %.3f seconds to write gif summaries', time.time() - start_gif_summaries)
+        log.info('Took %.3f seconds to write gif summaries', time.time() - start_gif_summaries)
 
     def best_action(self, observations, deterministic=False):
         neighbors, num_neighbors = self.tmax_mgr.get_neighbors()
