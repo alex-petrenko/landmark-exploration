@@ -31,6 +31,19 @@ def conv(x, num_filters, kernel_size, stride=1, regularizer=None, scope=None):
     )
 
 
+def conv_t(x, num_filters, kernel_size, stride=1, regularizer=None, activation=tf.nn.relu):
+    return tf.layers.conv2d_transpose(
+        x,
+        num_filters,
+        kernel_size,
+        strides=stride,
+        padding='SAME',
+        activation=activation,
+        kernel_regularizer=regularizer,
+        bias_regularizer=regularizer,
+    )
+
+
 def count_total_parameters():
     """
     Returns total number of trainable parameters in the current tf graph.

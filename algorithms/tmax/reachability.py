@@ -1,5 +1,4 @@
 import numpy as np
-
 import tensorflow as tf
 
 from algorithms.encoders import make_encoder
