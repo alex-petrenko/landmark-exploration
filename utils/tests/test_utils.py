@@ -1,9 +1,12 @@
+import time
 from unittest import TestCase
 
 import numpy as np
 
+from algorithms.algo_utils import EPS
 from utils.decay import LinearDecay
-from utils.utils import numpy_all_the_way, numpy_flatten, max_with_idx, min_with_idx
+from utils.timing import TimingContext, Timing
+from utils.utils import numpy_all_the_way, numpy_flatten, max_with_idx, min_with_idx, AttrDict
 
 
 class TestDecay(TestCase):
@@ -57,6 +60,14 @@ class TestNumpyUtil(TestCase):
         lst = [np.array([0, 1, 2]), np.array([3, 4, 5]), np.array([6, 7, 8])]
         flattened = numpy_flatten(lst)
         self.assertTrue(np.array_equal(a, flattened))
+
+
+class TestTiming(TestCase):
+    def test_simple_timer(self):
+        timing = Timing()
+        with timing.timeit('test'):
+            time.sleep(0.05)
+        self.assertGreater(timing.test, 0.05 - EPS)
 
 
 class TestUtil(TestCase):

@@ -24,6 +24,7 @@ from algorithms.tmax.topological_map import TopologicalMap
 from algorithms.tmax.trajectory import TrajectoryBuffer
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.graph import visualize_graph_tensorboard
+from utils.timing import Timing
 from utils.utils import log, AttrDict, max_with_idx, numpy_all_the_way
 
 
@@ -973,7 +974,7 @@ class AgentTMAX(AgentLearner):
             return s >= self.params.train_for_steps or es > self.params.train_for_env_steps
 
         while not end_of_training(step, env_steps):
-            timing = AttrDict({'experience': time.time(), 'rollout': time.time()})
+            timing = Timing({'experience': time.time(), 'rollout': time.time()})
             buffer.reset()
             is_bootstrap = self._is_bootstrap(env_steps)
 
@@ -1012,22 +1013,19 @@ class AgentTMAX(AgentLearner):
             buffer.finalize_batch(self.params.gamma, self.params.gae_lambda)
 
             # update actor and critic
-            timing.train = time.time()
-            if not self._is_bootstrap(env_steps):
-                step = self._train_actor_critic(buffer, env_steps)
-            timing.train = time.time() - timing.train
+            with timing.timeit('train'):
+                if not self._is_bootstrap(env_steps):
+                    step = self._train_actor_critic(buffer, env_steps)
 
             # update reachability net
-            timing.reach = time.time()
-            reachability_buffer.extract_data(trajectory_buffer.complete_trajectories, is_bootstrap)
-            self._maybe_train_reachability(reachability_buffer, env_steps)
-            timing.reach = time.time() - timing.reach
+            with timing.timeit('reach'):
+                reachability_buffer.extract_data(trajectory_buffer.complete_trajectories, is_bootstrap)
+                self._maybe_train_reachability(reachability_buffer, env_steps)
 
             # update locomotion net
-            timing.locomotion = time.time()
-            locomotion_buffer.extract_data(trajectory_buffer.complete_trajectories)
-            self._maybe_train_locomotion(locomotion_buffer, env_steps)
-            timing.locomotion = time.time() - timing.locomotion
+            with timing.timeit('locomotion'):
+                locomotion_buffer.extract_data(trajectory_buffer.complete_trajectories)
+                self._maybe_train_locomotion(locomotion_buffer, env_steps)
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)
