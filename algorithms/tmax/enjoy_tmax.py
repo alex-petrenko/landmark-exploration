@@ -2,7 +2,6 @@ import sys
 import time
 from threading import Thread
 
-import cv2
 from pynput.keyboard import Key, Listener
 
 from algorithms.tmax.agent_tmax import AgentTMAX
@@ -37,12 +36,6 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, fps=1000):
     params.num_envs = 1  # during execution we're only using one env
     agent = AgentTMAX(make_env_func, params)
     env = make_env_func()
-
-    # this helps with screen recording
-    pause_at_the_beginning = True
-    if pause_at_the_beginning:
-        global pause
-        pause = True
 
     agent.initialize()
 

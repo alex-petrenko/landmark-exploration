@@ -15,7 +15,7 @@ from algorithms.env_wrappers import get_observation_space
 from algorithms.models import make_model
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
-    observation_summaries, summary_avg_min_max, merge_summaries, tf_shape, placeholder
+    image_summaries_rgb, summary_avg_min_max, merge_summaries, tf_shape, placeholder
 from algorithms.tmax.graph_encoders import make_graph_encoder
 from algorithms.tmax.landmarks_encoder import LandmarksEncoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer
@@ -608,7 +608,7 @@ class AgentTMAX(AgentLearner):
 
         # summaries for the agent and the training process
         with tf.name_scope('obs_summaries'):
-            observation_summaries(self.ph_observations, collections=['actor'])
+            image_summaries_rgb(self.ph_observations, collections=['actor'])
 
         with tf.name_scope('actor'):
             summary_avg_min_max('returns', self.ph_returns, collections=['actor'])

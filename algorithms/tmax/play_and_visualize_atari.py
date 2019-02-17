@@ -1,9 +1,8 @@
 import sys
 from threading import Thread
 
-import cv2
 from gym.envs.atari.atari_env import ACTION_MEANING
-from pynput.keyboard import Key, Listener
+from pynput.keyboard import Key, Listener, KeyCode
 
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax
@@ -29,8 +28,15 @@ action_table = {
 }
 
 
+class PolicyType:
+    RANDOM, PLAYER = range(2)
+    KEY_CHARS = {RANDOM: 'r', PLAYER: 'p'}
+    KEYS = {t: KeyCode.from_char(c) for t, c in KEY_CHARS.items()}
+
+
 store_landmark = True
 terminate = False
+policy_type = PolicyType.PLAYER
 current_actions = []
 
 
@@ -48,6 +54,11 @@ def on_press(key):
     global store_landmark
     if key == Key.space:
         store_landmark = True
+
+    global policy_type
+    for t, k in PolicyType.KEYS.items():
+        if key == k:
+            policy_type = t
 
 
 def on_release(key):
@@ -92,7 +103,11 @@ def play_and_visualize(params, env_id):
         else:
             action_name = 'NOOP'
 
-        action = action_name_to_action(action_name)
+        if policy_type == PolicyType.RANDOM:
+            action = env.action_space.sample()
+        else:
+            action = action_name_to_action(action_name)
+
         obs, reward, done, info = env.step(action)
         episode_reward += reward
         frame += 1

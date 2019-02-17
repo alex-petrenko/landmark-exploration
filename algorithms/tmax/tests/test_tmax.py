@@ -17,7 +17,7 @@ from algorithms.tmax.topological_map import TopologicalMap
 from algorithms.tmax.train_tmax import train
 from algorithms.tmax.trajectory import TrajectoryBuffer
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
-from utils.utils import experiments_dir
+from utils.utils import experiments_dir, ensure_dir_exists
 
 
 class TestTMAX(TestCase):
@@ -32,6 +32,11 @@ class TestTMAX(TestCase):
         params.batch_size = 32
         params.ppo_epochs = 2
         params.bootstrap_env_steps = 25
+
+        tmax_train_dir = join(experiments_dir(), params.experiments_root)
+        ensure_dir_exists(tmax_train_dir)
+        shutil.rmtree(tmax_train_dir)
+
         status = train(params, args.env)
         self.assertEqual(status, TrainStatus.SUCCESS)
 
@@ -39,7 +44,7 @@ class TestTMAX(TestCase):
         self.assertTrue(os.path.isdir(root_dir))
 
         enjoy(params, args.env, max_num_episodes=1, max_num_frames=50, fps=1000)
-        shutil.rmtree(join(experiments_dir(), params.experiments_root))
+        shutil.rmtree(tmax_train_dir)
 
         self.assertFalse(os.path.isdir(root_dir))
 

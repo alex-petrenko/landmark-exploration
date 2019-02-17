@@ -7,7 +7,7 @@ import numpy as np
 import tensorflow as tf
 
 from algorithms.env_wrappers import has_image_observations, get_observation_space
-from algorithms.tf_utils import dense, conv, put_kernels_on_grid
+from algorithms.tf_utils import dense, conv, put_kernels_on_grid, tf_shape
 
 
 class Encoder:
@@ -19,21 +19,24 @@ class Encoder:
 
 
 class EncoderCNN(Encoder):
-    def __init__(self, ph_observations, regularizer, img_enc_name, name):
+    def __init__(self, normalized_obs, regularizer, img_enc_name, name):
         super(EncoderCNN, self).__init__(regularizer, name)
 
-        self._ph_observations = ph_observations
+        self.normalized_obs = normalized_obs
 
         with tf.variable_scope(self.name):
             if img_enc_name == 'convnet_simple':
                 conv_filters = self._convnet_simple([(16, 5, 2), (32, 3, 2), (32, 3, 2), (64, 3, 2)])
             elif img_enc_name == 'convnet_42px':
                 conv_filters = self._convnet_simple([(32, 3, 2)] * 4)  # to fairly compare with previous algos
+            elif img_enc_name == 'convnet_64px':
+                conv_filters = self._convnet_simple([(64, 3, 2)] * 4)
             elif img_enc_name == 'convnet_84px':
                 conv_filters = self._convnet_simple([(16, 3, 2)] + [(32, 3, 2)] * 4)
             else:
                 raise Exception('Unknown model name')
 
+            self.encoded_w, self.encoded_h, self.encoded_channels = tf_shape(conv_filters)[1:]
             self.encoded_input = tf.contrib.layers.flatten(conv_filters)
 
             # summaries
@@ -49,7 +52,7 @@ class EncoderCNN(Encoder):
 
     def _convnet_simple(self, convs):
         """Basic stacked convnet."""
-        layer = self._ph_observations
+        layer = self.normalized_obs
         layer_idx = 1
         for filters, kernel, stride in convs:
             layer = self._conv(layer, filters, kernel, stride, 'conv' + str(layer_idx))
@@ -77,15 +80,18 @@ class EncoderLowDimensional(Encoder):
 
 
 def is_normalized(obs_space):
-    return obs_space.dtype == np.float32 and obs_space.low in [0.0, 1.0] and obs_space.high == 1.0
+    return obs_space.dtype == np.float32 and obs_space.low in [-1.0, 0.0] and obs_space.high == 1.0
 
 
 def tf_normalize(obs, obs_space):
-    low, high = obs_space.low, obs_space.high
+    """Result will be float32 tensor with values in [-1, 1]."""
+    low, high = obs_space.low.flat[0], obs_space.high.flat[0]
     mean = (low + high) * 0.5
     if obs_space.dtype != np.float32:
         obs = tf.to_float(obs)
-    obs = (obs - mean) / (high - mean)
+
+    scaling = 1.0 / (high - mean)
+    obs = (obs - mean) * scaling
     return obs
 
 

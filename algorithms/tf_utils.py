@@ -31,17 +31,21 @@ def conv(x, num_filters, kernel_size, stride=1, regularizer=None, scope=None):
     )
 
 
-def conv_t(x, num_filters, kernel_size, stride=1, regularizer=None, activation=tf.nn.relu):
+def conv_t(x, num_filters, kernel_size, strides=1, padding='SAME', regularizer=None, activation=tf.nn.relu):
     return tf.layers.conv2d_transpose(
         x,
         num_filters,
         kernel_size,
-        strides=stride,
-        padding='SAME',
+        strides=strides,
+        padding=padding,
         activation=activation,
         kernel_regularizer=regularizer,
         bias_regularizer=regularizer,
     )
+
+
+def flatten(x):
+    return tf.contrib.layers.flatten(x)
 
 
 def count_total_parameters():
@@ -94,10 +98,10 @@ def placeholders_from_spaces(*args):
 
 # summaries
 
-def observation_summaries(ph_observations, collections=None):
-    if len(ph_observations.shape) >= 4:  # [batch, w, h, channels]
+def image_summaries_rgb(imgs, name='observations', collections=None):
+    if len(imgs.shape) >= 4:  # [batch, w, h, channels]
         # first three channels
-        tf.summary.image('observations', ph_observations[:, :, :, -3:], collections=collections)
+        tf.summary.image(name, imgs[:, :, :, -3:], collections=collections)
 
 
 def summary_avg_min_max(name, x, collections=None):

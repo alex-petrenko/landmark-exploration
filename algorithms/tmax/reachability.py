@@ -18,20 +18,29 @@ class ReachabilityNetwork:
                 'siamese_enc', make_encoder, create_scope_now_=True, env=env, regularizer=None, params=params,
             )
 
-            obs_first_enc = encoder(self.ph_obs_first).encoded_input
-            obs_second_enc = encoder(self.ph_obs_second).encoded_input
-            observations_encoded = tf.concat([obs_first_enc, obs_second_enc], axis=1)
+            obs_first_enc = encoder(self.ph_obs_first)
+            obs_second_enc = encoder(self.ph_obs_second)
+            observations_encoded = tf.concat([obs_first_enc.encoded_input, obs_second_enc.encoded_input], axis=1)
 
             fc_layers = [256, 256]
             x = observations_encoded
             for fc_layer_size in fc_layers:
                 x = dense(x, fc_layer_size)
 
+            # embedding = obs_first_enc.encoded_input
+            # self.obs_decoded = DecoderCNN(embedding, 'reach_dec').decoded
+
             logits = tf.contrib.layers.fully_connected(x, 2, activation_fn=None)
             self.probabilities = tf.nn.softmax(logits)
 
-            self.loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=self.ph_labels)
-            self.loss = tf.reduce_mean(self.loss)
+            self.reach_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=self.ph_labels)
+            self.reach_loss = tf.reduce_mean(self.reach_loss)
+
+            # self.normalized_obs = obs_first_enc.normalized_obs
+            # # self.normalized_obs = tf.zeros_like(obs_first_enc.normalized_obs)
+            # self.reconst_loss = tf.nn.l2_loss(self.normalized_obs - self.obs_decoded)
+
+            self.loss = self.reach_loss
 
     def get_probabilities(self, session, obs_first, obs_second):
         probabilities = session.run(
