@@ -19,6 +19,9 @@ class Trajectory:
         num_obs = len(self.obs)
         self.landmarks.append(num_obs - 1)
 
+    def __len__(self):
+        return len(self.obs)
+
 
 class TrajectoryBuffer:
     """Store trajectories for multiple parallel environments."""

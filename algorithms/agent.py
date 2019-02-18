@@ -7,7 +7,7 @@ import gc
 import numpy as np
 import tensorflow as tf
 
-from utils.images import encode_gif
+from utils.gifs import encode_gif
 from utils.params import Params
 
 from utils.utils import log, model_dir, summaries_dir, memory_consumption_mb

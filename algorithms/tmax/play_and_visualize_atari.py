@@ -29,8 +29,8 @@ action_table = {
 
 
 class PolicyType:
-    RANDOM, PLAYER = range(2)
-    KEY_CHARS = {RANDOM: 'r', PLAYER: 'p'}
+    RANDOM, LOCOMOTION, PLAYER = range(3)
+    KEY_CHARS = {RANDOM: 'r', LOCOMOTION: 'l', PLAYER: 'p'}
     KEYS = {t: KeyCode.from_char(c) for t, c in KEY_CHARS.items()}
 
 
@@ -59,6 +59,7 @@ def on_press(key):
     for t, k in PolicyType.KEYS.items():
         if key == k:
             policy_type = t
+            log.info('Switch to policy %d (%r)', t, k)
 
 
 def on_release(key):
@@ -87,7 +88,7 @@ def play_and_visualize(params, env_id):
 
     env = make_env_func()
 
-    current_landmark = env.reset()
+    obs = current_landmark = env.reset()
     done = False
     episode_reward = 0
 
@@ -105,6 +106,8 @@ def play_and_visualize(params, env_id):
 
         if policy_type == PolicyType.RANDOM:
             action = env.action_space.sample()
+        elif policy_type == PolicyType.LOCOMOTION:
+            action = agent.locomotion.navigate(agent.session, [obs], [current_landmark], deterministic=True)
         else:
             action = action_name_to_action(action_name)
 

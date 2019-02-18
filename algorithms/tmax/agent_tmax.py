@@ -25,7 +25,7 @@ from algorithms.tmax.trajectory import TrajectoryBuffer
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.graph import visualize_graph_tensorboard
 from utils.timing import Timing
-from utils.utils import log, AttrDict, max_with_idx, numpy_all_the_way
+from utils.utils import log, AttrDict, max_with_idx, numpy_all_the_way, min_with_idx
 
 
 class ActorCritic:
@@ -232,13 +232,16 @@ class TmaxManager:
         self.intentions = [Intention.sample_random() for _ in range(self.num_envs)]
         self.landmarks_encoder = LandmarksEncoder(agent.actor_critic.encode_landmarks)
 
+        # TODO:
+        self.threshold = 100
+
     def initialize(self, initial_obs):
         self.maps = [TopologicalMap(obs) for obs in initial_obs]
         self.initialized = True
         is_landmark = [True for _ in initial_obs]  # initial observations are the first landmarks
         return is_landmark
 
-    def update(self, obs, dones, is_bootstrap=False, verbose=False):
+    def update_old(self, obs, dones, is_bootstrap=False, verbose=False):
         """Omnipotent function for the management of topological maps and policy modes."""
         maps = self.maps
 
@@ -357,6 +360,129 @@ class TmaxManager:
 
         return bonuses, self.get_intentions(), is_landmark
 
+    def update(self, obs, dones, is_bootstrap=False, verbose=False):
+        """Omnipotent function for the management of topological maps and policy modes."""
+        maps = self.maps
+
+        assert len(obs) == len(maps)
+        num_envs = len(maps)
+
+        bonuses = np.zeros([num_envs])
+        is_landmark = [False] * self.num_envs
+
+        if is_bootstrap:
+            # don't bother updating the graph when the reachability net isn't trained yet
+            return bonuses, self.get_intentions(), is_landmark
+
+        def log_verbose(s, *args):
+            if verbose:
+                log.debug(s, *args)
+
+        for i, m in enumerate(maps):
+            if dones[i]:
+                m.reset(obs[i])  # reset graph on episode termination (TODO! there must be a better policy)
+                self.intentions[i] = Intention.sample_random()
+                is_landmark[i] = True
+
+        # create a batch of all neighborhood observations from all envs for fast processing on GPU
+        neighborhood_obs = []
+        current_obs = []
+        for i, m in enumerate(maps):
+            neighbor_indices = m.neighbor_indices()
+            neighborhood_obs.extend([m.landmarks[i] for i in neighbor_indices])
+            current_obs.extend([obs[i]] * len(neighbor_indices))
+
+        assert len(neighborhood_obs) == len(current_obs)
+
+        # calculate reachability for all neighborhoods in all envs
+        distances = self.agent.locomotion.distances(self.agent.session, neighborhood_obs, current_obs)
+
+        dist_sorted = sorted(distances)
+        self.threshold = dist_sorted[-3:][0] + 1
+        log.info('Threshold: %f', self.threshold)
+
+        new_landmark_candidates = []
+
+        j = 0
+        for env_i, m in enumerate(maps):
+            neighbor_indices = m.neighbor_indices()
+            j_next = j + len(neighbor_indices)
+            distance = distances[j:j_next]
+
+            # optional diagnostic logging
+            log_reachability = True
+            if verbose and log_reachability:
+                neighbor_distance = {}
+                for i, neighbor_idx in enumerate(neighbor_indices):
+                    neighbor_distance[neighbor_idx] = '{:.3f}'.format(distance[i])
+                log_verbose('Env %d reachability: %r', env_i, neighbor_distance)
+
+            # check if we're far enough from all landmarks in the neighborhood
+            min_d = min(distance)
+            if min_d >= self.threshold:
+                # we're far enough from all obs in the neighborhood, might have found something new!
+                new_landmark_candidates.append(env_i)
+            else:
+                # we're still sufficiently close to our neighborhood, but maybe "current landmark" has changed
+                min_d, min_d_idx = min_with_idx(distance)
+                m.set_curr_landmark(neighbor_indices[min_d_idx])
+
+            j = j_next
+
+        del neighborhood_obs
+        del current_obs
+
+        # Agents in some environments discovered landmarks that are far away from all landmarks in the immediate
+        # neighborhood. There are two possibilities:
+        # 1) A new landmark should be created and added to the graph
+        # 2) We're close to some other vertex in the graph - we've found a "loop closure", a new edge in a graph
+
+        non_neighborhood_obs = []
+        non_neighborhoods = {}
+        current_obs = []
+        for env_i in new_landmark_candidates:
+            m = maps[env_i]
+            non_neighbor_indices = m.non_neighbor_indices()
+            non_neighborhoods[env_i] = non_neighbor_indices
+            non_neighborhood_obs.extend([m.landmarks[i] for i in non_neighbor_indices])
+            current_obs.extend([obs[env_i]] * len(non_neighbor_indices))
+
+        # this can be potentially a very large batch, should we divide it into mini-batches?
+        assert len(non_neighborhood_obs) == len(current_obs)
+
+        # calculate reachability for all non-neighbors
+        distances = []
+        if len(non_neighborhood_obs) != 0:
+            distances = self.agent.locomotion.distances(
+                self.agent.session, non_neighborhood_obs, current_obs,
+            )
+
+        j = 0
+        for env_i in new_landmark_candidates:
+            m = maps[env_i]
+            non_neighbor_indices = non_neighborhoods[env_i]
+            j_next = j + len(non_neighbor_indices)
+            distance = distances[j:j_next]
+
+            min_d, min_d_idx = math.inf, math.inf
+            if len(distance) > 0:
+                min_d, min_d_idx = min_with_idx(distance)
+
+            if min_d < 3:
+                # current observation is close to some other landmark, "close the loop" by creating a new edge
+                m.set_curr_landmark(non_neighbor_indices[min_d_idx])
+                log_verbose('Change current landmark to %d (loop closure)', m.curr_landmark_idx)
+            else:
+                # vertex is relatively far away from all vertex in the graph, we've found a new landmark!
+                new_landmark_idx = m.add_landmark(obs[env_i])
+                m.set_curr_landmark(new_landmark_idx)
+                is_landmark[env_i] = True
+
+            bonuses[env_i] += self.params.map_expansion_reward  # we found a new vertex or edge! Cool!
+            j = j_next
+
+        return bonuses, self.get_intentions(), is_landmark
+
     def get_neighbors(self):
         if not self.params.use_neighborhood_encoder:
             return None, None
@@ -450,16 +576,16 @@ class AgentTMAX(AgentLearner):
             self.unreachable_threshold = 60  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 25000  # target number of training examples to store
             self.reachability_train_epochs = 1
-            self.reachability_batch_size = 128
+            self.reachability_batch_size = 256
 
             self.new_landmark_reachability = 0.15  # condition for considering current observation a "new landmark"
             self.loop_closure_reachability = 0.5  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.05  # reward for finding new vertex or new edge in the topological map
 
-            self.locomotion_max_trajectory = 50  # max trajectory length to be utilized for locomotion training
+            self.locomotion_max_trajectory = 10  # max trajectory length to be utilized for locomotion training
             self.locomotion_target_buffer_size = 25000  # target number of (obs, goal, action) tuples to store
-            self.locomotion_train_epochs = 1
-            self.locomotion_batch_size = 128
+            self.locomotion_train_epochs = 10
+            self.locomotion_batch_size = 256
 
             self.bootstrap_env_steps = 750 * 1000
 
@@ -646,7 +772,9 @@ class AgentTMAX(AgentLearner):
 
         with tf.name_scope('locomotion'):
             locomotion_scalar = partial(tf.summary.scalar, collections=['locomotion'])
-            locomotion_scalar('locomotion_loss', self.locomotion.loss)
+            locomotion_scalar('loss_steps', self.locomotion.loss_steps)
+            locomotion_scalar('loss_actions', self.locomotion.loss_actions)
+            locomotion_scalar('loss', self.locomotion.loss)
             locomotion_scalar('entropy', tf.reduce_mean(self.locomotion.actions_distribution.entropy()))
 
     def _maybe_print(self, step, env_step, avg_rewards, avg_length, fps, t):
@@ -863,6 +991,7 @@ class AgentTMAX(AgentLearner):
         num_epochs = self.params.reachability_train_epochs
         if self._is_bootstrap(env_steps):
             num_epochs = max(10, num_epochs * 2)  # during bootstrap do more epochs to train faster!
+        num_epochs = 0  # TODO
 
         log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer.obs_first), batch_size, num_epochs)
 
@@ -894,8 +1023,8 @@ class AgentTMAX(AgentLearner):
 
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
-            if avg_loss > 0.999 * prev_loss:
-                log.info('Early stopping after %d epochs because reachability did not improve enough', epoch)
+            if avg_loss > prev_loss:
+                log.info('Early stopping after %d epochs because reachability did not improve', epoch)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
             prev_loss = avg_loss
@@ -910,9 +1039,16 @@ class AgentTMAX(AgentLearner):
 
         prev_loss = 1e10
         losses = []
-        for epoch in range(self.params.locomotion_train_epochs):
+
+        num_epochs = self.params.locomotion_train_epochs
+        if self._is_bootstrap(env_steps):
+            num_epochs = max(10, num_epochs * 2)  # during bootstrap do more epochs to train faster!
+
+        log.info('Training locomotion %d pairs, batch %d, epochs %d', len(buffer.obs_curr), batch_size, num_epochs)
+
+        for epoch in range(num_epochs):
             buffer.shuffle_data()
-            obs_curr, obs_goal, actions = buffer.obs_curr, buffer.obs_goal, buffer.actions
+            obs_curr, obs_goal, actions, steps = buffer.obs_curr, buffer.obs_goal, buffer.actions, buffer.steps_to_goal
 
             for i in range(0, len(obs_curr) - 1, batch_size):
                 with_summaries = self._should_write_summaries(loco_step) and summary is None
@@ -926,6 +1062,7 @@ class AgentTMAX(AgentLearner):
                         self.locomotion.ph_obs_curr: obs_curr[start:end],
                         self.locomotion.ph_obs_goal: obs_goal[start:end],
                         self.locomotion.ph_actions: actions[start:end],
+                        self.locomotion.ph_steps_to_goal: steps[start:end],
                     }
                 )
 
@@ -938,8 +1075,8 @@ class AgentTMAX(AgentLearner):
 
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
-            if avg_loss > 0.999 * prev_loss:
-                log.info('Early stopping after %d epochs because locomotion did not improve enough', epoch)
+            if avg_loss > prev_loss:
+                log.info('Early stopping after %d epochs because locomotion did not improve', epoch)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
             prev_loss = avg_loss

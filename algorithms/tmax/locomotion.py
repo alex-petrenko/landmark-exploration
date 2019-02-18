@@ -14,6 +14,7 @@ class LocomotionNetwork:
         obs_space = get_observation_space(env)
         self.ph_obs_curr, self.ph_obs_goal = placeholders_from_spaces(obs_space, obs_space)
         self.ph_actions = placeholder_from_space(env.action_space)
+        self.ph_steps_to_goal = tf.placeholder(tf.int32, shape=[None])
 
         with tf.variable_scope('loco'):
             encoder = tf.make_template(
@@ -31,15 +32,30 @@ class LocomotionNetwork:
 
             action_logits = tf.layers.dense(x, env.action_space.n, activation=None)
             self.actions_distribution = CategoricalProbabilityDistribution(action_logits)
+            self.best_action_deterministic = tf.argmax(action_logits, axis=1)
             self.act = self.actions_distribution.sample()
 
-            self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
+            steps_predicted = tf.layers.dense(x, 1, activation=None)
+            self.steps_predicted = tf.squeeze(steps_predicted, axis=1)
+
+            self.loss_steps = tf.losses.mean_squared_error(self.ph_steps_to_goal, self.steps_predicted)
+
+            self.loss_actions = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=self.ph_actions, logits=action_logits,
             ))
 
-    def navigate(self, session, obs_curr, obs_goal):
-        actions = session.run(self.act, feed_dict={self.ph_obs_curr: obs_curr, self.ph_obs_goal: obs_goal})
+            self.loss = self.loss_actions + 0.1 * self.loss_steps
+
+    def navigate(self, session, obs_curr, obs_goal, deterministic=False):
+        actions = session.run(
+            self.best_action_deterministic if deterministic else self.act,
+            feed_dict={self.ph_obs_curr: obs_curr, self.ph_obs_goal: obs_goal},
+        )
         return actions
+
+    def distances(self, session, obs_curr, obs_goal):
+        steps = session.run(self.steps_predicted, feed_dict={self.ph_obs_curr: obs_curr, self.ph_obs_goal: obs_goal})
+        return steps
 
 
 class LocomotionBuffer:
@@ -51,29 +67,25 @@ class LocomotionBuffer:
     """
 
     def __init__(self, params):
-        self.obs_curr, self.obs_goal, self.actions = [], [], []
+        self.obs_curr, self.obs_goal, self.actions, self.steps_to_goal = [], [], [], []
         self.params = params
 
     def extract_data(self, trajectories):
-        obs_curr, obs_goal, actions = [], [], []
+        obs_curr, obs_goal, actions, steps = [], [], [], []
 
         for trajectory in trajectories:
-            landmarks = trajectory.landmarks  # indices of "key" observations
-            if len(landmarks) <= 1:
-                continue
+            i = 0
+            while i < len(trajectory) - 1:
+                # sample random goal from the "future"
+                goal_idx = np.random.randint(i + 1, min(len(trajectory), i + self.params.locomotion_max_trajectory))
 
-            for i in range(1, len(landmarks)):
-                l_prev, l_next = landmarks[i - 1], landmarks[i]
-                assert l_next > l_prev
-                traj_len = l_next - l_prev
-                if traj_len > self.params.locomotion_max_trajectory:
-                    # trajectory is too long and probably too noisy
-                    continue
-
-                for j in range(l_prev, l_next):
+                for j in range(i, goal_idx):
                     obs_curr.append(trajectory.obs[j])
-                    obs_goal.append(trajectory.obs[l_next])
+                    obs_goal.append(trajectory.obs[goal_idx])
                     actions.append(trajectory.actions[j])
+                    steps.append(goal_idx - i)
+
+                i = goal_idx
 
         if len(obs_curr) <= 0:
             # no new data
@@ -83,15 +95,18 @@ class LocomotionBuffer:
             self.obs_curr = np.array(obs_curr)
             self.obs_goal = np.array(obs_goal)
             self.actions = np.array(actions, dtype=np.int32)
+            self.steps_to_goal = np.array(steps, dtype=np.int32)
         else:
             self.obs_curr = np.append(self.obs_curr, obs_curr, axis=0)
             self.obs_goal = np.append(self.obs_goal, obs_goal, axis=0)
             self.actions = np.append(self.actions, actions, axis=0)
+            self.steps_to_goal = np.append(self.steps_to_goal, steps, axis=0)
 
         self._discard_data()
 
         assert len(self.obs_curr) == len(self.obs_goal)
         assert len(self.obs_curr) == len(self.actions)
+        assert len(self.obs_curr) == len(self.steps_to_goal)
 
     def _discard_data(self):
         """Remove some data if the current buffer is too big."""
@@ -103,6 +118,7 @@ class LocomotionBuffer:
         self.obs_curr = self.obs_curr[:target_size]
         self.obs_goal = self.obs_goal[:target_size]
         self.actions = self.actions[:target_size]
+        self.steps_to_goal = self.steps_to_goal[:target_size]
 
     def has_enough_data(self):
         len_data, min_data = len(self.obs_curr), self.params.locomotion_target_buffer_size // 5
@@ -119,3 +135,4 @@ class LocomotionBuffer:
         self.obs_curr = self.obs_curr[chaos]
         self.obs_goal = self.obs_goal[chaos]
         self.actions = self.actions[chaos]
+        self.steps_to_goal = self.steps_to_goal[chaos]
