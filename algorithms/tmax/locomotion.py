@@ -14,7 +14,7 @@ class LocomotionNetwork:
         obs_space = get_observation_space(env)
         self.ph_obs_curr, self.ph_obs_goal = placeholders_from_spaces(obs_space, obs_space)
         self.ph_actions = placeholder_from_space(env.action_space)
-        self.ph_steps_to_goal = tf.placeholder(tf.int32, shape=[None])
+        self.ph_far = tf.placeholder(tf.int32, shape=[None])
 
         with tf.variable_scope('loco'):
             encoder = tf.make_template(
@@ -35,16 +35,23 @@ class LocomotionNetwork:
             self.best_action_deterministic = tf.argmax(action_logits, axis=1)
             self.act = self.actions_distribution.sample()
 
-            steps_predicted = tf.layers.dense(x, 1, activation=None)
-            self.steps_predicted = tf.squeeze(steps_predicted, axis=1)
+            # steps_predicted = tf.layers.dense(x, 1, activation=None)
+            # self.steps_predicted = tf.squeeze(steps_predicted, axis=1)
+            # self.loss_steps = tf.losses.mean_squared_error(self.ph_steps_to_goal, self.steps_predicted)
 
-            self.loss_steps = tf.losses.mean_squared_error(self.ph_steps_to_goal, self.steps_predicted)
+            distance_logits = tf.layers.dense(x, 2, activation=None)
+
+            # close-far probabilities
+            self.distance_probabilities = tf.nn.softmax(distance_logits)
+
+            distance_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=distance_logits, labels=self.ph_far)
+            self.distance_loss = tf.reduce_mean(distance_loss)
 
             self.loss_actions = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=self.ph_actions, logits=action_logits,
             ))
 
-            self.loss = self.loss_actions + 0.1 * self.loss_steps
+            self.loss = self.loss_actions + self.distance_loss
 
     def navigate(self, session, obs_curr, obs_goal, deterministic=False):
         actions = session.run(
@@ -53,9 +60,16 @@ class LocomotionNetwork:
         )
         return actions
 
+    def _get_distance_probabilities(self, session, obs_curr, obs_goal):
+        probabilities = session.run(
+            self.distance_probabilities,
+            feed_dict={self.ph_obs_curr: obs_curr, self.ph_obs_goal: obs_goal},
+        )
+        return probabilities
+
     def distances(self, session, obs_curr, obs_goal):
-        steps = session.run(self.steps_predicted, feed_dict={self.ph_obs_curr: obs_curr, self.ph_obs_goal: obs_goal})
-        return steps
+        probs = self._get_distance_probabilities(session, obs_curr, obs_goal)
+        return [p[1] for p in probs]
 
 
 class LocomotionBuffer:

@@ -25,7 +25,7 @@ from algorithms.tmax.trajectory import TrajectoryBuffer
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.graph import visualize_graph_tensorboard
 from utils.timing import Timing
-from utils.utils import log, AttrDict, max_with_idx, numpy_all_the_way, min_with_idx
+from utils.utils import log, AttrDict, numpy_all_the_way, min_with_idx
 
 
 class ActorCritic:
@@ -219,6 +219,8 @@ class TmaxManager:
     (potentially) multi-env setting.
     """
 
+    EXPLORATION, LOCOMOTION, IDLE = range(3)
+
     def __init__(self, agent):
         self.initialized = False
 
@@ -232,133 +234,58 @@ class TmaxManager:
         self.intentions = [Intention.sample_random() for _ in range(self.num_envs)]
         self.landmarks_encoder = LandmarksEncoder(agent.actor_critic.encode_landmarks)
 
-        # TODO:
-        self.threshold = 100
+        self.episode_frames = [0] * self.num_envs
+        self.locomotion_target = [None] * self.num_envs
+
+        self.mode = [self.EXPLORATION] * self.num_envs
+        self.last_mode_change = [0] * self.num_envs
+
+        self.closest_landmark = [[] for _ in range(self.num_envs)]
+
+        self.avg_graph_size = self.avg_num_neighbors = 1
+        self.new_landmark_threshold = self.new_landmark_threshold_max = 0.8
+        self.loop_closure_threshold = self.loop_closure_threshold_min = 0.3
+
+        self.is_landmark = [True for _ in range(self.num_envs)]
 
     def initialize(self, initial_obs):
         self.maps = [TopologicalMap(obs) for obs in initial_obs]
         self.initialized = True
-        is_landmark = [True for _ in initial_obs]  # initial observations are the first landmarks
-        return is_landmark
 
-    def update_old(self, obs, dones, is_bootstrap=False, verbose=False):
-        """Omnipotent function for the management of topological maps and policy modes."""
-        maps = self.maps
+    def _sample_mode(self, env_i):
+        modes = [self.EXPLORATION, self.IDLE]
 
-        assert len(obs) == len(maps)
-        num_envs = len(maps)
+        m = self.maps[env_i]
+        neighbor_indices = m.neighbor_indices
+        if len(neighbor_indices) > 1:
+            modes.append(self.LOCOMOTION)  # we can sample a locomotion target
 
-        bonuses = np.zeros([num_envs])
-        is_landmark = [False] * self.num_envs
+        mode = random.choice(modes)
 
-        if is_bootstrap:
-            # don't bother updating the graph when the reachability net isn't trained yet
-            return bonuses, self.get_intentions(), is_landmark
+        if mode == self.LOCOMOTION:
+            # first neighbor is "current" landmark, so we skip it
+            target = random.choice(neighbor_indices[1:])
+            self.locomotion_target[env_i] = target
 
-        def log_verbose(s, *args):
-            if verbose:
-                log.debug(s, *args)
+        self.last_mode_change[env_i] = self.episode_frames[env_i]
+        self.mode[env_i] = mode
 
-        for i, m in enumerate(maps):
-            if dones[i]:
-                m.reset(obs[i])  # reset graph on episode termination (TODO! there must be a better policy)
-                self.intentions[i] = Intention.sample_random()
-                is_landmark[i] = True
+    def _select_locomotion_target(self, env_i):
+        if self.mode[env_i] != self.LOCOMOTION:
+            return
 
-        # create a batch of all neighborhood observations from all envs for fast processing on GPU
-        neighborhood_obs = []
-        current_obs = []
-        for i, m in enumerate(maps):
-            neighbor_indices = m.neighbor_indices()
-            neighborhood_obs.extend([m.landmarks[i] for i in neighbor_indices])
-            current_obs.extend([obs[i]] * len(neighbor_indices))
-
-        assert len(neighborhood_obs) == len(current_obs)
-
-        # calculate reachability for all neighborhoods in all envs
-        reachabilities = self.agent.reachability.get_reachability(self.agent.session, neighborhood_obs, current_obs)
-
-        new_landmark_candidates = []
-
-        j = 0
-        for env_i, m in enumerate(maps):
-            neighbor_indices = m.neighbor_indices()
-            j_next = j + len(neighbor_indices)
-            reachability = reachabilities[j:j_next]
-
-            # optional diagnostic logging
-            log_reachability = True
-            if verbose and log_reachability:
-                neighbor_reachability = {}
-                for i, neighbor_idx in enumerate(neighbor_indices):
-                    neighbor_reachability[neighbor_idx] = '{:.3f}'.format(reachability[i])
-                log_verbose('Env %d reachability: %r', env_i, neighbor_reachability)
-
-            # check if we're far enough from all landmarks in the neighborhood
-            max_r = max(reachability)
-            if max_r < self.params.new_landmark_reachability:
-                # we're far enough from all obs in the neighborhood, might have found something new!
-                new_landmark_candidates.append(env_i)
-            else:
-                # we're still sufficiently close to our neighborhood, but maybe "current landmark" has changed
-                max_r, max_r_idx = max_with_idx(reachability)
-                m.set_curr_landmark(neighbor_indices[max_r_idx])
-
-            j = j_next
-
-        del neighborhood_obs
-        del current_obs
-
-        # Agents in some environments discovered landmarks that are far away from all landmarks in the immediate
-        # neighborhood. There are two possibilities:
-        # 1) A new landmark should be created and added to the graph
-        # 2) We're close to some other vertex in the graph - we've found a "loop closure", a new edge in a graph
-
-        non_neighborhood_obs = []
-        non_neighborhoods = {}
-        current_obs = []
-        for env_i in new_landmark_candidates:
-            m = maps[env_i]
-            non_neighbor_indices = m.non_neighbor_indices()
-            non_neighborhoods[env_i] = non_neighbor_indices
-            non_neighborhood_obs.extend([m.landmarks[i] for i in non_neighbor_indices])
-            current_obs.extend([obs[env_i]] * len(non_neighbor_indices))
-
-        # this can be potentially a very large batch, should we divide it into mini-batches?
-        assert len(non_neighborhood_obs) == len(current_obs)
-
-        # calculate reachability for all non-neighbors
-        reachabilities = []
-        if len(non_neighborhood_obs) != 0:
-            reachabilities = self.agent.reachability.get_reachability(
-                self.agent.session, non_neighborhood_obs, current_obs,
+        neighbor_indices = self.maps[env_i].neighbor_indices()
+        if len(neighbor_indices) <= 1:
+            # will not be able to sample the locomotion target
+            log.info(
+                'No target for locomotion, sampling new mode for %d at %d',
+                env_i, self.episode_frames[env_i],
             )
-
-        j = 0
-        for env_i in new_landmark_candidates:
-            m = maps[env_i]
-            non_neighbor_indices = non_neighborhoods[env_i]
-            j_next = j + len(non_neighbor_indices)
-            reachability = reachabilities[j:j_next]
-
-            max_r, max_r_idx = -math.inf, -math.inf
-            if len(reachability) > 0:
-                max_r, max_r_idx = max_with_idx(reachability)
-
-            if max_r > self.params.loop_closure_reachability:
-                # current observation is close to some other landmark, "close the loop" by creating a new edge
-                m.set_curr_landmark(non_neighbor_indices[max_r_idx])
-                log_verbose('Change current landmark to %d (loop closure)', m.curr_landmark_idx)
-            else:
-                # vertex is relatively far away from all vertex in the graph, we've found a new landmark!
-                new_landmark_idx = m.add_landmark(obs[env_i])
-                m.set_curr_landmark(new_landmark_idx)
-                is_landmark[env_i] = True
-
-            bonuses[env_i] += self.params.map_expansion_reward  # we found a new vertex or edge! Cool!
-            j = j_next
-
-        return bonuses, self.get_intentions(), is_landmark
+            self._sample_mode(env_i)
+        else:
+            # first neighbor is "current" landmark, so we skip it
+            target = random.choice(neighbor_indices[1:])
+            self.locomotion_target[env_i] = target
 
     def update(self, obs, dones, is_bootstrap=False, verbose=False):
         """Omnipotent function for the management of topological maps and policy modes."""
@@ -368,11 +295,10 @@ class TmaxManager:
         num_envs = len(maps)
 
         bonuses = np.zeros([num_envs])
-        is_landmark = [False] * self.num_envs
 
         if is_bootstrap:
             # don't bother updating the graph when the reachability net isn't trained yet
-            return bonuses, self.get_intentions(), is_landmark
+            return bonuses, self.get_intentions()
 
         def log_verbose(s, *args):
             if verbose:
@@ -380,9 +306,46 @@ class TmaxManager:
 
         for i, m in enumerate(maps):
             if dones[i]:
-                m.reset(obs[i])  # reset graph on episode termination (TODO! there must be a better policy)
-                self.intentions[i] = Intention.sample_random()
-                is_landmark[i] = True
+                if random.random() < 0.2:
+                    # reset graph
+
+                    self.avg_graph_size = 0.95 * self.avg_graph_size + 0.05 * len(m.landmarks)
+                    self.avg_num_neighbors = 0.95 * self.avg_num_neighbors + 0.05 * len(m.neighbor_indices())
+
+                    if self.avg_graph_size < self.episode_frames[i] / 500:
+                        self.new_landmark_threshold -= 0.01
+                    else:
+                        self.new_landmark_threshold = min(
+                            self.new_landmark_threshold_max, self.new_landmark_threshold + 0.01,
+                        )
+
+                    if self.avg_num_neighbors < 1.5:
+                        self.loop_closure_threshold = min(
+                            self.new_landmark_threshold, self.loop_closure_threshold + 0.01,
+                        )
+                    else:
+                        self.loop_closure_threshold = max(
+                            self.loop_closure_threshold_min, self.loop_closure_threshold - 0.01,
+                        )
+
+                    log.info('Thresholds: %.3f %.3f', self.new_landmark_threshold, self.loop_closure_threshold)
+
+                    m.reset(obs[i])  # reset graph (TODO! there must be a better policy)
+
+                self.episode_frames[i] = 0
+
+                m.curr_landmark_idx = 0  # TODO! proper localization? we're assuming start in exact same place
+                self.closest_landmark[i] = m.curr_landmark_idx
+                self.is_landmark[i] = True
+
+                self._sample_mode(i)  # decide what we're going to do now
+
+                self.intentions[i] = Intention.sample_random()  # TODO: remove this?
+            else:
+                self.episode_frames[i] += 1
+                if self.episode_frames[i] - self.last_mode_change[i] > 200:
+                    self._sample_mode(i)
+                    log.info('Changed mode to %d for environment %d at %d', self.mode[i], i, self.episode_frames[i])
 
         # create a batch of all neighborhood observations from all envs for fast processing on GPU
         neighborhood_obs = []
@@ -396,10 +359,6 @@ class TmaxManager:
 
         # calculate reachability for all neighborhoods in all envs
         distances = self.agent.locomotion.distances(self.agent.session, neighborhood_obs, current_obs)
-
-        dist_sorted = sorted(distances)
-        self.threshold = dist_sorted[-3:][0] + 1
-        log.info('Threshold: %f', self.threshold)
 
         new_landmark_candidates = []
 
@@ -419,13 +378,22 @@ class TmaxManager:
 
             # check if we're far enough from all landmarks in the neighborhood
             min_d = min(distance)
-            if min_d >= self.threshold:
+            if min_d >= self.new_landmark_threshold:
                 # we're far enough from all obs in the neighborhood, might have found something new!
                 new_landmark_candidates.append(env_i)
             else:
                 # we're still sufficiently close to our neighborhood, but maybe "current landmark" has changed
                 min_d, min_d_idx = min_with_idx(distance)
-                m.set_curr_landmark(neighbor_indices[min_d_idx])
+                landmark_idx = neighbor_indices[min_d_idx]
+
+                closest_landmark = self.closest_landmark[env_i]
+                closest_landmark.append(landmark_idx)
+
+                # crude localization
+                if all(lm == landmark_idx for lm in self.closest_landmark[-3:]):
+                    m.set_curr_landmark(neighbor_indices[min_d_idx])
+                    self.is_landmark[i] = True
+                    self._select_locomotion_target(env_i)
 
             j = j_next
 
@@ -468,20 +436,30 @@ class TmaxManager:
             if len(distance) > 0:
                 min_d, min_d_idx = min_with_idx(distance)
 
-            if min_d < 3:
+            if min_d < self.loop_closure_threshold:
                 # current observation is close to some other landmark, "close the loop" by creating a new edge
-                m.set_curr_landmark(non_neighbor_indices[min_d_idx])
-                log_verbose('Change current landmark to %d (loop closure)', m.curr_landmark_idx)
+                landmark_idx = non_neighbor_indices[min_d_idx]
+
+                closest_landmark = self.closest_landmark[env_i]
+                closest_landmark.append(landmark_idx)
+
+                # crude localization
+                if all(lm == landmark_idx for lm in self.closest_landmark[-3:]):
+                    m.set_curr_landmark(neighbor_indices[min_d_idx])
+                    self.is_landmark[i] = True
+                    log_verbose('Change current landmark to %d (loop closure)', m.curr_landmark_idx)
+                    self._select_locomotion_target(env_i)
             else:
-                # vertex is relatively far away from all vertex in the graph, we've found a new landmark!
+                # vertex is relatively far away from all vertices in the graph, we've found a new landmark!
                 new_landmark_idx = m.add_landmark(obs[env_i])
                 m.set_curr_landmark(new_landmark_idx)
-                is_landmark[env_i] = True
+                self._select_locomotion_target(env_i)
+                self.is_landmark[i] = True
 
             bonuses[env_i] += self.params.map_expansion_reward  # we found a new vertex or edge! Cool!
             j = j_next
 
-        return bonuses, self.get_intentions(), is_landmark
+        return bonuses, self.get_intentions()
 
     def get_neighbors(self):
         if not self.params.use_neighborhood_encoder:
@@ -1104,7 +1082,7 @@ class AgentTMAX(AgentLearner):
         locomotion_buffer = LocomotionBuffer(self.params)
 
         tmax_mgr = self.tmax_mgr
-        is_landmark = tmax_mgr.initialize(observations)
+        tmax_mgr.initialize(observations)
         intentions = tmax_mgr.get_intentions()
 
         def end_of_training(s, es):
@@ -1126,7 +1104,7 @@ class AgentTMAX(AgentLearner):
                 # wait for all the workers to complete an environment step
                 new_observations, rewards, dones, infos = multi_env.step(actions)
 
-                trajectory_buffer.add(observations, actions, dones, tmax_mgr.maps, is_landmark)
+                trajectory_buffer.add(observations, actions, dones, tmax_mgr)
                 bonuses, intentions, is_landmark = tmax_mgr.update(new_observations, dones, is_bootstrap)
                 rewards = self._combine_rewards(multi_env.num_envs, rewards, bonuses, intentions)
 
