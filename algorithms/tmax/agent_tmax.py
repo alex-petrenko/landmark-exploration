@@ -262,7 +262,7 @@ class TmaxManager:
         modes = [TmaxMode.EXPLORATION]
 
         m = self.maps[env_i]
-        neighbor_indices = m.neighbor_indices
+        neighbor_indices = m.neighbor_indices()
         if len(neighbor_indices) > 1:
             modes.append(TmaxMode.LOCOMOTION)  # we can sample a locomotion target
 
@@ -284,10 +284,6 @@ class TmaxManager:
         neighbor_indices = self.maps[env_i].neighbor_indices()
         if len(neighbor_indices) <= 1:
             # will not be able to sample the locomotion target
-            log.info(
-                'No target for locomotion, sampling new mode for %d at %d',
-                env_i, self.episode_frames[env_i],
-            )
             self._sample_mode(env_i)
         else:
             # first neighbor is "current" landmark, so we skip it
@@ -312,26 +308,29 @@ class TmaxManager:
         if random.random() < 0.2:  # (TODO! there must be a better policy)
             # reset graph with some probability
 
-            self.avg_graph_size = 0.95 * self.avg_graph_size + 0.05 * len(m.landmarks)
-            self.avg_num_neighbors = 0.95 * self.avg_num_neighbors + 0.05 * len(m.neighbor_indices())
+            self.avg_graph_size = 0.9 * self.avg_graph_size + 0.1 * len(m.landmarks)
+            self.avg_num_neighbors = 0.9 * self.avg_num_neighbors + 0.1 * len(m.neighbor_indices())
 
-            if self.avg_graph_size < self.episode_frames[env_i] / 500:
-                self.new_landmark_threshold -= 0.01
+            if self.avg_graph_size < max(self.episode_frames[env_i] / 500, 3):
+                self.new_landmark_threshold -= 0.05
             else:
                 self.new_landmark_threshold = min(
-                    self.new_landmark_threshold_max, self.new_landmark_threshold + 0.01,
+                    self.new_landmark_threshold_max, self.new_landmark_threshold + 0.05,
                 )
 
             if self.avg_num_neighbors < 1.5:
                 self.loop_closure_threshold = min(
-                    self.new_landmark_threshold, self.loop_closure_threshold + 0.01,
+                    self.new_landmark_threshold, self.loop_closure_threshold + 0.05,
                 )
             else:
                 self.loop_closure_threshold = max(
-                    self.loop_closure_threshold_min, self.loop_closure_threshold - 0.01,
+                    self.loop_closure_threshold_min, self.loop_closure_threshold - 0.05,
                 )
 
-            log.info('Thresholds: %.3f %.3f', self.new_landmark_threshold, self.loop_closure_threshold)
+            self.new_landmark_threshold = max(self.new_landmark_threshold, 0.6)
+            self.loop_closure_threshold = min(self.loop_closure_threshold, self.new_landmark_threshold - 0.05)
+
+            log.info('Thresholds: %.3f %.3f, size %.3f, neigh %.3f', self.new_landmark_threshold, self.loop_closure_threshold, self.avg_graph_size, self.avg_num_neighbors)
 
             m.reset(obs)  # reset graph
 
@@ -590,7 +589,7 @@ class AgentTMAX(AgentLearner):
 
             self.locomotion_max_trajectory = 15  # max trajectory length to be utilized for locomotion training
             self.locomotion_target_buffer_size = 100000  # target number of (obs, goal, action) tuples to store
-            self.locomotion_train_epochs = 10
+            self.locomotion_train_epochs = 4
             self.locomotion_batch_size = 256
 
             self.bootstrap_env_steps = 750 * 1000
@@ -729,9 +728,11 @@ class AgentTMAX(AgentLearner):
         # auxiliary quantities (for tensorboard, logging, early stopping)
         log_p_old = tf.log(old_action_probs + EPS)
         log_p = tf.log(action_probs + EPS)
-        sample_kl = tf.reduce_mean(log_p_old - log_p)
-        sample_entropy = tf.reduce_mean(-log_p)
-        clipped_fraction = tf.reduce_mean(clipped)
+
+        num_rl_samples = tf.reduce_sum(masks)
+        sample_kl = tf.reduce_sum((log_p_old - log_p) * masks) / num_rl_samples
+        sample_entropy = tf.reduce_sum(-log_p * masks) / num_rl_samples
+        clipped_fraction = tf.reduce_sum(clipped * masks) / num_rl_samples
 
         # only use entropy bonus if the policy is not close to max entropy
         max_entropy = actor_critic.actions_distribution.max_entropy()
@@ -900,9 +901,10 @@ class AgentTMAX(AgentLearner):
         assert total_num_indices == num_envs
 
         observations = np.asarray(observations)
-        neighbors = np.asarray(neighbors)
-        num_neighbors = np.asarray(num_neighbors)
         intentions = np.asarray(intentions)
+        if neighbors is not None:
+            neighbors = np.asarray(neighbors)
+            num_neighbors = np.asarray(num_neighbors)
 
         actions = np.empty(num_envs, np.int32)
         action_probs = np.ones(num_envs, np.float32)
@@ -911,8 +913,13 @@ class AgentTMAX(AgentLearner):
 
         env_i = env_indices[TmaxMode.EXPLORATION]
         if len(env_i) > 0:
+            neighbors_policy = num_neighbors_policy = None
+            if neighbors is not None:
+                neighbors_policy = neighbors[env_i]
+                num_neighbors_policy = num_neighbors[env_i]
+
             actions[env_i], action_probs[env_i], values[env_i] = self.actor_critic.invoke(
-                self.session, observations[env_i], neighbors[env_i], num_neighbors[env_i], intentions[env_i],
+                self.session, observations[env_i], neighbors_policy, num_neighbors_policy, intentions[env_i],
             )
             masks[env_i] = 1  # train only these with ppo
 
@@ -1157,7 +1164,7 @@ class AgentTMAX(AgentLearner):
         buffer = TmaxPPOBuffer()
 
         trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)  # separate buffer for complete episode trajectories
-        reachability_buffer = ReachabilityBuffer(self.params)
+        reachability_buffer = ReachabilityBuffer(self.params)  # TODO: remove?
         locomotion_buffer = LocomotionBuffer(self.params)
 
         tmax_mgr = self.tmax_mgr

@@ -43,7 +43,10 @@ class LocomotionNetwork:
             self.distance_probabilities = tf.nn.softmax(distance_logits)
 
             distance_loss = tf.nn.softmax_cross_entropy_with_logits_v2(logits=distance_logits, labels=self.ph_distance)
-            self.distance_loss = tf.reduce_mean(distance_loss * tf.to_float(self.ph_is_locomotion))
+
+            is_locomotion = tf.to_float(self.ph_is_locomotion)
+            num_locomotion_samples = tf.reduce_sum(is_locomotion)
+            self.distance_loss = tf.reduce_sum(distance_loss * is_locomotion) / num_locomotion_samples
 
             self.actions_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=self.ph_actions, logits=action_logits,
@@ -88,24 +91,26 @@ class LocomotionBuffer:
         near, far = 3, 10
 
         if dist_frames <= near:
-            return 0.001
+            is_far = 0.001
         elif dist_frames >= far:
-            return 0.999
+            is_far = 0.999
         else:
-            return (dist_frames - near) / (far - near)  # linear interpolation
+            is_far = (dist_frames - near) / (far - near)  # linear interpolation
+
+        return 1.0 - is_far, is_far
 
     def extract_data(self, episode_trajectories):
         # split trajectories by type
         trajectories = {TmaxMode.EXPLORATION: [], TmaxMode.LOCOMOTION: []}
         for tr in episode_trajectories:
-            if len(tr) < 1:
+            if len(tr) <= 2:
                 continue
 
             curr_tr = Trajectory(tr.env_idx)
             curr_tr.add(tr.obs[0], tr.actions[0], tr.modes[0], tr.target_idx[0])
 
             for i in range(1, len(tr)):
-                if curr_tr.modes[i - 1] != tr.modes[i]:
+                if tr.modes[i - 1] != tr.modes[i]:
                     # start new trajectory because mode has changed
                     trajectories[curr_tr.modes[i - 1]].append(curr_tr)
                     curr_tr = Trajectory(tr.env_idx)
@@ -205,7 +210,7 @@ class LocomotionBuffer:
         self.is_locomotion = self.is_locomotion[:target_size]
 
     def has_enough_data(self):
-        len_data, min_data = len(self.obs_curr), self.params.locomotion_target_buffer_size // 10
+        len_data, min_data = len(self.obs_curr), self.params.locomotion_target_buffer_size // 50
         if len_data < min_data:
             log.info('Need to gather more data to train locomotion net, %d/%d', len_data, min_data)
             return False
