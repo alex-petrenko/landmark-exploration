@@ -8,3 +8,7 @@ DEFAULT_ENV = 'doom_maze'
 
 def parse_args_tmax(params_cls):
     return parse_args(DEFAULT_ENV, DEFAULT_EXPERIMENT_NAME, params_cls)
+
+
+class TmaxMode:
+    EXPLORATION, LOCOMOTION = range(2)
