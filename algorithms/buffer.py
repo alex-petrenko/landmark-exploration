@@ -52,7 +52,7 @@ class Buffer:
                 new_size = self._capacity = size
             else:
                 self._ensure_enough_space(size)
-                self._data[key][np.arange(size) + self._size] = value
+                self._data[key][self._size:self._size + size] = value
                 new_size = self._size + size
 
         self._size = new_size
@@ -67,19 +67,20 @@ class Buffer:
             return
 
         chaos = np.random.permutation(self._size)
-        indices = np.arange(self._size)
         for key in self._data.keys():
-            self._data[key][indices] = self._data[key][chaos]
+            self._data[key][:self._size] = self._data[key][chaos]
 
     def trim_at(self, new_size):
         """Discard some data from the end of the buffer, but keep the capacity."""
-
         if new_size >= self._size:
             return
         self._size = new_size
+
+    def clear(self):
+        self.trim_at(0)
 
     def __len__(self):
         return self._size
 
     def __getattr__(self, key):
-        return self._data[key][np.arange(self._size)]
+        return self._data[key][:self._size]

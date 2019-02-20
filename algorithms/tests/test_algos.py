@@ -150,3 +150,6 @@ class TestBuffer(TestCase):
         buff.add_buff(buff_temp)
 
         self.assertEqual(len(buff), 2)
+
+        buff.clear()
+        self.assertEqual(len(buff), 0)
