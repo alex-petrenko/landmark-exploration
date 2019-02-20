@@ -37,6 +37,7 @@ def make_atari_env(atari_cfg, mode='train'):
 
     env = StickyActionWrapper(env)
     env = MaxAndSkipWrapper(env, skip=4)
+
     if 'Montezuma' in atari_cfg.env_id or 'Pitfall' in atari_cfg.env_id:
         env = AtariVisitedRoomsInfoWrapper(env)
 
