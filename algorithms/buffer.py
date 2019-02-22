@@ -3,22 +3,23 @@ import numpy as np
 
 class Buffer:
     """Generic experience buffer class."""
-    def __init__(self):
+    def __init__(self, initial_capacity=0):
         self._data = {}
 
         # assuming all buffers have the exact same size
         self._size = self._capacity = 0
+        self._initial_capacity = initial_capacity
 
     def _ensure_enough_space(self, space_required):
-        assert self._size >= 1  # we need to have at least one element already to be able to allocate space
+        assert len(self._data) >= 1  # we need to have some elements already, to determine required memory
         assert self._size <= self._capacity
 
         if self._capacity >= self._size + space_required:
             # we already have enough space
             return
 
-        capacity_delta = max(0.5 * self._capacity, 10)  # ensure exponentially low number of reallocs
-        capacity_delta = max(capacity_delta, space_required)
+        capacity_delta = max(self._capacity // 2, 10)  # ensure exponentially low number of reallocs
+        capacity_delta = max(capacity_delta, self._size + space_required - self._capacity)
         for key in self._data.keys():
             self._data[key].resize((self._capacity + capacity_delta, ) + self._data[key].shape[1:])
         self._capacity += capacity_delta
@@ -33,6 +34,7 @@ class Buffer:
             if key not in self._data:
                 self._data[key] = np.asarray([value])
                 new_size = self._capacity = 1
+                self._ensure_enough_space(self._initial_capacity)
             else:
                 self._ensure_enough_space(1)
                 self._data[key][self._size] = value
@@ -41,26 +43,28 @@ class Buffer:
         self._size = new_size
         assert self._size <= self._capacity
 
-    def add_many(self, **kwargs):
+    def add_many(self, max_to_add=1000000000, **kwargs):
         new_size = self._size
 
         for key, value in kwargs.items():
-            size = len(value)
+            size = min(len(value), max_to_add)
 
             if key not in self._data:
-                self._data[key] = np.asarray(value)
+                self._data[key] = np.array(value[:size])  # copy to own data
                 new_size = self._capacity = size
+                self._ensure_enough_space(self._initial_capacity)
             else:
                 self._ensure_enough_space(size)
-                self._data[key][self._size:self._size + size] = value
+                self._data[key][self._size:self._size + size] = value[:size]
                 new_size = self._size + size
 
         self._size = new_size
         assert self._size <= self._capacity
 
-    def add_buff(self, buff):
-        kwargs = {key: getattr(buff, key) for key in self._data.keys()}
-        self.add_many(**kwargs)
+    # noinspection PyProtectedMember
+    def add_buff(self, buff, max_to_add=1000000000):
+        kwargs = {key: getattr(buff, key) for key in buff._data.keys()}
+        self.add_many(max_to_add, **kwargs)
 
     def shuffle_data(self):
         if self._size <= 0:

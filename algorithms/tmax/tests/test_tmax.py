@@ -1,4 +1,3 @@
-import numpy as np
 import os
 import shutil
 from os.path import join
@@ -13,7 +12,6 @@ from algorithms.tmax.enjoy_tmax import enjoy
 from algorithms.tmax.locomotion import LocomotionNetwork
 from algorithms.tmax.reachability import ReachabilityNetwork
 from algorithms.tmax.tmax_utils import parse_args_tmax
-from algorithms.tmax.topological_map import TopologicalMap
 from algorithms.tmax.train_tmax import train
 from algorithms.tmax.trajectory import TrajectoryBuffer
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
