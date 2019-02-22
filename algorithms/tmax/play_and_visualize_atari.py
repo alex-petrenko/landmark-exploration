@@ -123,7 +123,7 @@ def play_and_visualize(params, env_id):
                 if random.random() < 0.015:
                     idle_frames = np.random.randint(1, 400)
         elif policy_type == PolicyType.LOCOMOTION:
-            action = agent.locomotion.navigate(agent.session, [current_landmark], [obs], deterministic=True)
+            action = agent.locomotion.navigate(agent.session, [obs], [current_landmark], deterministic=True)
         else:
             action = action_name_to_action(action_name)
             idle_frames = 0
