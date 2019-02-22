@@ -4,6 +4,7 @@ import tensorflow as tf
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import get_observation_space
 from algorithms.tf_utils import dense, placeholders_from_spaces
+from algorithms.tmax.tmax_utils import TmaxMode
 from utils.utils import log
 
 
@@ -49,7 +50,7 @@ class ReachabilityNetwork:
         )
         return probabilities
 
-    def get_reachability(self, session, obs_first, obs_second):
+    def distances(self, session, obs_first, obs_second):
         probs = self.get_probabilities(session, obs_first, obs_second)
         return [p[1] for p in probs]
 
@@ -61,68 +62,69 @@ class ReachabilityBuffer:
         self.obs_first, self.obs_second, self.labels = [], [], []
         self.params = params
 
-    def extract_data(self, trajectories, bootstrap_period):
-        obs_first, obs_second, labels = [], [], []
-        total_num_reachable = total_num_unreachable = 0
+    def extract_data(self, trajectories):
+        close = self.params.reachable_threshold
+        far = self.params.unreachable_threshold
+
+        obs_first_close, obs_second_close, labels_close = [], [], []
+        obs_first_far, obs_second_far, labels_far = [], [], []
 
         for trajectory in trajectories:
+            if len(trajectory) <= 1:
+                continue
+
             obs = trajectory.obs
-            episode_len = len(obs)
 
-            obs_pairs_fraction = self.params.obs_pairs_per_episode if bootstrap_period else 1.0
-            num_obs_pairs = int(obs_pairs_fraction * episode_len)
+            deliberate = [int(trajectory.deliberate_action[0])] * len(trajectory)
+            for i in range(1, len(trajectory)):
+                deliberate[i] = deliberate[i - 1]
+                if trajectory.deliberate_action[i]:
+                    deliberate[i] += 1
 
-            reachable_thr = self.params.reachable_threshold
-            unreachable_thr = self.params.unreachable_threshold
+            close_idx, far_idx = 0, 0
+            for i in range(len(trajectory)):
+                if trajectory.modes[i] != TmaxMode.EXPLORATION:
+                    continue
 
-            num_reachable = num_unreachable = attempt = 0
+                # everything between i and close_idx is considered "close"
+                while close_idx < len(trajectory) and deliberate[close_idx] - deliberate[i] < close:
+                    close_idx += 1
 
-            try:
-                while num_reachable + num_unreachable < num_obs_pairs and attempt < 3 * num_obs_pairs:
-                    # some attempts to sample a training pair might fail, we want to account for that
-                    attempt += 1
+                # everything between far_idx and len(trajectory) is considered "far"
+                while far_idx < len(trajectory) and deliberate[far_idx] - deliberate[i] < far:
+                    far_idx += 1
 
-                    # determine if we want a reachable pair or not
-                    reachable = total_num_reachable <= total_num_unreachable
-                    threshold = reachable_thr if reachable else unreachable_thr
+                assert far_idx >= close_idx
 
-                    # sample first obs in a pair
-                    first_idx = np.random.randint(0, episode_len - threshold - 1)
+                # for each frame sample one "close" and one "far" example
+                # first: sample "close" example
+                second_idx = np.random.randint(i, close_idx)
+                obs_first_close.append(obs[i])
+                obs_second_close.append(obs[second_idx])
+                labels_close.append(0)
 
-                    # sample second obs
-                    if reachable:
-                        second_idx = np.random.randint(first_idx, first_idx + reachable_thr)
-                    else:
-                        second_idx = np.random.randint(first_idx + unreachable_thr, episode_len)
-                        if not bootstrap_period:
-                            if trajectory.current_landmark_idx[second_idx] in trajectory.neighbor_indices[first_idx]:
-                                # selected "unreachable" observation is actually in the graph neighborhood of
-                                # the first observation, so skip this pair
-                                # log.info('Skipped unreachable pair %d %d', first_idx, second_idx)
-                                continue
+                # sample "far" example
+                if len(trajectory) - far_idx > 0:
+                    second_idx = np.random.randint(far_idx, len(trajectory))
+                    obs_first_far.append(obs[i])
+                    obs_second_far.append(obs[second_idx])
+                    labels_far.append(1)
 
-                    obs_first.append(obs[first_idx])
-                    obs_second.append(obs[second_idx])
-                    labels.append(int(reachable))
+        assert len(obs_first_close) == len(obs_second_close)
+        assert len(obs_first_close) == len(labels_close)
+        assert len(obs_first_far) == len(obs_second_far)
+        assert len(obs_first_far) == len(labels_far)
 
-                    if reachable:
-                        num_reachable += 1
-                        total_num_reachable += 1
-                    else:
-                        num_unreachable += 1
-                        total_num_unreachable += 1
-            except ValueError:
-                # just in case, if some episode is e.g. too short for unreachable pair
-                log.exception(f'Value error in Reachability buffer! Episode len {episode_len}')
-
-        if len(obs_first) <= 0:
-            return
+        num_examples = min(len(obs_first_close), len(obs_first_far))
+        obs_first = obs_first_close[:num_examples] + obs_first_far[:num_examples]
+        obs_second = obs_second_close[:num_examples] + obs_second_far[:num_examples]
+        labels = labels_close[:num_examples] + labels_far[:num_examples]
 
         if len(self.obs_first) <= 0:
             self.obs_first = np.array(obs_first)
             self.obs_second = np.array(obs_second)
             self.labels = np.array(labels, dtype=np.int32)
-        else:
+        elif len(obs_first) > 0:
             self.obs_first = np.append(self.obs_first, obs_first, axis=0)
             self.obs_second = np.append(self.obs_second, obs_second, axis=0)
             self.labels = np.append(self.labels, labels, axis=0)
@@ -144,7 +146,7 @@ class ReachabilityBuffer:
         self.labels = self.labels[:target_size]
 
     def has_enough_data(self):
-        len_data, min_data = len(self.obs_first), self.params.reachability_target_buffer_size // 2
+        len_data, min_data = len(self.obs_first), self.params.reachability_target_buffer_size // 10
         if len_data < min_data:
             log.info('Need to gather more data to train reachability net, %d/%d', len_data, min_data)
             return False

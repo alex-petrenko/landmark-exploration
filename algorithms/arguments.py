@@ -25,7 +25,7 @@ def parse_args(default_env, default_experiment_name, params_cls):
     if experiment is None:
         experiment = get_experiment_name(args.env, default_experiment_name)
 
-    params = params_cls(experiment, args.env)
+    params = params_cls(experiment)
     params.set_command_line(sys.argv)
     params.update(args)
 

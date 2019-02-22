@@ -2,7 +2,7 @@ import gym
 
 from algorithms.env_wrappers import ResizeAndGrayscaleWrapper, ClipRewardWrapper
 from utils.envs.atari.atari_wrappers import StickyActionWrapper, MaxAndSkipWrapper, AtariVisitedRoomsInfoWrapper, \
-    RenderWrapper
+    RenderWrapper, OneLifeWrapper
 
 ATARI_W = ATARI_H = 84
 
@@ -35,6 +35,7 @@ def make_atari_env(atari_cfg, mode='train'):
 
     assert 'NoFrameskip' in env.spec.id
 
+    env = OneLifeWrapper(env)
     env = StickyActionWrapper(env)
     env = MaxAndSkipWrapper(env, skip=4)
 

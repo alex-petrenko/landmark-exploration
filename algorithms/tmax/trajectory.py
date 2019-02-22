@@ -6,18 +6,25 @@ class Trajectory:
         self.target_idx = []
         self.curr_landmark_idx = []
         self.is_landmark = []
+        self.deliberate_action = []
         self.env_idx = env_idx
 
-    def add(self, obs, action, mode, target_idx, curr_landmark_idx, is_landmark):
+    def add(self, obs, action, mode, target_idx, curr_landmark_idx, is_landmark, deliberate_action):
         self.obs.append(obs)
         self.actions.append(action)
         self.modes.append(mode)
         self.target_idx.append(target_idx)
         self.curr_landmark_idx.append(curr_landmark_idx)
         self.is_landmark.append(is_landmark)
+        self.deliberate_action.append(deliberate_action)
 
     def add_frame(self, tr, i):
-        self.add(tr.obs[i], tr.actions[i], tr.modes[i], tr.target_idx[i], tr.curr_landmark_idx[i], tr.is_landmark[i])
+        self.add(
+            tr.obs[i], tr.actions[i],
+            tr.modes[i],
+            tr.target_idx[i], tr.curr_landmark_idx[i], tr.is_landmark[i],
+            tr.deliberate_action[i],
+        )
 
     def __len__(self):
         return len(self.obs)
@@ -49,4 +56,5 @@ class TrajectoryBuffer:
                     tmax_mgr.locomotion_targets[env_idx],
                     tmax_mgr.maps[env_idx].curr_landmark_idx,
                     tmax_mgr.is_landmark[env_idx],
+                    tmax_mgr.deliberate_action[env_idx],
                 )

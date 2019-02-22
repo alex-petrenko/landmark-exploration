@@ -97,6 +97,7 @@ def play_and_visualize(params, env_id):
     frame = 0
     current_landmark_frame = frame
     idle_frames = 0
+    deliberate_actions = 0
 
     while not done and not terminate:
         env.render()
@@ -111,16 +112,14 @@ def play_and_visualize(params, env_id):
             action = env.action_space.sample()
             idle_frames = 0
         elif policy_type == PolicyType.IDLE_RANDOM:
-            if idle_frames > 0:
-                if random.random() < 0.03:
-                    action = env.action_space.sample()
-                else:
-                    action = 0  # NOOP
-                    idle_frames -= 1
-                    if idle_frames % 10 == 0:
-                        log.info('Idle frames %d', idle_frames)
+            if idle_frames > 0 and random.random() < 0.97:
+                action = 0  # NOOP
+                idle_frames -= 1
+                if idle_frames % 10 == 0:
+                    log.info('Idle frames %d, deliberate actions %d', idle_frames, deliberate_actions)
             else:
                 action = env.action_space.sample()
+                deliberate_actions += 1
                 if random.random() < 0.015:
                     idle_frames = np.random.randint(1, 400)
         elif policy_type == PolicyType.LOCOMOTION:
@@ -140,16 +139,19 @@ def play_and_visualize(params, env_id):
             current_landmark_frame = frame
             store_landmark = False
 
-        distances = agent.locomotion.distances(
-            agent.session, [obs, current_landmark, obs], [current_landmark, obs, obs],
-        )
-        # log.info(
-        #     'Distance: to %.3f from %.3f self %.3f, frames %d',
-        #     distances[0], distances[1], distances[2], frame - current_landmark_frame,
-        # )
+        if frame % 1 == 0:
+            distances = agent.reachability.distances(
+                agent.session, [current_landmark, obs], [obs, obs],
+            )
+            log.info(
+                'Distance: to %.3f self %.3f, frames %d',
+                distances[0], distances[1], frame - current_landmark_frame,
+            )
 
         if reward != 0:
             log.debug('Reward received: %.3f', reward)
+
+    env.render()
 
     log.info('Episode reward %.3f', episode_reward)
     if not terminate:

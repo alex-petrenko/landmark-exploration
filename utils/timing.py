@@ -1,5 +1,6 @@
 import time
 
+from algorithms.algo_utils import EPS
 from utils.utils import AttrDict
 
 
@@ -12,7 +13,7 @@ class TimingContext:
         self._timer[self._key] = time.time()
 
     def __exit__(self, type_, value, traceback):
-        self._timer[self._key] = time.time() - self._timer[self._key]
+        self._timer[self._key] = max(time.time() - self._timer[self._key], EPS)  # EPS to prevent div by zero
 
 
 class Timing(AttrDict):

@@ -92,7 +92,7 @@ class AtariVisitedRoomsInfoWrapper(gym.Wrapper):
 
 
 class RenderWrapper(gym.Wrapper):
-    def __init__(self, env, render_w=420, render_h=420, fps=25):
+    def __init__(self, env, render_w=420, render_h=420, fps=15):
         super(RenderWrapper, self).__init__(env)
         self.w = render_w
         self.h = render_h
@@ -122,3 +122,28 @@ class RenderWrapper(gym.Wrapper):
         wait_time_ms = max(int(1000 * wait_time_sec), 1)
         cv2.waitKey(wait_time_ms)
         self.last_frame = time.time()
+
+
+class OneLifeWrapper(gym.Wrapper):
+    def __init__(self, env):
+        super(OneLifeWrapper, self).__init__(env)
+        self.lives = 0
+        self.die = False
+
+    def reset(self, **kwargs):
+        self.lives = 0
+        self.die = False
+        return self.env.reset(**kwargs)
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        game_lives = info['ale.lives']
+        if game_lives < self.lives:
+            self.die = True
+        self.lives = game_lives
+
+        if self.die:
+            done = True
+            reward = -0.1
+
+        return obs, reward, done, info
