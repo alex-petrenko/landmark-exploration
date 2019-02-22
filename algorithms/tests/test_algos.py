@@ -8,6 +8,7 @@ from unittest import TestCase
 
 from algorithms.agent import AgentLearner, AgentRandom
 from algorithms.algo_utils import RunningMeanStd, extract_keys
+from algorithms.buffer import Buffer
 from algorithms.encoders import is_normalized, tf_normalize
 from algorithms.env_wrappers import TimeLimitWrapper, get_observation_space
 from algorithms.exploit import run_policy_loop
@@ -43,6 +44,7 @@ class TestAlgos(TestCase):
 
 
 class TestAlgoUtils(TestCase):
+    # noinspection PyTypeChecker
     def test_running_mean_std(self):
         running_mean_std = RunningMeanStd(max_past_samples=100000)
 
@@ -104,3 +106,50 @@ class TestEncoders(TestCase):
 
         tf.reset_default_graph()
         gc.collect()
+
+
+class TestBuffer(TestCase):
+    def test_buffer(self):
+        buff = Buffer()
+
+        buff.add(a=1, b='b', c=None, d=3.14)
+        self.assertEqual(len(buff), 1)
+        self.assertGreaterEqual(buff._capacity, 1)
+
+        self.assertEqual(buff.a[0], 1)
+        self.assertEqual(buff.b[0], 'b')
+
+        buff.add_many(a=[2, 3], b=['c', 'd'], c=[None, list()], d=[2.71, 1.62])
+        self.assertEqual(len(buff), 3)
+        self.assertGreaterEqual(buff._capacity, 3)
+
+        self.assertTrue(np.array_equal(buff.a, [1, 2, 3]))
+        self.assertTrue(np.array_equal(buff.b, ['b', 'c', 'd']))
+
+        buff.trim_at(5)
+        self.assertTrue(np.array_equal(buff.a, [1, 2, 3]))
+
+        buff.trim_at(2)
+        self.assertTrue(np.array_equal(buff.a, [1, 2]))
+
+        buff.add_many(a=[2, 3], b=['c', 'd'], c=[None, list()], d=[2.71, 1.62])
+
+        buff.shuffle_data()
+        buff.shuffle_data()
+        buff.shuffle_data()
+
+        buff.trim_at(1)
+        self.assertIn(buff.a[0], [1, 2, 3])
+
+        self.assertEqual(len(buff), 1)
+        self.assertGreaterEqual(buff._capacity, 4)
+
+        buff_temp = Buffer()
+        buff_temp.add(a=10, b='e', c=dict(), d=9.81)
+
+        buff.add_buff(buff_temp)
+
+        self.assertEqual(len(buff), 2)
+
+        buff.clear()
+        self.assertEqual(len(buff), 0)

@@ -34,7 +34,7 @@ class TopologicalMap:
 
     def neighbor_indices(self):
         neighbors = [self.curr_landmark_idx]
-        neighbors.extend([i for i in self.adjacency[self.curr_landmark_idx]])
+        neighbors.extend(self.adjacency[self.curr_landmark_idx])
         return neighbors
 
     def non_neighbor_indices(self):

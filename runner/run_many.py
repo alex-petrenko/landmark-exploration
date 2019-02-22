@@ -1,6 +1,5 @@
 """Run many experiments, hyperparameter sweeps, etc."""
 import subprocess
-import sys
 import time
 from os.path import join
 

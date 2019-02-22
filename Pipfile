@@ -18,6 +18,7 @@ bokeh = "*"
 psutil = "*"
 pillow = "*"
 matplotlib = "*"
+ipdb = "*"
 
 [requires]
 python_version = "3.6"

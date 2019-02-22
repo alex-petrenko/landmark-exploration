@@ -31,8 +31,8 @@ action_table = {
 
 
 class PolicyType:
-    RANDOM, IDLE_RANDOM, PLAYER = range(3)
-    KEY_CHARS = {RANDOM: 'r', IDLE_RANDOM: 'i', PLAYER: 'p'}
+    RANDOM, IDLE_RANDOM, LOCOMOTION, PLAYER = range(4)
+    KEY_CHARS = {RANDOM: 'r', IDLE_RANDOM: 'i', LOCOMOTION: 'l', PLAYER: 'p'}
     KEYS = {t: KeyCode.from_char(c) for t, c in KEY_CHARS.items()}
 
 
@@ -54,13 +54,14 @@ def on_press(key):
             current_actions.append(action_table[key])
 
     global store_landmark
-    if key == Key.space:
+    if key == Key.enter:
         store_landmark = True
 
     global policy_type
     for t, k in PolicyType.KEYS.items():
         if key == k:
             policy_type = t
+            log.info('Switch to policy %d (%r)', t, k)
 
 
 def on_release(key):
@@ -89,7 +90,7 @@ def play_and_visualize(params, env_id):
 
     env = make_env_func()
 
-    current_landmark = env.reset()
+    obs = current_landmark = env.reset()
     done = False
     episode_reward = 0
 
@@ -110,18 +111,20 @@ def play_and_visualize(params, env_id):
             action = env.action_space.sample()
             idle_frames = 0
         elif policy_type == PolicyType.IDLE_RANDOM:
-            # action = action_idle_random(env.action_space)
             if idle_frames > 0:
-                if random.random() < 0.05:
+                if random.random() < 0.03:
                     action = env.action_space.sample()
                 else:
                     action = 0  # NOOP
                     idle_frames -= 1
-                    log.info('Idle frames %d', idle_frames)
+                    if idle_frames % 10 == 0:
+                        log.info('Idle frames %d', idle_frames)
             else:
                 action = env.action_space.sample()
-                if random.random() < 0.05:
+                if random.random() < 0.015:
                     idle_frames = np.random.randint(1, 400)
+        elif policy_type == PolicyType.LOCOMOTION:
+            action = agent.locomotion.navigate(agent.session, [current_landmark], [obs], deterministic=True)
         else:
             action = action_name_to_action(action_name)
             idle_frames = 0
@@ -137,8 +140,13 @@ def play_and_visualize(params, env_id):
             current_landmark_frame = frame
             store_landmark = False
 
-        reachability_probs = agent.reachability.get_reachability(agent.session, [current_landmark], [obs])
-        log.info('Reachability: %.3f frames %d', reachability_probs[0], frame - current_landmark_frame)
+        distances = agent.locomotion.distances(
+            agent.session, [obs, current_landmark, obs], [current_landmark, obs, obs],
+        )
+        # log.info(
+        #     'Distance: to %.3f from %.3f self %.3f, frames %d',
+        #     distances[0], distances[1], distances[2], frame - current_landmark_frame,
+        # )
 
         if reward != 0:
             log.debug('Reward received: %.3f', reward)
