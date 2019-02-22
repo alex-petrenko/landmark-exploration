@@ -1,3 +1,5 @@
+import numpy as np
+import random
 import sys
 from threading import Thread
 
@@ -29,8 +31,8 @@ action_table = {
 
 
 class PolicyType:
-    RANDOM, PLAYER = range(2)
-    KEY_CHARS = {RANDOM: 'r', PLAYER: 'p'}
+    RANDOM, IDLE_RANDOM, PLAYER = range(3)
+    KEY_CHARS = {RANDOM: 'r', IDLE_RANDOM: 'i', PLAYER: 'p'}
     KEYS = {t: KeyCode.from_char(c) for t, c in KEY_CHARS.items()}
 
 
@@ -93,6 +95,7 @@ def play_and_visualize(params, env_id):
 
     frame = 0
     current_landmark_frame = frame
+    idle_frames = 0
 
     while not done and not terminate:
         env.render()
@@ -105,8 +108,23 @@ def play_and_visualize(params, env_id):
 
         if policy_type == PolicyType.RANDOM:
             action = env.action_space.sample()
+            idle_frames = 0
+        elif policy_type == PolicyType.IDLE_RANDOM:
+            # action = action_idle_random(env.action_space)
+            if idle_frames > 0:
+                if random.random() < 0.05:
+                    action = env.action_space.sample()
+                else:
+                    action = 0  # NOOP
+                    idle_frames -= 1
+                    log.info('Idle frames %d', idle_frames)
+            else:
+                action = env.action_space.sample()
+                if random.random() < 0.05:
+                    idle_frames = np.random.randint(1, 400)
         else:
             action = action_name_to_action(action_name)
+            idle_frames = 0
 
         obs, reward, done, info = env.step(action)
         episode_reward += reward
