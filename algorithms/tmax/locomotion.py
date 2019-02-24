@@ -330,16 +330,15 @@ class LocomotionBuffer:
                 if not (locomotion_traj or deliberate_actions):
                     continue
 
-                log.info('Locomotion trajectory!')
-
                 assert l_next > l_prev
                 traj_len = l_next - l_prev
                 if traj_len > self.params.locomotion_max_trajectory:
                     # trajectory is too long and probably too noisy
-                    log.info('Trajectory too long %d', traj_len)
+                    # log.info('Trajectory too long %d', traj_len)
                     continue
                 else:
-                    log.info('Trajectory okay %d', traj_len)
+                    # log.info('Trajectory okay %d', traj_len)
+                    pass
 
                 for j in range(l_prev, l_next):
                     obs_curr.append(trajectory.obs[j])

@@ -247,7 +247,7 @@ class TmaxManager:
         self.closest_landmarks = [[] for _ in range(self.num_envs)]
 
         self.avg_graph_size = self.avg_num_neighbors = 1
-        self.new_landmark_threshold = self.new_landmark_threshold_max = 0.9
+        self.new_landmark_threshold = self.new_landmark_threshold_max = 0.995
         self.loop_closure_threshold = self.loop_closure_threshold_min = 0.3
 
         self.new_landmark_candidate_frames = [0] * self.num_envs
@@ -350,10 +350,10 @@ class TmaxManager:
                     self.loop_closure_threshold_min, self.loop_closure_threshold - 0.05,
                 )
 
-            self.new_landmark_threshold = max(self.new_landmark_threshold, 0.6)
-            self.loop_closure_threshold = min(self.loop_closure_threshold, self.new_landmark_threshold - 0.05)
+            self.new_landmark_threshold = max(self.new_landmark_threshold, 0.8)
+            self.loop_closure_threshold = min(self.loop_closure_threshold, self.new_landmark_threshold - 0.1)
 
-            log.info('Thresholds: %.3f %.3f, size %.3f, neigh %.3f', self.new_landmark_threshold, self.loop_closure_threshold, self.avg_graph_size, self.avg_num_neighbors)
+            # log.info('Thresholds: %.3f %.3f, size %.3f, neigh %.3f', self.new_landmark_threshold, self.loop_closure_threshold, self.avg_graph_size, self.avg_num_neighbors)
 
             m.reset(obs)  # reset graph
 
@@ -603,10 +603,10 @@ class AgentTMAX(AgentLearner):
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
 
-            self.reachable_threshold = 20  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 60  # num. of frames between obs, such that one is unreachable from the other
-            self.reachability_target_buffer_size = 50000  # target number of training examples to store
-            self.reachability_train_epochs = 3
+            self.reachable_threshold = 12  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 30  # num. of frames between obs, such that one is unreachable from the other
+            self.reachability_target_buffer_size = 250000  # target number of training examples to store
+            self.reachability_train_epochs = 1
             self.reachability_batch_size = 256
 
             self.new_landmark_reachability = 0.15  # condition for considering current observation a "new landmark"
@@ -614,8 +614,8 @@ class AgentTMAX(AgentLearner):
             self.map_expansion_reward = 0.05  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 20  # max trajectory length to be utilized for locomotion training
-            self.locomotion_target_buffer_size = 50000  # target number of (obs, goal, action) tuples to store
-            self.locomotion_train_epochs = 3
+            self.locomotion_target_buffer_size = 200000  # target number of (obs, goal, action) tuples to store
+            self.locomotion_train_epochs = 1
             self.locomotion_batch_size = 256
 
             self.bootstrap_env_steps = 750 * 1000
@@ -943,7 +943,7 @@ class AgentTMAX(AgentLearner):
             if is_bootstrap:
                 # idle-random policy
                 for env_index in env_i:
-                    if tmax_mgr.idle_frames[env_index] > 0 and random.random() < 0.99:
+                    if tmax_mgr.idle_frames[env_index] > 0 and random.random() < 0.995:
                         # idle action
                         actions[env_index] = 0  # NOOP
                         tmax_mgr.idle_frames[env_index] -= 1
@@ -953,7 +953,7 @@ class AgentTMAX(AgentLearner):
                         actions[env_index] = np.random.randint(0, num_actions)
                         tmax_mgr.deliberate_action[env_index] = True
                         if random.random() < 0.015:
-                            tmax_mgr.idle_frames[env_index] = np.random.randint(1, 600)
+                            tmax_mgr.idle_frames[env_index] = np.random.randint(1, 2000)
 
                 masks[env_i] = 0  # don't train with ppo, because these actions are not coming from RL policy!
             else:
