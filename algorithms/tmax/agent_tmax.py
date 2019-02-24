@@ -246,9 +246,8 @@ class TmaxManager:
 
         self.closest_landmarks = [[] for _ in range(self.num_envs)]
 
-        self.avg_graph_size = self.avg_num_neighbors = 1
-        self.new_landmark_threshold = self.new_landmark_threshold_max = 0.995
-        self.loop_closure_threshold = self.loop_closure_threshold_min = 0.3
+        self.new_landmark_threshold = 0.995
+        self.loop_closure_threshold = 0.3
 
         self.new_landmark_candidate_frames = [0] * self.num_envs
 
@@ -331,27 +330,27 @@ class TmaxManager:
         if random.random() < 0.33:  # (TODO! there must be a better policy)
             # reset graph with some probability
 
-            self.avg_graph_size = 0.9 * self.avg_graph_size + 0.1 * len(m.landmarks)
-            self.avg_num_neighbors = 0.9 * self.avg_num_neighbors + 0.1 * len(m.neighbor_indices())
-
-            if self.avg_graph_size < max(self.episode_frames[env_i] / 500, 3):
-                self.new_landmark_threshold -= 0.05
-            else:
-                self.new_landmark_threshold = min(
-                    self.new_landmark_threshold_max, self.new_landmark_threshold + 0.05,
-                )
-
-            if self.avg_num_neighbors < 1.5:
-                self.loop_closure_threshold = min(
-                    self.new_landmark_threshold, self.loop_closure_threshold + 0.05,
-                )
-            else:
-                self.loop_closure_threshold = max(
-                    self.loop_closure_threshold_min, self.loop_closure_threshold - 0.05,
-                )
-
-            self.new_landmark_threshold = max(self.new_landmark_threshold, 0.8)
-            self.loop_closure_threshold = min(self.loop_closure_threshold, self.new_landmark_threshold - 0.1)
+            # self.avg_graph_size = 0.9 * self.avg_graph_size + 0.1 * len(m.landmarks)
+            # self.avg_num_neighbors = 0.9 * self.avg_num_neighbors + 0.1 * len(m.neighbor_indices())
+            #
+            # if self.avg_graph_size < max(self.episode_frames[env_i] / 500, 3):
+            #     self.new_landmark_threshold -= 0.05
+            # else:
+            #     self.new_landmark_threshold = min(
+            #         self.new_landmark_threshold_max, self.new_landmark_threshold + 0.05,
+            #     )
+            #
+            # if self.avg_num_neighbors < 1.5:
+            #     self.loop_closure_threshold = min(
+            #         self.new_landmark_threshold, self.loop_closure_threshold + 0.05,
+            #     )
+            # else:
+            #     self.loop_closure_threshold = max(
+            #         self.loop_closure_threshold_min, self.loop_closure_threshold - 0.05,
+            #     )
+            #
+            # self.new_landmark_threshold = max(self.new_landmark_threshold, 0.8)
+            # self.loop_closure_threshold = min(self.loop_closure_threshold, self.new_landmark_threshold - 0.1)
 
             # log.info('Thresholds: %.3f %.3f, size %.3f, neigh %.3f', self.new_landmark_threshold, self.loop_closure_threshold, self.avg_graph_size, self.avg_num_neighbors)
 
