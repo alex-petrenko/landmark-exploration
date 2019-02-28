@@ -255,5 +255,6 @@ class ClipRewardWrapper(gym.RewardWrapper):
         gym.RewardWrapper.__init__(self, env)
 
     def reward(self, reward):
-        """Bin reward to {+1, 0, -1} by its sign."""
-        return float(np.sign(reward))
+        reward = min(1.0, reward)
+        reward = max(-0.1, reward)
+        return reward

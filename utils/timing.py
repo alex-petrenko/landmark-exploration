@@ -22,3 +22,9 @@ class Timing(AttrDict):
 
     def timeit(self, key):
         return TimingContext(self, key)
+
+    def __str__(self):
+        s = ''
+        for key, value in self.items():
+            s += f'{key}: {value:.3f}, '
+        return s

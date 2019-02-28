@@ -3,12 +3,10 @@ import time
 from copy import copy
 
 import cv2
+import gym
 import numpy as np
 
-import gym
-
 from algorithms.env_wrappers import unwrap_env
-from utils.utils import log
 
 
 class StickyActionWrapper(gym.Wrapper):
@@ -144,6 +142,7 @@ class OneLifeWrapper(gym.Wrapper):
 
         if self.die:
             done = True
-            reward = -0.1
+            reward = min(reward, -0.1)
 
+        reward = max(reward, -0.1)
         return obs, reward, done, info

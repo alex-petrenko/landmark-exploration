@@ -9,12 +9,13 @@ from utils.utils import ensure_dir_exists
 
 
 def visualize_graph_tensorboard(nx_graph, tag):
+    figure = plt.gcf()
+    figure.clear()
     nx.draw(
         nx_graph, nx.kamada_kawai_layout(nx_graph),
         node_size=50, node_color=list(nx_graph.nodes), edge_color='#cccccc', cmap=plt.cm.get_cmap('plasma'),
     )
 
-    figure = plt.gcf()
     w, h = figure.canvas.get_width_height()
 
     buffer = io.BytesIO()

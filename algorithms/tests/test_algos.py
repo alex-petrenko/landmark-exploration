@@ -15,6 +15,7 @@ from algorithms.exploit import run_policy_loop
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tf_utils import placeholder_from_space
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
+from utils.timing import Timing
 from utils.utils import log
 
 
@@ -153,3 +154,38 @@ class TestBuffer(TestCase):
 
         buff.clear()
         self.assertEqual(len(buff), 0)
+
+    def test_buffer_performance(self):
+        small_buffer = Buffer()
+        small_buffer.add_many(obs=np.zeros([1000, 42, 42, 1]))
+
+        buffer = Buffer()
+
+        t = Timing()
+
+        with t.timeit('add'):
+            for i in range(100):
+                buffer.add_buff(small_buffer)
+
+        huge_buffer = Buffer()
+        with t.timeit('add_huge'):
+            huge_buffer.add_buff(buffer)
+            huge_buffer.add_buff(buffer)
+
+        with t.timeit('clear_and_add'):
+            huge_buffer.clear()
+            huge_buffer.add_buff(buffer)
+            huge_buffer.add_buff(buffer)
+
+        with t.timeit('shuffle'):
+            huge_buffer.shuffle_data()
+
+        log.debug('Timing: %s', t)
+
+    def test_buffer_shuffle(self):
+        b = Buffer()
+        b.add_many(a=np.arange(10000), b=np.arange(10000))
+
+        for i in range(5):
+            self.assertTrue(np.array_equal(b.a, b.b))
+            b.shuffle_data()

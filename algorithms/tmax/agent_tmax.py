@@ -228,6 +228,7 @@ class TmaxManager:
     def __init__(self, agent):
         self.initialized = False
         self._verbose = False
+        self._is_bootstrap = False
 
         self.agent = agent
         self.params = agent.params
@@ -246,8 +247,8 @@ class TmaxManager:
 
         self.closest_landmarks = [[] for _ in range(self.num_envs)]
 
-        self.new_landmark_threshold = 0.995
-        self.loop_closure_threshold = 0.3
+        self.new_landmark_threshold = self.params.new_landmark_threshold
+        self.loop_closure_threshold = self.params.loop_closure_threshold
 
         self.new_landmark_candidate_frames = [0] * self.num_envs
 
@@ -255,6 +256,12 @@ class TmaxManager:
 
         self.idle_frames = [0] * self.num_envs
         self.deliberate_action = [False] * self.num_envs
+
+        self.samples_per_mode = {
+            TmaxMode.EXPLORATION: 0,
+            TmaxMode.LOCOMOTION: 0,
+            TmaxMode.SEARCH: 0,
+        }
 
     def initialize(self, initial_obs):
         self.maps = [TopologicalMap(obs) for obs in initial_obs]
@@ -275,11 +282,18 @@ class TmaxManager:
 
     def _sample_mode(self, env_i):
         modes = [TmaxMode.EXPLORATION]
-        neighbor_indices = self.maps[env_i].neighbor_indices()
-        if len(neighbor_indices) > 1:
-            modes.append(TmaxMode.LOCOMOTION)
+        if not self._is_bootstrap:
+            modes.append(TmaxMode.SEARCH)
 
-        self.mode[env_i] = random.choice(modes)
+        neighbor_indices = self.maps[env_i].neighbor_indices()
+        # if len(neighbor_indices) > 1:
+        #     modes.append(TmaxMode.LOCOMOTION)
+
+        samples_per_mode = {}
+        for mode in modes:
+            samples_per_mode[mode] = self.samples_per_mode[mode]
+
+        self.mode[env_i] = min(samples_per_mode, key=samples_per_mode.get)
 
         if self.mode[env_i] == TmaxMode.LOCOMOTION:
             self._select_locomotion_target(env_i)
@@ -329,31 +343,6 @@ class TmaxManager:
 
         if random.random() < 0.33:  # (TODO! there must be a better policy)
             # reset graph with some probability
-
-            # self.avg_graph_size = 0.9 * self.avg_graph_size + 0.1 * len(m.landmarks)
-            # self.avg_num_neighbors = 0.9 * self.avg_num_neighbors + 0.1 * len(m.neighbor_indices())
-            #
-            # if self.avg_graph_size < max(self.episode_frames[env_i] / 500, 3):
-            #     self.new_landmark_threshold -= 0.05
-            # else:
-            #     self.new_landmark_threshold = min(
-            #         self.new_landmark_threshold_max, self.new_landmark_threshold + 0.05,
-            #     )
-            #
-            # if self.avg_num_neighbors < 1.5:
-            #     self.loop_closure_threshold = min(
-            #         self.new_landmark_threshold, self.loop_closure_threshold + 0.05,
-            #     )
-            # else:
-            #     self.loop_closure_threshold = max(
-            #         self.loop_closure_threshold_min, self.loop_closure_threshold - 0.05,
-            #     )
-            #
-            # self.new_landmark_threshold = max(self.new_landmark_threshold, 0.8)
-            # self.loop_closure_threshold = min(self.loop_closure_threshold, self.new_landmark_threshold - 0.1)
-
-            # log.info('Thresholds: %.3f %.3f, size %.3f, neigh %.3f', self.new_landmark_threshold, self.loop_closure_threshold, self.avg_graph_size, self.avg_num_neighbors)
-
             m.reset(obs)  # reset graph
 
         self.episode_frames[env_i] = 0
@@ -373,6 +362,7 @@ class TmaxManager:
     def update(self, obs, dones, is_bootstrap=False, verbose=False):
         """Omnipotent function for the management of topological maps and policy modes."""
         self._verbose = verbose
+        self._is_bootstrap = is_bootstrap
         maps = self.maps
 
         assert len(obs) == len(maps)
@@ -385,6 +375,8 @@ class TmaxManager:
         #     return bonuses, self.get_intentions()
 
         for env_i, m in enumerate(maps):
+            self.samples_per_mode[self.mode[env_i]] += 1
+
             if dones[env_i]:
                 self._new_episode(env_i, obs[env_i])
                 self.is_landmark[env_i] = True  # TODO: assuming we always start with landmark
@@ -577,7 +569,7 @@ class AgentTMAX(AgentLearner):
             self.gamma = 0.99  # future reward discount
             self.gae_lambda = 0.8
             self.rollout = 64
-            self.num_envs = 192  # number of environments to collect the experience from
+            self.num_envs = 256  # number of environments to collect the experience from
             self.num_workers = 16  # number of workers used to run the environments
 
             # actor-critic (encoders and models)
@@ -588,8 +580,8 @@ class AgentTMAX(AgentLearner):
 
             # ppo-specific
             self.ppo_clip_ratio = 1.1  # we use clip(x, e, 1/e) instead of clip(x, 1+e, 1-e) in the paper
-            self.target_kl = 0.02
-            self.batch_size = 512
+            self.target_kl = 0.033
+            self.batch_size = 1024
             self.ppo_epochs = 10
 
             # components of the loss function
@@ -597,30 +589,30 @@ class AgentTMAX(AgentLearner):
             self.min_entropy_loss_coeff = 0.002
 
             # TMAX-specific parameters
-            self.use_neighborhood_encoder = False
+            self.use_neighborhood_encoder = True
             self.graph_enc_name = 'rnn'  # 'rnn', 'deepsets'
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
 
-            self.reachable_threshold = 12  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 30  # num. of frames between obs, such that one is unreachable from the other
-            self.reachability_target_buffer_size = 250000  # target number of training examples to store
-            self.reachability_train_epochs = 1
+            self.reachable_threshold = 15  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 50  # num. of frames between obs, such that one is unreachable from the other
+            self.reachability_target_buffer_size = 200000  # target number of training examples to store
+            self.reachability_train_epochs = 2
             self.reachability_batch_size = 256
 
-            self.new_landmark_reachability = 0.15  # condition for considering current observation a "new landmark"
-            self.loop_closure_reachability = 0.5  # condition for graph loop closure (finding new edge)
+            self.new_landmark_threshold = 0.99  # condition for considering current observation a "new landmark"
+            self.loop_closure_threshold = 0.75  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.05  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 20  # max trajectory length to be utilized for locomotion training
-            self.locomotion_target_buffer_size = 200000  # target number of (obs, goal, action) tuples to store
+            self.locomotion_target_buffer_size = 150000  # target number of (obs, goal, action) tuples to store
             self.locomotion_train_epochs = 1
             self.locomotion_batch_size = 256
 
-            self.bootstrap_env_steps = 750 * 1000
+            self.bootstrap_env_steps = 2000 * 1000
 
-            self.gif_save_rate = 300  # number of seconds to wait before saving another gif to tensorboard
-            self.gif_summary_num_envs = 1
+            self.gif_save_rate = 100  # number of seconds to wait before saving another gif to tensorboard
+            self.gif_summary_num_envs = 2
 
             # training process
             self.learning_rate = 1e-4
@@ -795,7 +787,18 @@ class AgentTMAX(AgentLearner):
 
         with tf.name_scope('reachability'):
             reachability_scalar = partial(tf.summary.scalar, collections=['reachability'])
-            reachability_scalar('reach_loss', self.reachability.loss)
+            reachability_scalar('reach_loss', self.reachability.reach_loss)
+            reachability_scalar('reach_correct', self.reachability.correct)
+
+            reachability_scalar('first_loss', self.reachability.first_loss)
+            reachability_scalar('first_correct', self.reachability.first_correct)
+
+            reachability_scalar('second_loss', self.reachability.second_loss)
+            reachability_scalar('second_correct', self.reachability.second_correct)
+
+            # reachability_scalar('reconst_loss', self.reachability.reconst_loss)
+            # image_summaries_rgb(self.reachability.normalized_obs, name='source', collections=['reachability'])
+            # image_summaries_rgb(self.reachability.obs_decoded, name='decoded', collections=['reachability'])
 
         with tf.name_scope('locomotion'):
             locomotion_scalar = partial(tf.summary.scalar, collections=['locomotion'])
@@ -920,7 +923,7 @@ class AgentTMAX(AgentLearner):
         tmax_mgr = self.tmax_mgr
         num_envs = len(observations)
 
-        env_indices = {TmaxMode.EXPLORATION: [], TmaxMode.LOCOMOTION: []}
+        env_indices = {TmaxMode.EXPLORATION: [], TmaxMode.LOCOMOTION: [], TmaxMode.SEARCH: []}
         for env_i, mode in enumerate(tmax_mgr.mode):
             env_indices[mode].append(env_i)
         total_num_indices = sum(len(v) for v in env_indices.values())
@@ -939,32 +942,38 @@ class AgentTMAX(AgentLearner):
 
         env_i = env_indices[TmaxMode.EXPLORATION]
         if len(env_i) > 0:
-            if is_bootstrap:
-                # idle-random policy
-                for env_index in env_i:
-                    if tmax_mgr.idle_frames[env_index] > 0 and random.random() < 0.995:
-                        # idle action
-                        actions[env_index] = 0  # NOOP
-                        tmax_mgr.idle_frames[env_index] -= 1
-                        tmax_mgr.deliberate_action[env_index] = False
-                    else:
-                        num_actions = self.actor_critic.num_actions
-                        actions[env_index] = np.random.randint(0, num_actions)
-                        tmax_mgr.deliberate_action[env_index] = True
-                        if random.random() < 0.015:
-                            tmax_mgr.idle_frames[env_index] = np.random.randint(1, 2000)
+            masks[env_i] = 0  # don't train with ppo
 
-                masks[env_i] = 0  # don't train with ppo, because these actions are not coming from RL policy!
-            else:
+            non_idle_env_i = []
+            for env_index in env_i:
+                # idle-random policy
+                if tmax_mgr.idle_frames[env_index] > 0 and random.random() < 0.999:
+                    # idle action
+                    tmax_mgr.deliberate_action[env_index] = False
+                    actions[env_index] = 0  # NOOP
+                    tmax_mgr.idle_frames[env_index] -= 1
+                else:
+                    tmax_mgr.deliberate_action[env_index] = True
+                    non_idle_env_i.append(env_index)
+
+                    if random.random() < 0.015:
+                        # start "idle" segment of trajectory
+                        tmax_mgr.idle_frames[env_index] = np.random.randint(1, 4000)
+
+            non_idle_env_i = np.asarray(non_idle_env_i)
+            if is_bootstrap and len(non_idle_env_i) > 0:
+                # just sample random action to save time
+                num_actions = self.actor_critic.num_actions
+                actions[non_idle_env_i] = np.random.randint(0, num_actions, len(non_idle_env_i))
+            elif len(non_idle_env_i) > 0:
                 neighbors_policy = num_neighbors_policy = None
                 if neighbors is not None:
-                    neighbors_policy = neighbors[env_i]
-                    num_neighbors_policy = num_neighbors[env_i]
-
-                actions[env_i], action_probs[env_i], values[env_i] = self.actor_critic.invoke(
-                    self.session, observations[env_i], neighbors_policy, num_neighbors_policy, intentions[env_i],
+                    neighbors_policy = neighbors[non_idle_env_i]
+                    num_neighbors_policy = num_neighbors[non_idle_env_i]
+                actions[non_idle_env_i], action_probs[non_idle_env_i], values[non_idle_env_i] = self.actor_critic.invoke(
+                    self.session, observations[non_idle_env_i], neighbors_policy, num_neighbors_policy,
+                    intentions[non_idle_env_i], deterministic=False,
                 )
-                masks[env_i] = 1  # train only these with ppo
 
         env_i = env_indices[TmaxMode.LOCOMOTION]
         if len(env_i) > 0:
@@ -972,7 +981,21 @@ class AgentTMAX(AgentLearner):
             assert len(goals) == len(env_i)
             actions[env_i] = self.locomotion.navigate(self.session, observations[env_i], goals, deterministic=True)
             masks[env_i] = 0  # don't train with ppo, because these actions are not coming from RL policy!
-            tmax_mgr.deliberate_action[env_index] = True
+            for env_index in env_i:
+                tmax_mgr.deliberate_action[env_index] = True
+
+        env_i = env_indices[TmaxMode.SEARCH]
+        if len(env_i) > 0:
+            masks[env_i] = 1
+            neighbors_policy = num_neighbors_policy = None
+            if neighbors is not None:
+                neighbors_policy = neighbors[env_i]
+                num_neighbors_policy = num_neighbors[env_i]
+            actions[env_i], action_probs[env_i], values[env_i] = self.actor_critic.invoke(
+                self.session, observations[env_i], neighbors_policy, num_neighbors_policy, intentions[env_i],
+            )
+            for env_index in env_i:
+                tmax_mgr.deliberate_action[env_index] = True
 
         return actions, action_probs, values, masks
 
@@ -1026,7 +1049,7 @@ class AgentTMAX(AgentLearner):
                     break
 
             if early_stop:
-                log.info('Early stopping after %d of %d epochs...', epoch, self.params.ppo_epochs)
+                log.info('Early stopping after %d of %d epochs...', epoch + 1, self.params.ppo_epochs)
                 break
 
         return actor_step
@@ -1069,7 +1092,7 @@ class AgentTMAX(AgentLearner):
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
             if avg_loss > 0.995 * prev_loss:
-                log.info('Early stopping after %d epochs because critic did not improve enough', epoch)
+                log.info('Early stopping after %d epochs because critic did not improve enough', epoch + 1)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
             prev_loss = avg_loss
@@ -1083,9 +1106,11 @@ class AgentTMAX(AgentLearner):
         """Check whether we're still in the initial bootstrapping stage."""
         return env_steps < self.params.bootstrap_env_steps
 
-    def _maybe_train_reachability(self, buffer, env_steps):
-        if not buffer.has_enough_data():
+    def _maybe_train_reachability(self, data, env_steps):
+        if not data.has_enough_data():
             return
+
+        buffer = data.buffer
 
         batch_size = self.params.reachability_batch_size
         summary = None
@@ -1098,7 +1123,7 @@ class AgentTMAX(AgentLearner):
         # if self._is_bootstrap(env_steps):
         #     num_epochs = max(10, num_epochs * 2)  # during bootstrap do more epochs to train faster!
 
-        log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer.obs_first), batch_size, num_epochs)
+        log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
 
         for epoch in range(num_epochs):
             buffer.shuffle_data()
@@ -1130,7 +1155,7 @@ class AgentTMAX(AgentLearner):
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
             if avg_loss > prev_loss:
-                log.info('Early stopping after %d epochs because reachability did not improve', epoch)
+                log.info('Early stopping after %d epochs because reachability did not improve', epoch + 1)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
             prev_loss = avg_loss

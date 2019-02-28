@@ -1,15 +1,12 @@
 import numpy as np
 import tensorflow as tf
 
-from algorithms.buffer import Buffer
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import get_observation_space
 from algorithms.tf_utils import placeholders_from_spaces, placeholder_from_space, dense
 from algorithms.tmax.tmax_utils import TmaxMode
-from algorithms.tmax.trajectory import Trajectory
 from utils.distributions import CategoricalProbabilityDistribution
-from utils.timing import Timing
-from utils.utils import log, AttrDict
+from utils.utils import log
 
 
 class LocomotionNetwork:
@@ -71,16 +68,16 @@ class LocomotionNetwork:
         )
         return actions
 
-    def _get_distance_probabilities(self, session, obs_curr, obs_goal):
-        probabilities = session.run(
-            self.distance_probabilities,
-            feed_dict={self.ph_obs_curr: obs_curr, self.ph_obs_goal: obs_goal},
-        )
-        return probabilities
-
-    def distances(self, session, obs_curr, obs_goal):
-        probs = self._get_distance_probabilities(session, obs_curr, obs_goal)
-        return [p[1] for p in probs]
+    # def _get_distance_probabilities(self, session, obs_curr, obs_goal):
+    #     probabilities = session.run(
+    #         self.distance_probabilities,
+    #         feed_dict={self.ph_obs_curr: obs_curr, self.ph_obs_goal: obs_goal},
+    #     )
+    #     return probabilities
+    #
+    # def distances(self, session, obs_curr, obs_goal):
+    #     probs = self._get_distance_probabilities(session, obs_curr, obs_goal)
+    #     return [p[1] for p in probs]
 
 
 class LocomotionBuffer:
@@ -96,218 +93,7 @@ class LocomotionBuffer:
 
         self.visualize_trajectories = {TmaxMode.EXPLORATION: None, TmaxMode.LOCOMOTION: None}
 
-        # self.buffers = AttrDict({
-        #     'exploration': Buffer(self.params.locomotion_target_buffer_size // 2 + 1),
-        #     'locomotion': Buffer(self.params.locomotion_target_buffer_size // 2 + 1),
-        #     'idle': Buffer(self.params.locomotion_target_buffer_size // 2 + 1),
-        # })
-        #
-        # self.data = Buffer()
-
         self.obs_curr, self.obs_goal, self.actions = [], [], []
-
-    @staticmethod
-    def _calc_distance(obs_idx, goal_idx, is_idle):
-        dist_frames = goal_idx - obs_idx
-        near, far = 5, 10
-        train = True
-        if is_idle:
-            is_far = 0
-        else:
-            if dist_frames <= near:
-                is_far = 0
-            elif dist_frames >= far:
-                is_far = 1
-            else:
-                is_far = 0
-                train = False
-
-        return is_far, train
-
-    @staticmethod
-    def _get_mode(tr, idx):
-        if tr.modes[idx] == TmaxMode.EXPLORATION:
-            return 'exploration'
-        elif tr.modes[idx] == TmaxMode.LOCOMOTION:
-            is_idle = tr.target_idx[idx] == tr.curr_landmark_idx[idx]
-            if is_idle:
-                return 'idle'
-            else:
-                return 'locomotion'
-        else:
-            raise Exception(f'Unknown mode {tr.modes[idx]}')
-
-    def _split_by_mode(self, episode_trajectories):
-        trajectories = AttrDict({'exploration': [], 'locomotion': [], 'idle': []})
-        for tr in episode_trajectories:
-            if len(tr) <= 2:
-                continue
-
-            curr_tr = Trajectory(tr.env_idx)
-            curr_tr.add_frame(tr, 0)
-            curr_mode = self._get_mode(curr_tr, 0)
-
-            for i in range(1, len(tr)):
-                mode = self._get_mode(tr, i)
-                if curr_mode != mode:
-                    # start new trajectory because mode has changed
-                    trajectories[curr_mode].append(curr_tr)
-                    curr_mode = mode
-                    curr_tr = Trajectory(tr.env_idx)
-
-                curr_tr.add_frame(tr, i)
-
-            if len(curr_tr) >= 1:
-                trajectories[curr_mode].append(curr_tr)
-
-        for mode, traj in trajectories.items():
-            if len(traj) > 0:
-                self.visualize_trajectories[mode] = traj[-1]
-
-        return trajectories
-
-    def _extract_exploration(self, trajectories):
-        """Exploration trajectories between landmarks."""
-        buffer = Buffer()
-
-        def add_exploration(tr_, i_, goal_idx_):
-            distance, train_distance = self._calc_distance(i_, goal_idx_, is_idle=False)
-
-            buffer.add(
-                obs_curr=tr_.obs[i_],
-                obs_goal=tr_.obs[goal_idx_],
-                action=tr_.actions[i_],
-                distance=distance,
-
-                # train distance using exploration experience only if we don't have enough locomotion data
-                train_distance=(train_distance and len(self.buffers.locomotion) < 5000),
-                train_actions=True,
-            )
-
-        for tr in trajectories:
-            landmark_indices = []
-
-            assert tr.is_landmark[0]
-            for i in range(len(tr)):
-                if tr.is_landmark[i]:
-                    landmark_indices.append(i)
-
-            for l_idx in range(1, len(landmark_indices)):
-                l_prev = landmark_indices[l_idx - 1]
-                l_next = landmark_indices[l_idx]
-
-                assert l_next > l_prev
-
-                if l_next - l_prev < 5:
-                    continue  # trajectory is too short (probably noise)
-
-                goal_idx = l_next
-                i_start = max(l_prev, goal_idx - self.params.locomotion_max_trajectory)
-                for i in range(i_start, goal_idx):
-                    add_exploration(tr, i, goal_idx)
-
-        if len(self.buffers.locomotion) < 5000:
-            for tr in trajectories:
-                i = 0
-                while i < len(tr) - 1:
-                    goal_idx = i + self.params.locomotion_max_trajectory
-                    goal_idx = min(goal_idx, len(tr) - 1)
-                    for j in range(i, goal_idx):
-                        add_exploration(tr, j, goal_idx)
-
-                    i = goal_idx
-
-        return buffer
-
-    def _extract_locomotion(self, trajectories, is_idle=False, max_trajectory=None):
-        if max_trajectory is None:
-            max_trajectory = self.params.locomotion_max_trajectory
-
-        buffer = Buffer()
-
-        for tr in trajectories:
-            if len(tr) <= 2:
-                continue
-
-            target_changes = [0]
-            for i in range(1, len(tr)):
-                if tr.target_idx[i] != tr.target_idx[i - 1]:
-                    target_changes.append(i)
-            target_changes.append(len(tr))
-
-            for targ_i in range(1, len(target_changes)):
-                targ_prev = target_changes[targ_i - 1]
-                targ_next = target_changes[targ_i]
-
-                goal_idx = min(targ_next, len(tr) - 1)
-                i_start = max(targ_prev, goal_idx - max_trajectory)
-                for i in range(i_start, goal_idx):
-                    distance, train_distance = self._calc_distance(i, goal_idx, is_idle=is_idle)
-
-                    buffer.add(
-                        obs_curr=tr.obs[i],
-                        obs_goal=tr.obs[goal_idx],
-                        action=tr.actions[i],
-                        distance=distance,
-                        train_distance=train_distance,
-                        train_actions=not is_idle,
-                    )
-
-        return buffer
-
-    def _extract_idle(self, trajectories):
-        if len(self.buffers.locomotion) < 25000:
-            return Buffer()
-        return self._extract_locomotion(trajectories, is_idle=True, max_trajectory=10000)
-
-    def _extract_trajectories(self, trajectories, mode):
-        if mode == 'exploration':
-            buffer = self._extract_exploration(trajectories)
-        elif mode == 'locomotion':
-            buffer = self._extract_locomotion(trajectories)
-        elif mode == 'idle':
-            buffer = self._extract_idle(trajectories)
-        return buffer
-
-    # TODO remove
-    def extract_data_______________old(self, episode_trajectories):
-        timing = Timing()
-        with timing.timeit('split'):
-            trajectories = self._split_by_mode(episode_trajectories)
-
-        buffers = AttrDict()
-        with timing.timeit('extract'):
-            for mode in trajectories.keys():
-                buffers[mode] = self._extract_trajectories(trajectories[mode], mode)
-
-        for mode in self.visualize_trajectories.keys():
-            self.visualize_trajectories[mode] = None
-
-        with timing.timeit('append'):
-            max_size = self.params.locomotion_target_buffer_size // 2
-            for mode in self.buffers.keys():
-                self.buffers[mode].add_buff(buffers[mode])
-                self.buffers[mode].shuffle_data()
-                self.buffers[mode].trim_at(max_size)
-
-        with timing.timeit('finalize'):
-            add_size = max_size
-            min_size = min(len(self.buffers.exploration), len(self.buffers.locomotion), len(self.buffers.idle))
-            if min_size > 5000:
-                add_size = max(min_size, 100)
-
-            sizes = {key: len(value) for key, value in self.buffers.items()}
-            log.info('Add experience sizes: %r', sizes)
-
-            self.data.clear()
-
-            for mode, buffer in self.buffers.items():
-                self.data.add_buff(buffer, add_size)
-
-            self.data.shuffle_data()
-            self.data.trim_at(self.params.locomotion_target_buffer_size)
-
-        log.info('Timing %r', timing)
 
     def extract_data(self, trajectories):
         obs_curr, obs_goal, actions = [], [], []
@@ -325,9 +111,10 @@ class LocomotionBuffer:
             for i in range(1, len(landmarks)):
                 l_prev, l_next = landmarks[i - 1], landmarks[i]
 
-                locomotion_traj = all(mode == TmaxMode.LOCOMOTION for mode in trajectory.modes[l_prev:l_next])
+                # locomotion_traj = all(mode == TmaxMode.LOCOMOTION for mode in trajectory.modes[l_prev:l_next])
                 deliberate_actions = sum(trajectory.deliberate_action[l_prev:l_next]) == l_next - l_prev
-                if not (locomotion_traj or deliberate_actions):
+                if not deliberate_actions:
+                    # don't train locomotion on "idle" actions
                     continue
 
                 assert l_next > l_prev

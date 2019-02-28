@@ -3,12 +3,11 @@ import numpy as np
 
 class Buffer:
     """Generic experience buffer class."""
-    def __init__(self, initial_capacity=0):
+    def __init__(self):
         self._data = {}
 
         # assuming all buffers have the exact same size
         self._size = self._capacity = 0
-        self._initial_capacity = initial_capacity
 
     def _ensure_enough_space(self, space_required):
         assert len(self._data) >= 1  # we need to have some elements already, to determine required memory
@@ -21,7 +20,7 @@ class Buffer:
         capacity_delta = max(self._capacity // 2, 10)  # ensure exponentially low number of reallocs
         capacity_delta = max(capacity_delta, self._size + space_required - self._capacity)
         for key in self._data.keys():
-            self._data[key].resize((self._capacity + capacity_delta, ) + self._data[key].shape[1:])
+            self._data[key].resize((self._capacity + capacity_delta, ) + self._data[key].shape[1:], refcheck=False)
         self._capacity += capacity_delta
 
         assert self._capacity >= self._size + space_required
@@ -32,13 +31,14 @@ class Buffer:
 
         for key, value in kwargs.items():
             if key not in self._data:
-                self._data[key] = np.asarray([value])
+                np_arr = np.asarray([value])
+                self._data[key] = np.empty_like(np_arr)
                 new_size = self._capacity = 1
-                self._ensure_enough_space(self._initial_capacity)
             else:
                 self._ensure_enough_space(1)
-                self._data[key][self._size] = value
                 new_size = self._size + 1
+
+            self._data[key][self._size] = value
 
         self._size = new_size
         assert self._size <= self._capacity
@@ -48,21 +48,27 @@ class Buffer:
 
         for key, value in kwargs.items():
             size = min(len(value), max_to_add)
+            if size <= 0:
+                continue
 
             if key not in self._data:
-                self._data[key] = np.array(value[:size])  # copy to own data
+                np_arr = np.asarray(value[:size])
+                self._data[key] = np.empty_like(np_arr)
                 new_size = self._capacity = size
-                self._ensure_enough_space(self._initial_capacity)
             else:
                 self._ensure_enough_space(size)
-                self._data[key][self._size:self._size + size] = value[:size]
                 new_size = self._size + size
+
+            self._data[key][self._size:self._size + size] = value[:size]
 
         self._size = new_size
         assert self._size <= self._capacity
 
     # noinspection PyProtectedMember
     def add_buff(self, buff, max_to_add=1000000000):
+        if len(buff) <= 0:
+            return
+
         kwargs = {key: getattr(buff, key) for key in buff._data.keys()}
         self.add_many(max_to_add, **kwargs)
 
@@ -70,9 +76,10 @@ class Buffer:
         if self._size <= 0:
             return
 
-        chaos = np.random.permutation(self._size)
+        rng_state = np.random.get_state()
         for key in self._data.keys():
-            self._data[key][:self._size] = self._data[key][chaos]
+            np.random.set_state(rng_state)
+            np.random.shuffle(self._data[key][:self._size])
 
     def trim_at(self, new_size):
         """Discard some data from the end of the buffer, but keep the capacity."""
@@ -82,6 +89,9 @@ class Buffer:
 
     def clear(self):
         self.trim_at(0)
+
+    def empty(self):
+        return len(self) == 0
 
     def __len__(self):
         return self._size
