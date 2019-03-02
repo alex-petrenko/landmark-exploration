@@ -18,4 +18,5 @@ pipenv install
 3) install pynput for evaluation scripts (not installed with pipenv because of incompatibility between mac/linux)
 
 pipenv run pip install pynput
+sudo apt-get install python3-tk-dbg
 ```
