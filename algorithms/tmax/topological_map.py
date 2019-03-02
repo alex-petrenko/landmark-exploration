@@ -80,6 +80,23 @@ class TopologicalMap:
         num_edges = sum([len(adj) for adj in self.adjacency])
         return num_edges
 
+    def shortest_paths(self, idx):
+        distances = [float('inf')] * len(self.landmarks)
+        distances[idx] = 0
+        previous = [None] * len(self.landmarks)
+        unvisited = list(range(len(self.landmarks)))
+
+        while unvisited:
+            u = min(unvisited, key=lambda node: distances[node])
+            unvisited.remove(u)
+            for neighbor in self.adjacency[u]:
+                this_distance = distances[u] + 1  # distance between each node is 1
+                if this_distance < distances[neighbor]:
+                    distances[neighbor] = this_distance
+                    previous[neighbor] = u
+
+        return distances, previous
+
     def to_nx_graph(self):
         import networkx as nx
         graph = nx.DiGraph()
