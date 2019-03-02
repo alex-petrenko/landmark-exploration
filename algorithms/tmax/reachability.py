@@ -33,7 +33,7 @@ class ReachabilityNetwork:
             obs_second_enc = encoder(self.ph_obs_second)
             observations_encoded = tf.concat([obs_first_enc.encoded_input, obs_second_enc.encoded_input], axis=1)
 
-            self.reg = tf.contrib.layers.l2_regularizer(scale=1e-10)
+            self.reg = tf.contrib.layers.l2_regularizer(scale=1e-5)
 
             fc_layers = [256, 256]
             conv_features = tf.stop_gradient(observations_encoded)
@@ -68,7 +68,9 @@ class ReachabilityNetwork:
             # self.normalized_obs = obs_first_enc.normalized_obs
             # self.reconst_loss = tf.nn.l2_loss(self.normalized_obs - self.obs_decoded) / (64 * 64)
 
-            self.loss = self.reach_loss + self.first_loss + self.second_loss
+            self.reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+
+            self.loss = self.reach_loss + self.first_loss + self.second_loss + self.reg_loss
 
     def get_probabilities(self, session, obs_first, obs_second):
         probabilities = session.run(
@@ -118,10 +120,7 @@ class ReachabilityBuffer:
                 avg_dist_close, avg_dist_far, num_close, num_far,
             )
 
-            # noinspection PyShadowingBuiltins
-            bin = 1
-
-            dist_limit = 4000
+            dist_limit = 5000
             dist_bins_close = np.zeros(dist_limit + 1, dtype=np.int32)
             dist_bins_far = np.zeros(dist_limit + 1, dtype=np.int32)
 
@@ -131,20 +130,20 @@ class ReachabilityBuffer:
             second_bins_close = np.zeros(max_time + 1, dtype=np.int32)
             second_bins_far = np.zeros(max_time + 1, dtype=np.int32)
 
-            if not self.close_buff.empty() and not self.far_buff.empty():
-                dist = self.close_buff.dist
-                idx_first, idx_second = self.close_buff.idx_first, self.close_buff.idx_second
-                for i in range(len(self.close_buff)):
-                    dist_bins_close[dist[i] // bin] += 1
-                    first_bins_close[idx_first[i] // bin] += 1
-                    second_bins_close[idx_second[i] // bin] += 1
-
-                dist = self.far_buff.dist
-                idx_first, idx_second = self.far_buff.idx_first, self.far_buff.idx_second
-                for i in range(len(self.far_buff)):
-                    dist_bins_far[dist[i] // bin] += 1
-                    first_bins_far[idx_first[i] // bin] += 1
-                    second_bins_far[idx_second[i] // bin] += 1
+            # if not self.close_buff.empty() and not self.far_buff.empty():
+            #     dist = self.close_buff.dist
+            #     idx_first, idx_second = self.close_buff.idx_first, self.close_buff.idx_second
+            #     for i in range(len(self.close_buff)):
+            #         dist_bins_close[dist[i]] += 1
+            #         first_bins_close[idx_first[i]] += 1
+            #         second_bins_close[idx_second[i]] += 1
+            #
+            #     dist = self.far_buff.dist
+            #     idx_first, idx_second = self.far_buff.idx_first, self.far_buff.idx_second
+            #     for i in range(len(self.far_buff)):
+            #         dist_bins_far[dist[i]] += 1
+            #         first_bins_far[idx_first[i]] += 1
+            #         second_bins_far[idx_second[i]] += 1
 
         with timing.timeit('trajectories'):
             for trajectory in trajectories:
@@ -166,13 +165,13 @@ class ReachabilityBuffer:
 
                 assert len(deliberate_indices) <= len(trajectory)
 
-                curr_j, close_j, far_j, limit_j = 0, 0, 0, 0
+                close_j, far_j = 0, 0
+                all_indices = list(range(len(trajectory)))
                 for i in range(len(trajectory)):
-                    # closest deliberate action to the current observation
-                    while curr_j < len(deliberate_indices):
-                        if deliberate_indices[curr_j] >= i:
-                            break
-                        curr_j += 1
+                    if len(close_buff) > 0.05 * self.params.reachability_target_buffer_size:
+                        break
+                    if len(far_buff) > 0.05 * self.params.reachability_target_buffer_size:
+                        break
 
                     while close_j < len(deliberate_indices):
                         if num_deliberate[deliberate_indices[close_j]] - num_deliberate[i] >= close:
@@ -184,67 +183,70 @@ class ReachabilityBuffer:
                             break
                         far_j += 1
 
-                    while limit_j < len(deliberate_indices):
-                        if deliberate_indices[limit_j] - i > dist_limit:
-                            break
-                        limit_j += 1
+                    # assert far_j >= close_j
 
-                    assert far_j >= close_j
+                    close_i = len(trajectory) if close_j >= len(deliberate_indices) else deliberate_indices[close_j]
+                    far_i = len(trajectory) if far_j >= len(deliberate_indices) else deliberate_indices[far_j]
 
-                    # for each frame sample one "close" and one "far" example
-                    close_indices = deliberate_indices[curr_j:min(close_j, limit_j)]
-                    far_indices = deliberate_indices[far_j:limit_j]
+                    close_indices = all_indices[i:close_i]
+                    far_indices = all_indices[far_i:]
 
-                    if len(close_indices) > 0:
-                        # first: sample "close" example
-                        second_idx = random.choice(close_indices)
-                        dist = second_idx - i
+                    need_extra_data = len(self.buffer) < self.params.reachability_target_buffer_size - 1
+                    num_attempts = 20 if need_extra_data else 5
 
-                        balanced_dist = dist_bins_close[dist // bin] <= 1.2 * dist_bins_far[dist // bin] + 5
-                        balanced_first = first_bins_close[i // bin] <= 2 * first_bins_far[i // bin] + 5
-                        balanced_second = second_bins_close[second_idx // bin] <= 1.2 * second_bins_far[second_idx // bin] + 5
-                        balanced = balanced_dist and balanced_first and balanced_second
+                    for attempt in range(num_attempts):
+                        if len(close_indices) > 0:
+                            # first: sample "close" example
+                            second_idx = random.choice(close_indices)
+                            close_indices.remove(second_idx)
+                            dist = second_idx - i
 
-                        if balanced:
-                            close_buff.add(
-                                obs_first=obs[i],
-                                obs_second=obs[second_idx],
-                                labels=0,
-                                dist=dist,
-                                idx_first=i,
-                                idx_second=second_idx,
-                            )
+                            balanced_dist = dist_bins_close[dist] <= 2 * dist_bins_far[dist] + 1
+                            balanced_first = first_bins_close[i] <= 2 * first_bins_far[i] + 1
+                            balanced_second = second_bins_close[second_idx] <= 2 * second_bins_far[second_idx] + 1
+                            balanced = balanced_dist and balanced_first and balanced_second
 
-                            sum_dist_close += dist
-                            num_close += 1
-                            dist_bins_close[dist // bin] += 1
-                            first_bins_close[i // bin] += 1
-                            second_bins_close[second_idx // bin] += 1
+                            if balanced:
+                                close_buff.add(
+                                    obs_first=obs[i],
+                                    obs_second=obs[second_idx],
+                                    labels=0,
+                                    dist=dist,
+                                    idx_first=i,
+                                    idx_second=second_idx,
+                                )
 
-                    if len(far_indices) > 0:
-                        # sample "far" example
-                        second_idx = random.choice(far_indices)
-                        dist = second_idx - i
+                                sum_dist_close += dist
+                                num_close += 1
+                                dist_bins_close[dist] += 1
+                                first_bins_close[i] += 1
+                                second_bins_close[second_idx] += 1
 
-                        balanced_dist = dist_bins_far[dist // bin] <= 1.2 * dist_bins_close[dist // bin] + 1
-                        balanced_first = first_bins_far[i // bin] <= 1.2 * first_bins_close[i // bin] + 1
-                        balanced_second = second_bins_far[second_idx // bin] <= 1.2 * second_bins_close[second_idx // bin] + 1
-                        balanced = balanced_dist and balanced_first and balanced_second
+                        if len(far_indices) > 0:
+                            # sample "far" example
+                            second_idx = random.choice(far_indices)
+                            far_indices.remove(second_idx)
+                            dist = second_idx - i
 
-                        if balanced:
-                            far_buff.add(
-                                obs_first=obs[i],
-                                obs_second=obs[second_idx],
-                                labels=1,
-                                dist=dist,
-                                idx_first=i,
-                                idx_second=second_idx,
-                            )
-                            sum_dist_far += dist
-                            num_far += 1
-                            dist_bins_far[dist // bin] += 1
-                            first_bins_far[i // bin] += 1
-                            second_bins_far[second_idx // bin] += 1
+                            balanced_dist = dist_bins_far[dist] <= 2 * dist_bins_close[dist] + 1
+                            balanced_first = first_bins_far[i] <= 2 * first_bins_close[i] + 1
+                            balanced_second = second_bins_far[second_idx] <= 2 * second_bins_close[second_idx] + 1
+                            balanced = balanced_dist and balanced_first and balanced_second
+
+                            if balanced:
+                                far_buff.add(
+                                    obs_first=obs[i],
+                                    obs_second=obs[second_idx],
+                                    labels=1,
+                                    dist=dist,
+                                    idx_first=i,
+                                    idx_second=second_idx,
+                                )
+                                sum_dist_far += dist
+                                num_far += 1
+                                dist_bins_far[dist] += 1
+                                first_bins_far[i] += 1
+                                second_bins_far[second_idx] += 1
 
         log.info('Close examples %d far examples %d', len(close_buff), len(far_buff))
 
@@ -259,14 +261,75 @@ class ReachabilityBuffer:
                 buff.trim_at(self.params.reachability_target_buffer_size // 2)
 
         with timing.timeit('finalize'):
-            num_examples = min(len(self.close_buff), len(self.far_buff))
-            max_close, max_far = num_examples, num_examples
+            dist_bins_close = np.zeros(dist_limit + 1, dtype=np.int32)
+            dist_bins_far = np.zeros(dist_limit + 1, dtype=np.int32)
+            dist_bins_min = np.zeros(dist_limit + 1, dtype=np.int32)
+
+            first_bins_close = np.zeros(max_time + 1, dtype=np.int32)
+            first_bins_far = np.zeros(max_time + 1, dtype=np.int32)
+            first_bins_min = np.zeros(max_time + 1, dtype=np.int32)
+
+            second_bins_close = np.zeros(max_time + 1, dtype=np.int32)
+            second_bins_far = np.zeros(max_time + 1, dtype=np.int32)
+            second_bins_min = np.zeros(max_time + 1, dtype=np.int32)
 
             self.buffer.clear()
-            with timing.timeit('add_buffers'):
-                self.buffer.add_buff(self.close_buff, max_to_add=max_close)
-                self.buffer.add_buff(self.far_buff, max_to_add=max_far)
-                self.shuffle_data()
+
+            if not self.close_buff.empty() and not self.far_buff.empty():
+                dist = self.close_buff.dist
+                idx_first, idx_second = self.close_buff.idx_first, self.close_buff.idx_second
+                for i in range(len(self.close_buff)):
+                    dist_bins_close[dist[i]] += 1
+                    first_bins_close[idx_first[i]] += 1
+                    second_bins_close[idx_second[i]] += 1
+
+                dist = self.far_buff.dist
+                idx_first, idx_second = self.far_buff.idx_first, self.far_buff.idx_second
+                for i in range(len(self.far_buff)):
+                    dist_bins_far[dist[i]] += 1
+                    first_bins_far[idx_first[i]] += 1
+                    second_bins_far[idx_second[i]] += 1
+
+                for d in range(dist_limit):
+                    dist_bins_min[d] = min(dist_bins_close[d], dist_bins_far[d])
+                for t in range(max_time):
+                    first_bins_min[t] = min(first_bins_close[t], first_bins_far[t])
+                    second_bins_min[t] = min(second_bins_close[t], second_bins_far[t])
+
+                dist_bins_close = np.zeros(dist_limit + 1, dtype=np.int32)
+                dist_bins_far = np.zeros(dist_limit + 1, dtype=np.int32)
+                first_bins_close = np.zeros(max_time + 1, dtype=np.int32)
+                first_bins_far = np.zeros(max_time + 1, dtype=np.int32)
+                second_bins_close = np.zeros(max_time + 1, dtype=np.int32)
+                second_bins_far = np.zeros(max_time + 1, dtype=np.int32)
+
+                dist = self.close_buff.dist
+                idx_first, idx_second = self.close_buff.idx_first, self.close_buff.idx_second
+                for i in range(len(self.close_buff)):
+                    d = dist[i]
+                    balanced_dist = dist_bins_close[d] <= dist_bins_min[d] // 2
+                    balanced_first = first_bins_close[idx_first[i]] <= first_bins_min[idx_first[i]] // 2
+                    balanced_second = second_bins_close[idx_second[i]] <= second_bins_min[idx_second[i]] // 2
+                    if balanced_dist and balanced_first and balanced_second:
+                        self.buffer.add_idx(self.close_buff, i)
+                        dist_bins_close[d] += 1
+                        first_bins_close[idx_first[i]] += 1
+                        second_bins_close[idx_second[i]] += 1
+
+                dist = self.far_buff.dist
+                idx_first, idx_second = self.far_buff.idx_first, self.far_buff.idx_second
+                for i in range(len(self.far_buff)):
+                    d = dist[i]
+                    balanced_dist = dist_bins_far[d] <= dist_bins_min[d] // 2
+                    balanced_first = first_bins_far[idx_first[i]] <= first_bins_min[idx_first[i]] // 2
+                    balanced_second = second_bins_far[idx_second[i]] <= second_bins_min[idx_second[i]] // 2
+                    if balanced_dist and balanced_first and balanced_second:
+                        self.buffer.add_idx(self.far_buff, i)
+                        dist_bins_far[d] += 1
+                        first_bins_far[idx_first[i]] += 1
+                        second_bins_far[idx_second[i]] += 1
+
+            self.shuffle_data()
 
         if self.batch_num % 6 == 0:
             with timing.timeit('visualize'):
@@ -287,7 +350,7 @@ class ReachabilityBuffer:
 
     @staticmethod
     def _gen_histogram(folder, name, buff, close_indices, far_indices):
-        bins = np.arange(np.round(buff.min()) - 1, np.round(buff.max()) + 1, dtype=np.float32, step=3)
+        bins = np.arange(np.round(buff.min()) - 1, np.round(buff.max()) + 1, dtype=np.float32)
         plt.hist(buff[close_indices], alpha=0.5, bins=bins, label='close')
         plt.hist(buff[far_indices], alpha=0.5, bins=bins, label='far')
         plt.legend(loc='upper right')

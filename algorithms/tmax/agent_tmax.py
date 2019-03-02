@@ -263,6 +263,8 @@ class TmaxManager:
             TmaxMode.SEARCH: 0,
         }
 
+        self.max_landmark_distance = [0.0] * self.num_envs
+
     def initialize(self, initial_obs):
         self.maps = [TopologicalMap(obs) for obs in initial_obs]
         self.initialized = True
@@ -285,7 +287,7 @@ class TmaxManager:
         if not self._is_bootstrap:
             modes.append(TmaxMode.SEARCH)
 
-        neighbor_indices = self.maps[env_i].neighbor_indices()
+        # neighbor_indices = self.maps[env_i].neighbor_indices()
         # if len(neighbor_indices) > 1:
         #     modes.append(TmaxMode.LOCOMOTION)
 
@@ -412,6 +414,10 @@ class TmaxManager:
             min_d, min_d_idx = min_with_idx(distance)
             closest_landmark_idx[env_i] = neighbor_indices[min_d_idx]
 
+            if min_d > self.max_landmark_distance[env_i]:
+                bonuses[env_i] += (min_d - self.max_landmark_distance[env_i]) * self.params.map_expansion_reward
+                self.max_landmark_distance[env_i] = min_d
+
             if min_d >= self.new_landmark_threshold:
                 # we're far enough from all obs in the neighborhood, might have found something new!
                 new_landmark_candidates.append(env_i)
@@ -446,15 +452,17 @@ class TmaxManager:
             non_neighborhood_obs.extend([m.landmarks[i] for i in non_neighbor_indices])
             current_obs.extend([obs[env_i]] * len(non_neighbor_indices))
 
-        # this can be potentially a very large batch, should we divide it into mini-batches?
         assert len(non_neighborhood_obs) == len(current_obs)
 
         # calculate reachability for all non-neighbors
         distances = []
-        if len(non_neighborhood_obs) != 0:
-            distances = self.agent.reachability.distances(
-                self.agent.session, non_neighborhood_obs, current_obs,
+        batch_size = 1024
+        for i in range(0, len(non_neighborhood_obs), batch_size):
+            start, end = i, i + batch_size
+            distances_batch = self.agent.reachability.distances(
+                self.agent.session, non_neighborhood_obs[start:end], current_obs[start:end],
             )
+            distances.extend(distances_batch)
 
         j = 0
         for env_i in new_landmark_candidates:
@@ -480,6 +488,7 @@ class TmaxManager:
                     self._select_locomotion_target(env_i)
 
                     bonuses[env_i] += self.params.map_expansion_reward  # we found a new edge! Cool!
+                    self.max_landmark_distance[env_i] = 0.0
                     self.is_landmark[env_i] = True
             else:
                 # vertex is relatively far away from all vertices in the graph, we've found a new landmark!
@@ -493,6 +502,7 @@ class TmaxManager:
                     closest_landmark_idx[env_i] = new_landmark_idx
                     self.new_landmark_candidate_frames[env_i] = 0
 
+                    self.max_landmark_distance[env_i] = 0.0
                     self.is_landmark[env_i] = True
                 else:
                     self.new_landmark_candidate_frames[env_i] += 1
@@ -594,9 +604,9 @@ class AgentTMAX(AgentLearner):
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
 
-            self.reachable_threshold = 15  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 50  # num. of frames between obs, such that one is unreachable from the other
-            self.reachability_target_buffer_size = 200000  # target number of training examples to store
+            self.reachable_threshold = 25  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
+            self.reachability_target_buffer_size = 190000  # target number of training examples to store
             self.reachability_train_epochs = 2
             self.reachability_batch_size = 256
 
@@ -605,7 +615,7 @@ class AgentTMAX(AgentLearner):
             self.map_expansion_reward = 0.05  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 20  # max trajectory length to be utilized for locomotion training
-            self.locomotion_target_buffer_size = 150000  # target number of (obs, goal, action) tuples to store
+            self.locomotion_target_buffer_size = 15000  # target number of (obs, goal, action) tuples to store
             self.locomotion_train_epochs = 1
             self.locomotion_batch_size = 256
 
@@ -796,6 +806,8 @@ class AgentTMAX(AgentLearner):
             reachability_scalar('second_loss', self.reachability.second_loss)
             reachability_scalar('second_correct', self.reachability.second_correct)
 
+            reachability_scalar('reg_loss', self.reachability.reg_loss)
+
             # reachability_scalar('reconst_loss', self.reachability.reconst_loss)
             # image_summaries_rgb(self.reachability.normalized_obs, name='source', collections=['reachability'])
             # image_summaries_rgb(self.reachability.obs_decoded, name='decoded', collections=['reachability'])
@@ -947,7 +959,7 @@ class AgentTMAX(AgentLearner):
             non_idle_env_i = []
             for env_index in env_i:
                 # idle-random policy
-                if tmax_mgr.idle_frames[env_index] > 0 and random.random() < 0.999:
+                if tmax_mgr.idle_frames[env_index] > 0 and tmax_mgr.episode_frames[env_index] < 4500 - 60:
                     # idle action
                     tmax_mgr.deliberate_action[env_index] = False
                     actions[env_index] = 0  # NOOP
@@ -1214,7 +1226,8 @@ class AgentTMAX(AgentLearner):
 
     @staticmethod
     def _combine_rewards(num_envs, extrinsic, intrinsic, intentions):
-        rewards = [0] * num_envs
+        per_frame_reward = -0.001
+        rewards = [per_frame_reward] * num_envs
 
         for env_idx in range(num_envs):
             intention = intentions[env_idx]

@@ -17,7 +17,7 @@ class Buffer:
             # we already have enough space
             return
 
-        capacity_delta = max(self._capacity // 2, 10)  # ensure exponentially low number of reallocs
+        capacity_delta = max(self._capacity // 10, 10)  # ensure exponentially low number of reallocs
         capacity_delta = max(capacity_delta, self._size + space_required - self._capacity)
         for key in self._data.keys():
             self._data[key].resize((self._capacity + capacity_delta, ) + self._data[key].shape[1:], refcheck=False)
@@ -71,6 +71,16 @@ class Buffer:
 
         kwargs = {key: getattr(buff, key) for key in buff._data.keys()}
         self.add_many(max_to_add, **kwargs)
+
+    # noinspection PyProtectedMember
+    def add_slice(self, buff, start, end):
+        kwargs = {key: getattr(buff, key)[start:end] for key in buff._data.keys()}
+        self.add_many(end - start, **kwargs)
+
+    # noinspection PyProtectedMember
+    def add_idx(self, buff, i):
+        kwargs = {key: getattr(buff, key)[i] for key in buff._data.keys()}
+        self.add(**kwargs)
 
     def shuffle_data(self):
         if self._size <= 0:
