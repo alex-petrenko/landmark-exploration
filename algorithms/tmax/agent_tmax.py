@@ -1215,20 +1215,17 @@ class AgentTMAX(AgentLearner):
 
                 start, end = i, i + batch_size
 
-                try:
-                    result = self.session.run(
-                        [self.inverse.loss, self.train_inverse] + summaries,
-                        feed_dict={
-                            self.inverse.ph_obs_first: obs_i[start:end],
-                            self.inverse.ph_obs_second: obs_i_plus_1[start:end],
-                            self.inverse.ph_actions: actions[start:end],
-                        }
-                    )
-                except Exception:
-                    import pdb; pdb.set_trace()
+                result = self.session.run(
+                    [self.inverse.loss, self.train_inverse] + summaries,
+                    feed_dict={
+                        self.inverse.ph_obs_first: obs_i[start:end],
+                        self.inverse.ph_obs_second: obs_i_plus_1[start:end],
+                        self.inverse.ph_actions: actions[start:end],
+                    }
+                )
 
                 inverse_step += 1
-                self._maybe_save(inverse_step, env_steps)
+                # self._maybe_save(inverse_step, env_steps)
                 losses.append(result[0])
 
                 if with_summaries:
