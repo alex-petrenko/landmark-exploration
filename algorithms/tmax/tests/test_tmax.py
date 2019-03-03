@@ -61,7 +61,7 @@ class TestTMAX(TestCase):
             sess.run(tf.global_variables_initializer())
             probabilities = reachability_net.get_probabilities(sess, [obs], [obs])[0]
             self.assertAlmostEqual(sum(probabilities), 1.0, places=5)  # probs sum up to 1
-            reachability = reachability_net.get_reachability(sess, [obs], [obs])[0]
+            reachability = reachability_net.distances(sess, [obs], [obs])[0]
             self.assertEqual(probabilities[1], reachability)
 
         env.close()
