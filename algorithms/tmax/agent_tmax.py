@@ -344,9 +344,9 @@ class TmaxManager:
         self.mode[env_i] = None
         self.locomotion_targets[env_i] = None
         self.idle_frames[env_i] = 0
-        self.action_frames[env_i] = np.random.randint(1, self.params.unreachable_threshold)
+        self.action_frames[env_i] = np.random.randint(1, 3)
 
-        if random.random() < 0.33:  # (TODO! there must be a better policy)
+        if random.random() < 0.999:  # (TODO! there must be a better policy)
             # reset graph with some probability
             m.reset(obs)  # reset graph
 
@@ -607,9 +607,9 @@ class AgentTMAX(AgentLearner):
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
 
-            self.reachable_threshold = 8  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 16  # num. of frames between obs, such that one is unreachable from the other
-            self.reachability_target_buffer_size = 190000  # target number of training examples to store
+            self.reachable_threshold = 15  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
+            self.reachability_target_buffer_size = 150000  # target number of training examples to store
             self.reachability_train_epochs = 2
             self.reachability_batch_size = 256
 

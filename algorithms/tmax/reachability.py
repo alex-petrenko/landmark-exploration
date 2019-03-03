@@ -110,7 +110,10 @@ class ReachabilityBuffer:
 
         close = self.params.reachable_threshold
         far = self.params.unreachable_threshold
-        far_limit = 200
+        far_limit = max(0, int(np.random.normal(200, 50)))
+        if random.random() < 0.1:
+            far_limit = 1e9
+
         close_in_time = far
 
         timing = Timing()
@@ -281,8 +284,8 @@ class ReachabilityBuffer:
                                 buffer.add(idx_first=first_frame_far.i, idx_second=frame.i, label=1)
 
                     # end while loop
-                    if len(buffer) >= 5:
-                        log.info('Buffer size %d,  trajectory len %d', len(buffer), len(trajectory))
+                    if len(buffer) >= 7:
+                        # log.info('Buffer size %d,  trajectory len %d', len(buffer), len(trajectory))
                         idx_first = buffer.idx_first
                         idx_second = buffer.idx_second
                         labels = buffer.label
@@ -294,7 +297,8 @@ class ReachabilityBuffer:
                                 num_far_in_time += 1
 
                         if num_far_in_time <= 0:
-                            log.info('Buffer does not contain far_in_time close observations')
+                            # log.info('Buffer does not contain far_in_time close observations')
+                            pass
                         else:
                             for i in range(len(buffer)):
                                 i1, i2 = idx_first[i], idx_second[i]
