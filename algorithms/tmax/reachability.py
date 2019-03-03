@@ -97,239 +97,213 @@ class ReachabilityBuffer:
         self.params = params
 
     def extract_data(self, trajectories):
+        class Frame:
+            def __init__(self, idx_):
+                self.i = idx_
+                self.close, self.far = False, False
+                self.fail_close, self.fail_far = False, False
+                self.close_i = self.far_i = -1
+
+            def set_limits(self, close_i_, far_i_):
+                self.close_i = close_i_
+                self.far_i = far_i_
+
         close = self.params.reachable_threshold
         far = self.params.unreachable_threshold
+        far_limit = 200
+        close_in_time = far
 
         timing = Timing()
-
-        with timing.timeit('init'):
-            close_buff, far_buff = Buffer(), Buffer()
-
-            num_close, num_far = len(self.close_buff), len(self.far_buff)
-            sum_dist_close, sum_dist_far = 0, 0
-            avg_dist_close, avg_dist_far = 0, 0
-
-            if num_close > 0:
-                sum_dist_close = np.sum(self.close_buff.dist)
-                avg_dist_close = sum_dist_close / num_close
-            if num_far > 0:
-                sum_dist_far = np.sum(self.far_buff.dist)
-                avg_dist_far = sum_dist_far / num_far
-            log.info(
-                'Avg close %.3f avg far %.3f, num close %d num far %d',
-                avg_dist_close, avg_dist_far, num_close, num_far,
-            )
-
-            dist_limit = 5000
-            dist_bins_close = np.zeros(dist_limit + 1, dtype=np.int32)
-            dist_bins_far = np.zeros(dist_limit + 1, dtype=np.int32)
-
-            max_time = 5000
-            first_bins_close = np.zeros(max_time + 1, dtype=np.int32)
-            first_bins_far = np.zeros(max_time + 1, dtype=np.int32)
-            second_bins_close = np.zeros(max_time + 1, dtype=np.int32)
-            second_bins_far = np.zeros(max_time + 1, dtype=np.int32)
-
-            # if not self.close_buff.empty() and not self.far_buff.empty():
-            #     dist = self.close_buff.dist
-            #     idx_first, idx_second = self.close_buff.idx_first, self.close_buff.idx_second
-            #     for i in range(len(self.close_buff)):
-            #         dist_bins_close[dist[i]] += 1
-            #         first_bins_close[idx_first[i]] += 1
-            #         second_bins_close[idx_second[i]] += 1
-            #
-            #     dist = self.far_buff.dist
-            #     idx_first, idx_second = self.far_buff.idx_first, self.far_buff.idx_second
-            #     for i in range(len(self.far_buff)):
-            #         dist_bins_far[dist[i]] += 1
-            #         first_bins_far[idx_first[i]] += 1
-            #         second_bins_far[idx_second[i]] += 1
+        data = Buffer()
 
         with timing.timeit('trajectories'):
             for trajectory in trajectories:
                 if len(trajectory) <= 1:
                     continue
 
+                first_frames = [Frame(i) for i in range(len(trajectory))]
+                second_frames = [Frame(i) for i in range(len(trajectory))]
+
+                indices = np.arange(len(trajectory))
+                np.random.shuffle(indices)
+
                 obs = trajectory.obs
 
                 num_deliberate = [int(trajectory.deliberate_action[0])] * len(trajectory)
-                deliberate_indices = []
-                if num_deliberate[0]:
-                    deliberate_indices = [0]
-
                 for i in range(1, len(trajectory)):
                     num_deliberate[i] = num_deliberate[i - 1]
                     if trajectory.deliberate_action[i]:
                         num_deliberate[i] += 1
-                        deliberate_indices.append(i)
 
-                assert len(deliberate_indices) <= len(trajectory)
-
-                close_j, far_j = 0, 0
-                all_indices = list(range(len(trajectory)))
+                close_i = far_i = 0
                 for i in range(len(trajectory)):
-                    if len(close_buff) > 0.05 * self.params.reachability_target_buffer_size:
-                        break
-                    if len(far_buff) > 0.05 * self.params.reachability_target_buffer_size:
-                        break
+                    while close_i < len(trajectory) and num_deliberate[close_i] - num_deliberate[i] <= close:
+                        close_i += 1
+                    while far_i < len(trajectory) and num_deliberate[far_i] - num_deliberate[i] <= far:
+                        far_i += 1
+                    first_frames[i].set_limits(close_i, far_i)
 
-                    while close_j < len(deliberate_indices):
-                        if num_deliberate[deliberate_indices[close_j]] - num_deliberate[i] >= close:
-                            break
-                        close_j += 1
+                close_i = far_i = len(trajectory) - 1
+                for i in range(len(trajectory) - 1, -1, -1):
+                    while close_i >= 0 and num_deliberate[i] - num_deliberate[close_i] <= close:
+                        close_i -= 1
+                    while far_i >= 0 and num_deliberate[i] - num_deliberate[far_i] <= far:
+                        far_i -= 1
+                    second_frames[i].set_limits(close_i, far_i)
 
-                    while far_j < len(deliberate_indices):
-                        if num_deliberate[deliberate_indices[far_j]] - num_deliberate[i] >= far:
-                            break
-                        far_j += 1
+                for idx in indices:
+                    frame = first_frames[idx]
+                    if frame.far and frame.close:
+                        continue
+                    if frame.fail_close or frame.fail_far:
+                        continue
 
-                    # assert far_j >= close_j
+                    q = deque([])
+                    q.append((frame, True))
 
-                    close_i = len(trajectory) if close_j >= len(deliberate_indices) else deliberate_indices[close_j]
-                    far_i = len(trajectory) if far_j >= len(deliberate_indices) else deliberate_indices[far_j]
+                    buffer = Buffer()
 
-                    close_indices = all_indices[i:close_i]
-                    far_indices = all_indices[far_i:]
+                    while len(q) > 0:
+                        frame, is_first = q.popleft()
 
-                    need_extra_data = len(self.buffer) < self.params.reachability_target_buffer_size - 1
-                    num_attempts = 20 if need_extra_data else 5
+                        if is_first:
+                            second_frame_close, second_frame_far = None, None
 
-                    for attempt in range(num_attempts):
-                        if len(close_indices) > 0:
-                            # first: sample "close" example
-                            second_idx = random.choice(close_indices)
-                            close_indices.remove(second_idx)
-                            dist = second_idx - i
+                            if not frame.close:
+                                # trying to find second close observation
+                                second_close_i = -1
+                                close_indices = list(range(frame.i + 1, frame.close_i))
+                                random.shuffle(close_indices)
 
-                            balanced_dist = dist_bins_close[dist] <= 2 * dist_bins_far[dist] + 1
-                            balanced_first = first_bins_close[i] <= 2 * first_bins_far[i] + 1
-                            balanced_second = second_bins_close[second_idx] <= 2 * second_bins_far[second_idx] + 1
-                            balanced = balanced_dist and balanced_first and balanced_second
+                                for i in close_indices:
+                                    if second_frames[i].close:
+                                        continue
 
-                            if balanced:
-                                close_buff.add(
-                                    obs_first=obs[i],
-                                    obs_second=obs[second_idx],
-                                    labels=0,
+                                    second_close_i = i
+                                    break
+
+                                if second_close_i == -1:
+                                    # failed to find "close" observation, skip
+                                    frame.fail_close = True
+                                    continue
+
+                                second_frame_close = second_frames[second_close_i]
+
+                            if not frame.far:
+                                # trying to find second far observation
+                                second_far_i = -1
+                                far_indices = list(range(frame.far_i, min(len(trajectory), frame.far_i + far_limit)))
+                                random.shuffle(far_indices)
+
+                                for i in far_indices:
+                                    if second_frames[i].far:
+                                        continue
+
+                                    second_far_i = i
+                                    break
+
+                                if second_far_i == -1:
+                                    # failed to find "far" observation, skip
+                                    frame.fail_far = True
+                                    continue
+
+                                second_frame_far = second_frames[second_far_i]
+
+                            if second_frame_close is not None:
+                                frame.close = second_frame_close.close = True
+                                q.append((second_frame_close, False))
+                                buffer.add(idx_first=frame.i, idx_second=second_frame_close.i, label=0)
+                            if second_frame_far is not None:
+                                frame.far = second_frame_far.far = True
+                                q.append((second_frame_far, False))
+                                buffer.add(idx_first=frame.i, idx_second=second_frame_far.i, label=1)
+
+                        else:  # this is a second observation in a pair
+                            first_frame_close, first_frame_far = None, None
+
+                            if not frame.close:
+                                # trying to find first close observation
+                                first_close_i = -1
+                                close_indices = list(range(frame.i - 1, frame.close_i, -1))
+                                random.shuffle(close_indices)
+
+                                for i in close_indices:
+                                    if first_frames[i].close:
+                                        continue
+
+                                    first_close_i = i
+                                    break
+
+                                if first_close_i == -1:
+                                    # failed to find "close" observation, skip
+                                    frame.fail_close = True
+                                    continue
+
+                                first_frame_close = first_frames[first_close_i]
+
+                            if not frame.far:
+                                # trying to find first far observation
+                                first_far_i = -1
+                                far_indices = list(range(max(0, frame.far_i - far_limit), frame.far_i))
+                                random.shuffle(far_indices)
+
+                                for i in far_indices:
+                                    if first_frames[i].far:
+                                        continue
+
+                                    first_far_i = i
+                                    break
+
+                                if first_far_i == -1:
+                                    # failed to find "far" observation, skip
+                                    frame.fail_far = True
+                                    continue
+
+                                first_frame_far = first_frames[first_far_i]
+
+                            if first_frame_close is not None:
+                                frame.close = first_frame_close.close = True
+                                q.append((first_frame_close, True))
+                                buffer.add(idx_first=first_frame_close.i, idx_second=frame.i, label=0)
+                            if first_frame_far is not None:
+                                frame.far = first_frame_far.far = True
+                                q.append((first_frame_far, False))
+                                buffer.add(idx_first=first_frame_far.i, idx_second=frame.i, label=1)
+
+                    # end while loop
+                    if len(buffer) >= 5:
+                        log.info('Buffer size %d,  trajectory len %d', len(buffer), len(trajectory))
+                        idx_first = buffer.idx_first
+                        idx_second = buffer.idx_second
+                        labels = buffer.label
+
+                        num_far_in_time = 0
+                        for i in range(len(buffer)):
+                            dist = idx_second[i] - idx_first[i]
+                            if labels[i] == 0 and dist >= close_in_time:
+                                num_far_in_time += 1
+
+                        if num_far_in_time <= 0:
+                            log.info('Buffer does not contain far_in_time close observations')
+                        else:
+                            for i in range(len(buffer)):
+                                i1, i2 = idx_first[i], idx_second[i]
+                                dist = i2 - i1
+                                label = labels[i]
+
+                                data.add(
+                                    obs_first=obs[idx_first[i]],
+                                    obs_second=obs[idx_second[i]],
+                                    labels=label,
                                     dist=dist,
-                                    idx_first=i,
-                                    idx_second=second_idx,
+                                    idx_first=i1,
+                                    idx_second=i2,
                                 )
 
-                                sum_dist_close += dist
-                                num_close += 1
-                                dist_bins_close[dist] += 1
-                                first_bins_close[i] += 1
-                                second_bins_close[second_idx] += 1
-
-                        if len(far_indices) > 0:
-                            # sample "far" example
-                            second_idx = random.choice(far_indices)
-                            far_indices.remove(second_idx)
-                            dist = second_idx - i
-
-                            balanced_dist = dist_bins_far[dist] <= 2 * dist_bins_close[dist] + 1
-                            balanced_first = first_bins_far[i] <= 2 * first_bins_close[i] + 1
-                            balanced_second = second_bins_far[second_idx] <= 2 * second_bins_close[second_idx] + 1
-                            balanced = balanced_dist and balanced_first and balanced_second
-
-                            if balanced:
-                                far_buff.add(
-                                    obs_first=obs[i],
-                                    obs_second=obs[second_idx],
-                                    labels=1,
-                                    dist=dist,
-                                    idx_first=i,
-                                    idx_second=second_idx,
-                                )
-                                sum_dist_far += dist
-                                num_far += 1
-                                dist_bins_far[dist] += 1
-                                first_bins_far[i] += 1
-                                second_bins_far[second_idx] += 1
-
-        log.info('Close examples %d far examples %d', len(close_buff), len(far_buff))
-
-        with timing.timeit('add_batch'):
-            close_buff.shuffle_data()
-            far_buff.shuffle_data()
-            self.close_buff.add_buff(close_buff)
-            self.far_buff.add_buff(far_buff)
-
-            for buff in [self.close_buff, self.far_buff]:
-                buff.shuffle_data()
-                buff.trim_at(self.params.reachability_target_buffer_size // 2)
-
-        with timing.timeit('finalize'):
-            dist_bins_close = np.zeros(dist_limit + 1, dtype=np.int32)
-            dist_bins_far = np.zeros(dist_limit + 1, dtype=np.int32)
-            dist_bins_min = np.zeros(dist_limit + 1, dtype=np.int32)
-
-            first_bins_close = np.zeros(max_time + 1, dtype=np.int32)
-            first_bins_far = np.zeros(max_time + 1, dtype=np.int32)
-            first_bins_min = np.zeros(max_time + 1, dtype=np.int32)
-
-            second_bins_close = np.zeros(max_time + 1, dtype=np.int32)
-            second_bins_far = np.zeros(max_time + 1, dtype=np.int32)
-            second_bins_min = np.zeros(max_time + 1, dtype=np.int32)
-
-            self.buffer.clear()
-
-            if not self.close_buff.empty() and not self.far_buff.empty():
-                dist = self.close_buff.dist
-                idx_first, idx_second = self.close_buff.idx_first, self.close_buff.idx_second
-                for i in range(len(self.close_buff)):
-                    dist_bins_close[dist[i]] += 1
-                    first_bins_close[idx_first[i]] += 1
-                    second_bins_close[idx_second[i]] += 1
-
-                dist = self.far_buff.dist
-                idx_first, idx_second = self.far_buff.idx_first, self.far_buff.idx_second
-                for i in range(len(self.far_buff)):
-                    dist_bins_far[dist[i]] += 1
-                    first_bins_far[idx_first[i]] += 1
-                    second_bins_far[idx_second[i]] += 1
-
-                for d in range(dist_limit):
-                    dist_bins_min[d] = min(dist_bins_close[d], dist_bins_far[d])
-                for t in range(max_time):
-                    first_bins_min[t] = min(first_bins_close[t], first_bins_far[t])
-                    second_bins_min[t] = min(second_bins_close[t], second_bins_far[t])
-
-                dist_bins_close = np.zeros(dist_limit + 1, dtype=np.int32)
-                dist_bins_far = np.zeros(dist_limit + 1, dtype=np.int32)
-                first_bins_close = np.zeros(max_time + 1, dtype=np.int32)
-                first_bins_far = np.zeros(max_time + 1, dtype=np.int32)
-                second_bins_close = np.zeros(max_time + 1, dtype=np.int32)
-                second_bins_far = np.zeros(max_time + 1, dtype=np.int32)
-
-                dist = self.close_buff.dist
-                idx_first, idx_second = self.close_buff.idx_first, self.close_buff.idx_second
-                for i in range(len(self.close_buff)):
-                    d = dist[i]
-                    balanced_dist = dist_bins_close[d] <= dist_bins_min[d] // 2
-                    balanced_first = first_bins_close[idx_first[i]] <= first_bins_min[idx_first[i]] // 2
-                    balanced_second = second_bins_close[idx_second[i]] <= second_bins_min[idx_second[i]] // 2
-                    if balanced_dist and balanced_first and balanced_second:
-                        self.buffer.add_idx(self.close_buff, i)
-                        dist_bins_close[d] += 1
-                        first_bins_close[idx_first[i]] += 1
-                        second_bins_close[idx_second[i]] += 1
-
-                dist = self.far_buff.dist
-                idx_first, idx_second = self.far_buff.idx_first, self.far_buff.idx_second
-                for i in range(len(self.far_buff)):
-                    d = dist[i]
-                    balanced_dist = dist_bins_far[d] <= dist_bins_min[d] // 2
-                    balanced_first = first_bins_far[idx_first[i]] <= first_bins_min[idx_first[i]] // 2
-                    balanced_second = second_bins_far[idx_second[i]] <= second_bins_min[idx_second[i]] // 2
-                    if balanced_dist and balanced_first and balanced_second:
-                        self.buffer.add_idx(self.far_buff, i)
-                        dist_bins_far[d] += 1
-                        first_bins_far[idx_first[i]] += 1
-                        second_bins_far[idx_second[i]] += 1
-
+        with timing.timeit('add_and_shuffle'):
+            self.buffer.add_buff(data)
             self.shuffle_data()
+            self.buffer.trim_at(self.params.reachability_target_buffer_size)
 
         if self.batch_num % 6 == 0:
             with timing.timeit('visualize'):

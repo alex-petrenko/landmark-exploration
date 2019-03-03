@@ -255,6 +255,8 @@ class TmaxManager:
         self.is_landmark = [True] * self.num_envs
 
         self.idle_frames = [0] * self.num_envs
+        self.action_frames = [np.random.randint(1, self.params.unreachable_threshold) for _ in range(self.num_envs)]
+
         self.deliberate_action = [False] * self.num_envs
 
         self.samples_per_mode = {
@@ -342,6 +344,7 @@ class TmaxManager:
         self.mode[env_i] = None
         self.locomotion_targets[env_i] = None
         self.idle_frames[env_i] = 0
+        self.action_frames[env_i] = np.random.randint(1, self.params.unreachable_threshold)
 
         if random.random() < 0.33:  # (TODO! there must be a better policy)
             # reset graph with some probability
@@ -415,7 +418,7 @@ class TmaxManager:
             closest_landmark_idx[env_i] = neighbor_indices[min_d_idx]
 
             if min_d > self.max_landmark_distance[env_i]:
-                bonuses[env_i] += (min_d - self.max_landmark_distance[env_i]) * self.params.map_expansion_reward
+                # bonuses[env_i] += (min_d - self.max_landmark_distance[env_i]) * self.params.map_expansion_reward
                 self.max_landmark_distance[env_i] = min_d
 
             if min_d >= self.new_landmark_threshold:
@@ -604,15 +607,15 @@ class AgentTMAX(AgentLearner):
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
 
-            self.reachable_threshold = 25  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
+            self.reachable_threshold = 12  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 24  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 190000  # target number of training examples to store
             self.reachability_train_epochs = 2
             self.reachability_batch_size = 256
 
-            self.new_landmark_threshold = 0.99  # condition for considering current observation a "new landmark"
-            self.loop_closure_threshold = 0.75  # condition for graph loop closure (finding new edge)
-            self.map_expansion_reward = 0.05  # reward for finding new vertex or new edge in the topological map
+            self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
+            self.loop_closure_threshold = 0.55  # condition for graph loop closure (finding new edge)
+            self.map_expansion_reward = 0.2  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 20  # max trajectory length to be utilized for locomotion training
             self.locomotion_target_buffer_size = 15000  # target number of (obs, goal, action) tuples to store
@@ -959,18 +962,25 @@ class AgentTMAX(AgentLearner):
             non_idle_env_i = []
             for env_index in env_i:
                 # idle-random policy
-                if tmax_mgr.idle_frames[env_index] > 0 and tmax_mgr.episode_frames[env_index] < 4500 - 60:
+                assert tmax_mgr.action_frames[env_index] > 0 or tmax_mgr.idle_frames[env_index] > 0
+
+                if tmax_mgr.idle_frames[env_index] > 0:
                     # idle action
                     tmax_mgr.deliberate_action[env_index] = False
                     actions[env_index] = 0  # NOOP
                     tmax_mgr.idle_frames[env_index] -= 1
+                    if tmax_mgr.idle_frames[env_index] <= 0:
+                        tmax_mgr.action_frames[env_index] = np.random.randint(1, self.params.unreachable_threshold)
                 else:
                     tmax_mgr.deliberate_action[env_index] = True
                     non_idle_env_i.append(env_index)
 
-                    if random.random() < 0.015:
-                        # start "idle" segment of trajectory
-                        tmax_mgr.idle_frames[env_index] = np.random.randint(1, 4000)
+                    tmax_mgr.action_frames[env_index] -= 1
+                    if tmax_mgr.action_frames[env_index] <= 0:
+                        if random.random() < 0.5:
+                            tmax_mgr.idle_frames[env_index] = np.random.randint(1, self.params.unreachable_threshold)
+                        else:
+                            tmax_mgr.idle_frames[env_index] = np.random.randint(1, 500)
 
             non_idle_env_i = np.asarray(non_idle_env_i)
             if is_bootstrap and len(non_idle_env_i) > 0:
