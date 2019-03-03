@@ -614,7 +614,7 @@ class AgentTMAX(AgentLearner):
             self.reachability_batch_size = 256
 
             self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
-            self.loop_closure_threshold = 0.55  # condition for graph loop closure (finding new edge)
+            self.loop_closure_threshold = 0.6  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.2  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 20  # max trajectory length to be utilized for locomotion training

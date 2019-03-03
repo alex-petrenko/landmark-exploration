@@ -192,7 +192,12 @@ class ReachabilityBuffer:
                             if not frame.far:
                                 # trying to find second far observation
                                 second_far_i = -1
-                                far_indices = list(range(frame.far_i, min(len(trajectory), frame.far_i + far_limit)))
+                                start = frame.far_i
+                                end = len(trajectory)
+                                if frame.i + far_limit > frame.far_i + close_in_time:
+                                    end = min(end, frame.i + far_limit)
+
+                                far_indices = list(range(start, end))
                                 random.shuffle(far_indices)
 
                                 for i in far_indices:
@@ -244,7 +249,12 @@ class ReachabilityBuffer:
                             if not frame.far:
                                 # trying to find first far observation
                                 first_far_i = -1
-                                far_indices = list(range(max(0, frame.far_i - far_limit), frame.far_i))
+                                start = 0
+                                end = frame.far_i
+                                if frame.i - far_limit < frame.far_i - close_in_time:
+                                    start = max(start, frame.i - far_limit)
+
+                                far_indices = list(range(start, end))
                                 random.shuffle(far_indices)
 
                                 for i in far_indices:
