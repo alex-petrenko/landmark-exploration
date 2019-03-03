@@ -255,7 +255,7 @@ class TmaxManager:
         self.is_landmark = [True] * self.num_envs
 
         self.idle_frames = [0] * self.num_envs
-        self.action_frames = [np.random.randint(1, self.params.unreachable_threshold) for _ in range(self.num_envs)]
+        self.action_frames = [np.random.randint(1, 3) for _ in range(self.num_envs)]
 
         self.deliberate_action = [False] * self.num_envs
 
@@ -594,7 +594,7 @@ class AgentTMAX(AgentLearner):
             # ppo-specific
             self.ppo_clip_ratio = 1.1  # we use clip(x, e, 1/e) instead of clip(x, 1+e, 1-e) in the paper
             self.target_kl = 0.033
-            self.batch_size = 1024
+            self.batch_size = 512
             self.ppo_epochs = 10
 
             # components of the loss function
@@ -607,8 +607,8 @@ class AgentTMAX(AgentLearner):
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
 
-            self.reachable_threshold = 12  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 24  # num. of frames between obs, such that one is unreachable from the other
+            self.reachable_threshold = 8  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 16  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 190000  # target number of training examples to store
             self.reachability_train_epochs = 2
             self.reachability_batch_size = 256
