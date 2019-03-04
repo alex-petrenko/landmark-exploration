@@ -10,8 +10,8 @@ class DecoderCNN:
 
             # 84px images
             if decoder_type == '84px':
-                x = tf.reshape(x, [-1, 2, 2, 64])
-                x = conv_t(x, 32, 3, strides=2, padding='VALID')
+                x = tf.reshape(x, [-1, 3, 3, 32])
+                x = conv_t(x, 32, 3, strides=1, padding='VALID')
                 x = conv_t(x, 32, 3, strides=2, padding='SAME')
                 x = conv_t(x, 32, 3, strides=2, padding='VALID')
                 x = conv_t(x, 32, 3, strides=2, padding='SAME')

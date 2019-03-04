@@ -284,7 +284,7 @@ class ReachabilityBuffer:
                                 buffer.add(idx_first=first_frame_far.i, idx_second=frame.i, label=1)
 
                     # end while loop
-                    if len(buffer) >= 7:
+                    if len(buffer) >= 5:
                         # log.info('Buffer size %d,  trajectory len %d', len(buffer), len(trajectory))
                         idx_first = buffer.idx_first
                         idx_second = buffer.idx_second
@@ -306,20 +306,28 @@ class ReachabilityBuffer:
                                 label = labels[i]
 
                                 data.add(
-                                    obs_first=obs[idx_first[i]],
-                                    obs_second=obs[idx_second[i]],
+                                    obs_first=obs[i1],
+                                    obs_second=obs[i2],
                                     labels=label,
                                     dist=dist,
                                     idx_first=i1,
                                     idx_second=i2,
                                 )
+                                # data.add(
+                                #     obs_first=obs[i2],
+                                #     obs_second=obs[i1],
+                                #     labels=label,
+                                #     dist=dist,
+                                #     idx_first=i2,
+                                #     idx_second=i1,
+                                # )
 
         with timing.timeit('add_and_shuffle'):
             self.buffer.add_buff(data)
             self.shuffle_data()
             self.buffer.trim_at(self.params.reachability_target_buffer_size)
 
-        if self.batch_num % 6 == 0:
+        if self.batch_num % 60 == 0:
             with timing.timeit('visualize'):
                 self._visualize_data()
 

@@ -609,7 +609,7 @@ class AgentTMAX(AgentLearner):
             self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
 
             self.reachable_threshold = 15  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
+            self.unreachable_threshold = 30  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 150000  # target number of training examples to store
             self.reachability_train_epochs = 2
             self.reachability_batch_size = 256
@@ -822,12 +822,14 @@ class AgentTMAX(AgentLearner):
             # image_summaries_rgb(self.reachability.normalized_obs, name='source', collections=['reachability'])
             # image_summaries_rgb(self.reachability.obs_decoded, name='decoded', collections=['reachability'])
 
-        with tf.name_scope('inverse'):
+        with tf.name_scope('inverse_dynamics'):
             inverse_scalar = partial(tf.summary.scalar, collections=['inverse'])
             inverse_scalar('actions_loss', self.inverse.actions_loss)
             inverse_scalar('loss', self.inverse.loss)
-
             inverse_scalar('reg_loss', self.inverse.reg_loss)
+            inverse_scalar('reconst_loss', self.inverse.reconst_loss)
+            image_summaries_rgb(self.inverse.normalized_obs, name='source', collections=['inverse'])
+            image_summaries_rgb(self.inverse.obs_decoded, name='decoded', collections=['inverse'])
 
         with tf.name_scope('locomotion'):
             locomotion_scalar = partial(tf.summary.scalar, collections=['locomotion'])
@@ -1213,7 +1215,6 @@ class AgentTMAX(AgentLearner):
         num_epochs = self.params.reachability_train_epochs
 
         log.info('Training inverse network %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
-        print(self.inverse.ph_actions.name)
 
         for epoch in range(num_epochs):
             buffer.shuffle_data()

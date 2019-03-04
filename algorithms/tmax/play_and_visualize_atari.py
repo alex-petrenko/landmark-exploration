@@ -98,8 +98,13 @@ def play_and_visualize(params, env_id):
     current_landmark_frame = frame
     idle_frames = 0
     deliberate_actions = 0
+    action = 0
 
-    while not done and not terminate:
+    while not terminate:
+        if done:
+            obs = env.reset()
+            action = 0
+
         env.render()
 
         if len(current_actions) > 0:
