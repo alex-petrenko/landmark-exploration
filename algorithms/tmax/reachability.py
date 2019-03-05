@@ -24,7 +24,7 @@ class ReachabilityNetwork:
         self.ph_obs_first, self.ph_obs_second = placeholders_from_spaces(obs_space, obs_space)
         self.ph_labels = tf.placeholder(dtype=tf.int32, shape=(None, ))
 
-        with tf.variable_scope('reach'):
+        with tf.variable_scope('reach') as scope:
             encoder = tf.make_template(
                 'siamese_enc', make_encoder, create_scope_now_=True, env=env, regularizer=None, params=params,
             )
@@ -68,7 +68,7 @@ class ReachabilityNetwork:
             # self.normalized_obs = obs_first_enc.normalized_obs
             # self.reconst_loss = tf.nn.l2_loss(self.normalized_obs - self.obs_decoded) / (64 * 64)
 
-            reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            reg_losses = tf.losses.get_regularization_losses(scope=scope.name)
             self.reg_loss = tf.reduce_sum(reg_losses)
 
             self.loss = self.reach_loss + self.first_loss + self.second_loss + self.reg_loss
@@ -196,14 +196,13 @@ class ReachabilityBuffer:
                             if not frame.far:
                                 # trying to find second far observation
                                 second_far_i = -1
-                                # start = frame.far_i
-                                # end = len(trajectory)
-                                # if frame.i + far_limit > frame.far_i + close_in_time:
-                                #     end = min(end, frame.i + far_limit)
-                                #
-                                # far_indices = list(range(start, end))
+                                start = frame.far_i
+                                end = len(trajectory)
+                                if frame.i + far_limit > frame.far_i + close_in_time:
+                                    end = min(end, frame.i + far_limit)
 
-                                far_indices = list(range(frame.far_i, len(trajectory)))
+                                far_indices = list(range(start, end))
+
                                 random.shuffle(far_indices)
 
                                 for i in far_indices:
@@ -255,14 +254,13 @@ class ReachabilityBuffer:
                             if not frame.far:
                                 # trying to find first far observation
                                 first_far_i = -1
-                                # start = 0
-                                # end = frame.far_i
-                                # if frame.i - far_limit < frame.far_i - close_in_time:
-                                #     start = max(start, frame.i - far_limit)
-                                #
-                                # far_indices = list(range(start, end))
+                                start = 0
+                                end = frame.far_i
+                                if frame.i - far_limit < frame.far_i - close_in_time:
+                                    start = max(start, frame.i - far_limit)
 
-                                far_indices = list(range(0, frame.far_i))
+                                far_indices = list(range(start, end))
+
                                 random.shuffle(far_indices)
 
                                 for i in far_indices:
@@ -301,7 +299,7 @@ class ReachabilityBuffer:
                             if labels[i] == 0 and dist >= close_in_time:
                                 num_far_in_time += 1
 
-                        if num_far_in_time <= 0:
+                        if num_far_in_time <= len(buffer) // 3:
                             # log.info('Buffer does not contain far_in_time close observations')
                             pass
                         else:
@@ -318,14 +316,14 @@ class ReachabilityBuffer:
                                     idx_first=i1,
                                     idx_second=i2,
                                 )
-                                # data.add(
-                                #     obs_first=obs[i2],
-                                #     obs_second=obs[i1],
-                                #     labels=label,
-                                #     dist=dist,
-                                #     idx_first=i2,
-                                #     idx_second=i1,
-                                # )
+                                data.add(
+                                    obs_first=obs[i2],
+                                    obs_second=obs[i1],
+                                    labels=label,
+                                    dist=dist,
+                                    idx_first=i2,
+                                    idx_second=i1,
+                                )
 
         with timing.timeit('add_and_shuffle'):
             self.buffer.add_buff(data)

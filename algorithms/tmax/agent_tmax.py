@@ -608,7 +608,7 @@ class AgentTMAX(AgentLearner):
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
 
-            self.reachable_threshold = 15  # num. of frames between obs, such that one is reachable from the other
+            self.reachable_threshold = 12  # num. of frames between obs, such that one is reachable from the other
             self.unreachable_threshold = 30  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 150000  # target number of training examples to store
             self.reachability_train_epochs = 2
@@ -997,7 +997,7 @@ class AgentTMAX(AgentLearner):
                         if random.random() < 0.5:
                             tmax_mgr.idle_frames[env_index] = np.random.randint(1, self.params.unreachable_threshold)
                         else:
-                            tmax_mgr.idle_frames[env_index] = np.random.randint(1, 500)
+                            tmax_mgr.idle_frames[env_index] = np.random.randint(1, 100)
 
             non_idle_env_i = np.asarray(non_idle_env_i)
             if is_bootstrap and len(non_idle_env_i) > 0:
@@ -1387,9 +1387,8 @@ class AgentTMAX(AgentLearner):
 
             # update inverse net
             with timing.timeit('inverse'):
-                # inverse_buffer.extract_data(trajectory_buffer.complete_trajectories)
-                # self._maybe_train_inverse(inverse_buffer, env_steps)
-                time.sleep(0.001)
+                inverse_buffer.extract_data(trajectory_buffer.complete_trajectories)
+                self._maybe_train_inverse(inverse_buffer, env_steps)
 
             # update locomotion net
             with timing.timeit('locomotion'):

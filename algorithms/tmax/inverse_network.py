@@ -16,7 +16,7 @@ class InverseNetwork:
         self.ph_obs_first, self.ph_obs_second = placeholders_from_spaces(obs_space, obs_space)
         self.ph_actions = placeholder_from_space(env.action_space)
 
-        with tf.variable_scope('inverse'):
+        with tf.variable_scope('inverse') as scope:
             reg = tf.contrib.layers.l2_regularizer(scale=1e-4)
 
             encoder = tf.make_template(
@@ -37,10 +37,12 @@ class InverseNetwork:
 
             action_logits = tf.layers.dense(x, env.action_space.n, activation=None)
 
-            self.actions_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=action_logits, labels=self.ph_actions)
+            self.actions_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
+                logits=action_logits, labels=self.ph_actions,
+            )
             self.actions_loss = tf.reduce_mean(self.actions_loss)
 
-            reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            reg_losses = tf.losses.get_regularization_losses(scope=scope.name)
             self.reg_loss = tf.reduce_sum(reg_losses)
 
             first_feature_vector = tf.stop_gradient(first_encoded)
