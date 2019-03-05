@@ -691,7 +691,7 @@ class AgentTMAX(AgentLearner):
         self.train_reachability = reach_opt.minimize(self.reachability.loss, global_step=self.reach_step)
 
         inverse_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='inverse_opt')
-        self.train_inverse = inverse_opt.minimize(self.inverse.loss, global_step=self.reach_step)
+        self.train_inverse = inverse_opt.minimize(self.inverse.loss, global_step=self.inverse_step)
 
         locomotion_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='locomotion_opt')
         self.train_locomotion = locomotion_opt.minimize(self.locomotion.loss, global_step=self.locomotion_step)
@@ -1099,9 +1099,8 @@ class AgentTMAX(AgentLearner):
         critic_step = self.critic_step.eval(session=self.session)
 
         prev_loss = 1e10
-        losses = []
-
         for epoch in range(self.params.ppo_epochs):
+            losses = []
             num_batches = buffer.generate_batches(self.params.batch_size)
 
             for i in range(num_batches):
@@ -1156,8 +1155,6 @@ class AgentTMAX(AgentLearner):
         reach_step = self.reach_step.eval(session=self.session)
 
         prev_loss = 1e10
-        losses = []
-
         num_epochs = self.params.reachability_train_epochs
         # if self._is_bootstrap(env_steps):
         #     num_epochs = max(10, num_epochs * 2)  # during bootstrap do more epochs to train faster!
@@ -1165,6 +1162,7 @@ class AgentTMAX(AgentLearner):
         log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
 
         for epoch in range(num_epochs):
+            losses = []
             buffer.shuffle_data()
             obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
 
@@ -1210,13 +1208,12 @@ class AgentTMAX(AgentLearner):
         inverse_step = self.inverse_step.eval(session=self.session)
 
         prev_loss = 1e10
-        losses = []
-
         num_epochs = self.params.reachability_train_epochs
 
         log.info('Training inverse network %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
 
         for epoch in range(num_epochs):
+            losses = []
             buffer.shuffle_data()
             obs_i, obs_i_plus_1, actions = buffer.obs_i, buffer.obs_i_plus_1, buffer.actions
 
@@ -1260,7 +1257,6 @@ class AgentTMAX(AgentLearner):
         loco_step = self.locomotion_step.eval(session=self.session)
 
         prev_loss = 1e10
-        losses = []
 
         num_epochs = self.params.locomotion_train_epochs
         # if self._is_bootstrap(env_steps):
@@ -1269,6 +1265,7 @@ class AgentTMAX(AgentLearner):
         log.info('Training locomotion %d pairs, batch %d, epochs %d', len(buffer.obs_curr), batch_size, num_epochs)
 
         for epoch in range(num_epochs):
+            losses = []
             buffer.shuffle_data()
             obs_curr, obs_goal, actions = buffer.obs_curr, buffer.obs_goal, buffer.actions
             # distance, train_distance, train_actions = data.distance, data.train_distance, data.train_actions
@@ -1390,8 +1387,9 @@ class AgentTMAX(AgentLearner):
 
             # update inverse net
             with timing.timeit('inverse'):
-                inverse_buffer.extract_data(trajectory_buffer.complete_trajectories)
-                self._maybe_train_inverse(inverse_buffer, env_steps)
+                # inverse_buffer.extract_data(trajectory_buffer.complete_trajectories)
+                # self._maybe_train_inverse(inverse_buffer, env_steps)
+                time.sleep(0.001)
 
             # update locomotion net
             with timing.timeit('locomotion'):

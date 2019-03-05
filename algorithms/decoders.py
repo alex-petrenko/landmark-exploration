@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from algorithms.tf_utils import conv_t
+from algorithms.tf_utils import conv_t, dense
 
 
 class DecoderCNN:
@@ -10,6 +10,8 @@ class DecoderCNN:
 
             # 84px images
             if decoder_type == '84px':
+                x = dense(embedding, 3 * 3 * 32)
+
                 x = tf.reshape(x, [-1, 3, 3, 32])
                 x = conv_t(x, 32, 3, strides=1, padding='VALID')
                 x = conv_t(x, 32, 3, strides=2, padding='SAME')

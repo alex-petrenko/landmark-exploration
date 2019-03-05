@@ -68,7 +68,8 @@ class ReachabilityNetwork:
             # self.normalized_obs = obs_first_enc.normalized_obs
             # self.reconst_loss = tf.nn.l2_loss(self.normalized_obs - self.obs_decoded) / (64 * 64)
 
-            self.reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+            reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            self.reg_loss = tf.reduce_sum(reg_losses)
 
             self.loss = self.reach_loss + self.first_loss + self.second_loss + self.reg_loss
 
@@ -195,12 +196,14 @@ class ReachabilityBuffer:
                             if not frame.far:
                                 # trying to find second far observation
                                 second_far_i = -1
-                                start = frame.far_i
-                                end = len(trajectory)
-                                if frame.i + far_limit > frame.far_i + close_in_time:
-                                    end = min(end, frame.i + far_limit)
+                                # start = frame.far_i
+                                # end = len(trajectory)
+                                # if frame.i + far_limit > frame.far_i + close_in_time:
+                                #     end = min(end, frame.i + far_limit)
+                                #
+                                # far_indices = list(range(start, end))
 
-                                far_indices = list(range(start, end))
+                                far_indices = list(range(frame.far_i, len(trajectory)))
                                 random.shuffle(far_indices)
 
                                 for i in far_indices:
@@ -252,12 +255,14 @@ class ReachabilityBuffer:
                             if not frame.far:
                                 # trying to find first far observation
                                 first_far_i = -1
-                                start = 0
-                                end = frame.far_i
-                                if frame.i - far_limit < frame.far_i - close_in_time:
-                                    start = max(start, frame.i - far_limit)
+                                # start = 0
+                                # end = frame.far_i
+                                # if frame.i - far_limit < frame.far_i - close_in_time:
+                                #     start = max(start, frame.i - far_limit)
+                                #
+                                # far_indices = list(range(start, end))
 
-                                far_indices = list(range(start, end))
+                                far_indices = list(range(0, frame.far_i))
                                 random.shuffle(far_indices)
 
                                 for i in far_indices:
@@ -335,7 +340,7 @@ class ReachabilityBuffer:
         log.info('Reachability timing %s', timing)
 
     def has_enough_data(self):
-        len_data, min_data = len(self.buffer), self.params.reachability_target_buffer_size // 20
+        len_data, min_data = len(self.buffer), self.params.reachability_target_buffer_size // 40
         if len_data < min_data:
             log.info('Need to gather more data to train reachability net, %d/%d', len_data, min_data)
             return False

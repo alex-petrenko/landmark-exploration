@@ -25,7 +25,11 @@ class InverseNetwork:
 
             obs_first_enc = encoder(self.ph_obs_first)
             obs_second_enc = encoder(self.ph_obs_second)
-            x = tf.concat([obs_first_enc.encoded_input, obs_second_enc.encoded_input], axis=1)
+
+            first_encoded = dense(obs_first_enc.encoded_input, 32, reg)
+            second_encoded = dense(obs_second_enc.encoded_input, 32, reg)
+
+            x = tf.concat([first_encoded, second_encoded], axis=1)
 
             fc_layers = [256, 256]
             for fc_layer_size in fc_layers:
@@ -39,7 +43,7 @@ class InverseNetwork:
             reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             self.reg_loss = tf.reduce_sum(reg_losses)
 
-            first_feature_vector = tf.stop_gradient(obs_first_enc.encoded_input)
+            first_feature_vector = tf.stop_gradient(first_encoded)
             self.obs_decoded = DecoderCNN(first_feature_vector, 'inv_dec').decoded
             self.normalized_obs = obs_first_enc.normalized_obs
             self.reconst_loss = tf.nn.l2_loss(self.normalized_obs - self.obs_decoded) / (84 * 84)
@@ -48,8 +52,6 @@ class InverseNetwork:
 
 
 class InverseBuffer:
-    """Training data for the reachability network (observation pairs and labels)."""
-
     def __init__(self, params):
         self.buffer = Buffer()
         self.params = params
@@ -78,7 +80,7 @@ class InverseBuffer:
                     )
 
             self.shuffle_data()
-            self.buffer.trim_at(50000)
+            self.buffer.trim_at(40000)
 
         log.info('Inverse timing %s', timing)
 
