@@ -646,7 +646,7 @@ class AgentTMAX(AgentLearner):
         self.actor_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='actor_step')
         self.critic_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='critic_step')
         self.reach_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='reach_step')
-        self.inverse_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='inverse_step')
+        # self.inverse_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='inverse_step')
         self.locomotion_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='locomotion_step')
 
         self.make_env_func = make_env_func
@@ -663,7 +663,7 @@ class AgentTMAX(AgentLearner):
         self.actor_critic = ActorCritic(env, self.ph_observations, self.ph_intentions, self.params)
 
         self.reachability = ReachabilityNetwork(env, params)
-        self.inverse = InverseNetwork(env, params)
+        # self.inverse = InverseNetwork(env, params)
         self.locomotion = LocomotionNetwork(env, params)
 
         if self.params.use_neighborhood_encoder is None:
@@ -690,8 +690,8 @@ class AgentTMAX(AgentLearner):
         reach_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='reach_opt')
         self.train_reachability = reach_opt.minimize(self.reachability.loss, global_step=self.reach_step)
 
-        inverse_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='inverse_opt')
-        self.train_inverse = inverse_opt.minimize(self.inverse.loss, global_step=self.inverse_step)
+        # inverse_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='inverse_opt')
+        # self.train_inverse = inverse_opt.minimize(self.inverse.loss, global_step=self.inverse_step)
 
         locomotion_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='locomotion_opt')
         self.train_locomotion = locomotion_opt.minimize(self.locomotion.loss, global_step=self.locomotion_step)
@@ -702,7 +702,7 @@ class AgentTMAX(AgentLearner):
         self.actor_summaries = merge_summaries(collections=['actor'])
         self.critic_summaries = merge_summaries(collections=['critic'])
         self.reach_summaries = merge_summaries(collections=['reachability'])
-        self.inverse_summaries = merge_summaries(collections=['inverse'])
+        # self.inverse_summaries = merge_summaries(collections=['inverse'])
         self.locomotion_summaries = merge_summaries(collections=['locomotion'])
 
         self.saver = tf.train.Saver(max_to_keep=3)
@@ -822,14 +822,14 @@ class AgentTMAX(AgentLearner):
             # image_summaries_rgb(self.reachability.normalized_obs, name='source', collections=['reachability'])
             # image_summaries_rgb(self.reachability.obs_decoded, name='decoded', collections=['reachability'])
 
-        with tf.name_scope('inverse_dynamics'):
-            inverse_scalar = partial(tf.summary.scalar, collections=['inverse'])
-            inverse_scalar('actions_loss', self.inverse.actions_loss)
-            inverse_scalar('loss', self.inverse.loss)
-            inverse_scalar('reg_loss', self.inverse.reg_loss)
-            inverse_scalar('reconst_loss', self.inverse.reconst_loss)
-            image_summaries_rgb(self.inverse.normalized_obs, name='source', collections=['inverse'])
-            image_summaries_rgb(self.inverse.obs_decoded, name='decoded', collections=['inverse'])
+        # with tf.name_scope('inverse_dynamics'):
+        #     inverse_scalar = partial(tf.summary.scalar, collections=['inverse'])
+        #     inverse_scalar('actions_loss', self.inverse.actions_loss)
+        #     inverse_scalar('loss', self.inverse.loss)
+        #     inverse_scalar('reg_loss', self.inverse.reg_loss)
+        #     inverse_scalar('reconst_loss', self.inverse.reconst_loss)
+        #     image_summaries_rgb(self.inverse.normalized_obs, name='source', collections=['inverse'])
+        #     image_summaries_rgb(self.inverse.obs_decoded, name='decoded', collections=['inverse'])
 
         with tf.name_scope('locomotion'):
             locomotion_scalar = partial(tf.summary.scalar, collections=['locomotion'])
@@ -844,7 +844,7 @@ class AgentTMAX(AgentLearner):
         log.info('Experience for batch took %.3f sec (%.1f batches/s)', t.experience, 1.0 / t.experience)
         log.info('Train step for batch took %.3f sec (%.1f batches/s)', t.train, 1.0 / t.train)
         log.info('Train reachability took %.3f sec (%.1f batches/s)', t.reach, 1.0 / t.reach)
-        log.info('Train inverse took %.3f sec (%.1f batches/s)', t.inverse, 1.0 / t.inverse)
+        # log.info('Train inverse took %.3f sec (%.1f batches/s)', t.inverse, 1.0 / t.inverse)
         log.info('Train locomotion took %.3f sec (%.1f batches/s)', t.locomotion, 1.0 / t.locomotion)
 
         if math.isnan(avg_rewards) or math.isnan(avg_length):
@@ -1386,9 +1386,9 @@ class AgentTMAX(AgentLearner):
                 self._maybe_train_reachability(reachability_buffer, env_steps)
 
             # update inverse net
-            with timing.timeit('inverse'):
-                inverse_buffer.extract_data(trajectory_buffer.complete_trajectories)
-                self._maybe_train_inverse(inverse_buffer, env_steps)
+            # with timing.timeit('inverse'):
+            #     inverse_buffer.extract_data(trajectory_buffer.complete_trajectories)
+            #     self._maybe_train_inverse(inverse_buffer, env_steps)
 
             # update locomotion net
             with timing.timeit('locomotion'):
