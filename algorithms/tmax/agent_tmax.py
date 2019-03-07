@@ -719,7 +719,6 @@ class AgentTMAX(AgentLearner):
         # auxiliary stuff not related to the computation graph
         self.tmax_mgr = TmaxManager(self)
         self._last_trajectory_summary = 0  # timestamp of the latest trajectory summary written
-        self._last_train_distance = -1e6
 
     @staticmethod
     def add_ppo_objectives(actor_critic, actions, old_action_probs, advantages, returns, masks, params, step):
@@ -1220,11 +1219,6 @@ class AgentTMAX(AgentLearner):
         if not data.has_enough_data():
             return
 
-        if env_steps - self._last_train_distance < 1e6:
-            return
-
-        self._last_train_distance = env_steps
-
         buffer = data.buffer
 
         batch_size = self.params.reachability_batch_size
@@ -1232,7 +1226,7 @@ class AgentTMAX(AgentLearner):
         dist_step = self.distance_step.eval(session=self.session)
 
         prev_loss = 1e10
-        num_epochs = 10
+        num_epochs = 1
 
         log.info('Training distance %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
 
