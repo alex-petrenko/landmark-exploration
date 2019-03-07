@@ -145,7 +145,7 @@ def play_and_visualize(params, env_id):
             store_landmark = False
 
         if frame % 1 == 0:
-            distances = agent.reachability.distances(
+            distances = agent.distance.get_distances(
                 agent.session, [current_landmark, obs], [obs, obs],
             )
             log.info(

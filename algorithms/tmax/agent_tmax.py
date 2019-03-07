@@ -16,11 +16,10 @@ from algorithms.models import make_model
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     image_summaries_rgb, summary_avg_min_max, merge_summaries, tf_shape, placeholder
+from algorithms.tmax.distance import DistanceNetwork, DistanceBuffer
 from algorithms.tmax.graph_encoders import make_graph_encoder
-from algorithms.tmax.inverse_network import InverseNetwork, InverseBuffer
 from algorithms.tmax.landmarks_encoder import LandmarksEncoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer
-from algorithms.tmax.reachability import ReachabilityNetwork, ReachabilityBuffer
 from algorithms.tmax.tmax_utils import TmaxMode
 from algorithms.tmax.topological_map import TopologicalMap
 from algorithms.tmax.trajectory import TrajectoryBuffer
@@ -401,7 +400,7 @@ class TmaxManager:
         assert len(neighborhood_obs) == len(current_obs)
 
         # calculate reachability for all neighborhoods in all envs
-        distances = self.agent.reachability.distances(self.agent.session, neighborhood_obs, current_obs)
+        distances = self.agent.distance.get_distances(self.agent.session, neighborhood_obs, current_obs)
 
         new_landmark_candidates = []
         closest_landmark_idx = [-1] * self.num_envs
@@ -463,7 +462,7 @@ class TmaxManager:
         batch_size = 1024
         for i in range(0, len(non_neighborhood_obs), batch_size):
             start, end = i, i + batch_size
-            distances_batch = self.agent.reachability.distances(
+            distances_batch = self.agent.distance.get_distances(
                 self.agent.session, non_neighborhood_obs[start:end], current_obs[start:end],
             )
             distances.extend(distances_batch)
@@ -610,12 +609,12 @@ class AgentTMAX(AgentLearner):
 
             self.reachable_threshold = 12  # num. of frames between obs, such that one is reachable from the other
             self.unreachable_threshold = 30  # num. of frames between obs, such that one is unreachable from the other
-            self.reachability_target_buffer_size = 150000  # target number of training examples to store
+            self.reachability_target_buffer_size = 180000  # target number of training examples to store
             self.reachability_train_epochs = 2
             self.reachability_batch_size = 256
 
-            self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
-            self.loop_closure_threshold = 0.6  # condition for graph loop closure (finding new edge)
+            self.new_landmark_threshold = 9.9  # condition for considering current observation a "new landmark"
+            self.loop_closure_threshold = 3.0  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.2  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 20  # max trajectory length to be utilized for locomotion training
@@ -646,6 +645,8 @@ class AgentTMAX(AgentLearner):
         self.actor_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='actor_step')
         self.critic_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='critic_step')
         self.reach_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='reach_step')
+        self.distance_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='distance_step')
+
         # self.inverse_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='inverse_step')
         self.locomotion_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='locomotion_step')
 
@@ -662,7 +663,8 @@ class AgentTMAX(AgentLearner):
 
         self.actor_critic = ActorCritic(env, self.ph_observations, self.ph_intentions, self.params)
 
-        self.reachability = ReachabilityNetwork(env, params)
+        # self.reachability = ReachabilityNetwork(env, params)
+        self.distance = DistanceNetwork(env, params)
         # self.inverse = InverseNetwork(env, params)
         self.locomotion = LocomotionNetwork(env, params)
 
@@ -687,8 +689,11 @@ class AgentTMAX(AgentLearner):
         critic_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='critic_opt')
         self.train_critic = critic_opt.minimize(self.objectives.critic_loss, global_step=self.critic_step)
 
-        reach_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='reach_opt')
-        self.train_reachability = reach_opt.minimize(self.reachability.loss, global_step=self.reach_step)
+        # reach_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='reach_opt')
+        # self.train_reachability = reach_opt.minimize(self.reachability.loss, global_step=self.reach_step)
+
+        distance_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='dist_opt')
+        self.train_distance = distance_opt.minimize(self.distance.loss, global_step=self.distance_step)
 
         # inverse_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='inverse_opt')
         # self.train_inverse = inverse_opt.minimize(self.inverse.loss, global_step=self.inverse_step)
@@ -701,7 +706,8 @@ class AgentTMAX(AgentLearner):
 
         self.actor_summaries = merge_summaries(collections=['actor'])
         self.critic_summaries = merge_summaries(collections=['critic'])
-        self.reach_summaries = merge_summaries(collections=['reachability'])
+        # self.reach_summaries = merge_summaries(collections=['reachability'])
+        self.dist_summaries = merge_summaries(collections=['distance_net'])
         # self.inverse_summaries = merge_summaries(collections=['inverse'])
         self.locomotion_summaries = merge_summaries(collections=['locomotion'])
 
@@ -713,6 +719,7 @@ class AgentTMAX(AgentLearner):
         # auxiliary stuff not related to the computation graph
         self.tmax_mgr = TmaxManager(self)
         self._last_trajectory_summary = 0  # timestamp of the latest trajectory summary written
+        self._last_train_distance = -1e6
 
     @staticmethod
     def add_ppo_objectives(actor_critic, actions, old_action_probs, advantages, returns, masks, params, step):
@@ -805,22 +812,38 @@ class AgentTMAX(AgentLearner):
             critic_scalar('value_loss', obj.value_loss)
             critic_scalar('critic_training_steps', self.critic_step)
 
-        with tf.name_scope('reachability'):
-            reachability_scalar = partial(tf.summary.scalar, collections=['reachability'])
-            reachability_scalar('reach_loss', self.reachability.reach_loss)
-            reachability_scalar('reach_correct', self.reachability.correct)
-
-            reachability_scalar('first_loss', self.reachability.first_loss)
-            reachability_scalar('first_correct', self.reachability.first_correct)
-
-            reachability_scalar('second_loss', self.reachability.second_loss)
-            reachability_scalar('second_correct', self.reachability.second_correct)
-
-            reachability_scalar('reg_loss', self.reachability.reg_loss)
+        # with tf.name_scope('reachability'):
+        #     reachability_scalar = partial(tf.summary.scalar, collections=['reachability'])
+        #     reachability_scalar('reach_loss', self.reachability.reach_loss)
+        #     reachability_scalar('reach_correct', self.reachability.correct)
+        #
+        #     reachability_scalar('first_loss', self.reachability.first_loss)
+        #     reachability_scalar('first_correct', self.reachability.first_correct)
+        #
+        #     reachability_scalar('second_loss', self.reachability.second_loss)
+        #     reachability_scalar('second_correct', self.reachability.second_correct)
+        #
+        #     reachability_scalar('reg_loss', self.reachability.reg_loss)
 
             # reachability_scalar('reconst_loss', self.reachability.reconst_loss)
             # image_summaries_rgb(self.reachability.normalized_obs, name='source', collections=['reachability'])
             # image_summaries_rgb(self.reachability.obs_decoded, name='decoded', collections=['reachability'])
+
+        with tf.name_scope('distance_net'):
+            distance_scalar = partial(tf.summary.scalar, collections=['distance_net'])
+            distance_scalar('reg_loss', self.distance.reg_loss)
+            distance_scalar('distance_loss', self.distance.distance_loss)
+            distance_scalar('proximity_loss', self.distance.proximity_loss)
+            distance_scalar('loss', self.distance.loss)
+
+            distance_scalar('avg_loss_close', self.distance.avg_loss_close)
+            distance_scalar('avg_loss_far', self.distance.avg_loss_far)
+
+            distance_scalar('avg_dist_close', self.distance.avg_dist_close)
+            distance_scalar('avg_dist_far', self.distance.avg_dist_far)
+
+            distance_scalar('avg_coord_first', self.distance.avg_coord_first)
+            distance_scalar('avg_coord_second', self.distance.avg_coord_second)
 
         # with tf.name_scope('inverse_dynamics'):
         #     inverse_scalar = partial(tf.summary.scalar, collections=['inverse'])
@@ -839,13 +862,9 @@ class AgentTMAX(AgentLearner):
             locomotion_scalar('entropy', tf.reduce_mean(self.locomotion.actions_distribution.entropy()))
 
     def _maybe_print(self, step, env_step, avg_rewards, avg_length, fps, t):
-        log.info('<====== Step %d, env step %.2fM ======>', step, env_step / 1000000)
+        log.info('<====== Step %d, env step %.2fM ======>', step, env_step / 1e6)
         log.info('Avg FPS: %.1f', fps)
-        log.info('Experience for batch took %.3f sec (%.1f batches/s)', t.experience, 1.0 / t.experience)
-        log.info('Train step for batch took %.3f sec (%.1f batches/s)', t.train, 1.0 / t.train)
-        log.info('Train reachability took %.3f sec (%.1f batches/s)', t.reach, 1.0 / t.reach)
-        # log.info('Train inverse took %.3f sec (%.1f batches/s)', t.inverse, 1.0 / t.inverse)
-        log.info('Train locomotion took %.3f sec (%.1f batches/s)', t.locomotion, 1.0 / t.locomotion)
+        log.info('Timing: %s', t)
 
         if math.isnan(avg_rewards) or math.isnan(avg_length):
             log.info('Need to gather more data to calculate avg. reward...')
@@ -976,7 +995,7 @@ class AgentTMAX(AgentLearner):
         if len(env_i) > 0:
             masks[env_i] = 0  # don't train with ppo
 
-            non_idle_env_i = []
+            non_idle_i = []
             for env_index in env_i:
                 # idle-random policy
                 assert tmax_mgr.action_frames[env_index] > 0 or tmax_mgr.idle_frames[env_index] > 0
@@ -990,28 +1009,28 @@ class AgentTMAX(AgentLearner):
                         tmax_mgr.action_frames[env_index] = np.random.randint(1, self.params.unreachable_threshold)
                 else:
                     tmax_mgr.deliberate_action[env_index] = True
-                    non_idle_env_i.append(env_index)
+                    non_idle_i.append(env_index)
 
                     tmax_mgr.action_frames[env_index] -= 1
                     if tmax_mgr.action_frames[env_index] <= 0:
                         if random.random() < 0.5:
                             tmax_mgr.idle_frames[env_index] = np.random.randint(1, self.params.unreachable_threshold)
                         else:
-                            tmax_mgr.idle_frames[env_index] = np.random.randint(1, 100)
+                            tmax_mgr.idle_frames[env_index] = np.random.randint(1, 500)
 
-            non_idle_env_i = np.asarray(non_idle_env_i)
-            if is_bootstrap and len(non_idle_env_i) > 0:
+            non_idle_i = np.asarray(non_idle_i)
+            if is_bootstrap and len(non_idle_i) > 0:
                 # just sample random action to save time
                 num_actions = self.actor_critic.num_actions
-                actions[non_idle_env_i] = np.random.randint(0, num_actions, len(non_idle_env_i))
-            elif len(non_idle_env_i) > 0:
+                actions[non_idle_i] = np.random.randint(0, num_actions, len(non_idle_i))
+            elif len(non_idle_i) > 0:
                 neighbors_policy = num_neighbors_policy = None
                 if neighbors is not None:
-                    neighbors_policy = neighbors[non_idle_env_i]
-                    num_neighbors_policy = num_neighbors[non_idle_env_i]
-                actions[non_idle_env_i], action_probs[non_idle_env_i], values[non_idle_env_i] = self.actor_critic.invoke(
-                    self.session, observations[non_idle_env_i], neighbors_policy, num_neighbors_policy,
-                    intentions[non_idle_env_i], deterministic=False,
+                    neighbors_policy = neighbors[non_idle_i]
+                    num_neighbors_policy = num_neighbors[non_idle_i]
+                actions[non_idle_i], action_probs[non_idle_i], values[non_idle_i] = self.actor_critic.invoke(
+                    self.session, observations[non_idle_i], neighbors_policy, num_neighbors_policy,
+                    intentions[non_idle_i], deterministic=False,
                 )
 
         env_i = env_indices[TmaxMode.LOCOMOTION]
@@ -1144,22 +1163,78 @@ class AgentTMAX(AgentLearner):
         """Check whether we're still in the initial bootstrapping stage."""
         return env_steps < self.params.bootstrap_env_steps
 
-    def _maybe_train_reachability(self, data, env_steps):
+    # def _maybe_train_reachability(self, data, env_steps):
+    #     if not data.has_enough_data():
+    #         return
+    #
+    #     buffer = data.buffer
+    #
+    #     batch_size = self.params.reachability_batch_size
+    #     summary = None
+    #     reach_step = self.reach_step.eval(session=self.session)
+    #
+    #     prev_loss = 1e10
+    #     num_epochs = self.params.reachability_train_epochs
+    #     # if self._is_bootstrap(env_steps):
+    #     #     num_epochs = max(10, num_epochs * 2)  # during bootstrap do more epochs to train faster!
+    #
+    #     log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
+    #
+    #     for epoch in range(num_epochs):
+    #         losses = []
+    #         buffer.shuffle_data()
+    #         obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
+    #
+    #         for i in range(0, len(obs_first) - 1, batch_size):
+    #             with_summaries = self._should_write_summaries(reach_step) and summary is None
+    #             summaries = [self.reach_summaries] if with_summaries else []
+    #
+    #             start, end = i, i + batch_size
+    #
+    #             result = self.session.run(
+    #                 [self.reachability.loss, self.train_reachability] + summaries,
+    #                 feed_dict={
+    #                     self.reachability.ph_obs_first: obs_first[start:end],
+    #                     self.reachability.ph_obs_second: obs_second[start:end],
+    #                     self.reachability.ph_labels: labels[start:end],
+    #                 }
+    #             )
+    #
+    #             reach_step += 1
+    #             self._maybe_save(reach_step, env_steps)
+    #             losses.append(result[0])
+    #
+    #             if with_summaries:
+    #                 summary = result[-1]
+    #                 self.summary_writer.add_summary(summary, global_step=env_steps)
+    #
+    #         # check loss improvement at the end of each epoch, early stop if necessary
+    #         avg_loss = np.mean(losses)
+    #         if avg_loss > prev_loss:
+    #             log.info('Early stopping after %d epochs because reachability did not improve', epoch + 1)
+    #             log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
+    #             break
+    #         prev_loss = avg_loss
+    #
+    def _maybe_train_distance(self, data, env_steps):
         if not data.has_enough_data():
             return
+
+        if env_steps - self._last_train_distance < 1e6:
+            return
+
+        self._last_train_distance = env_steps
 
         buffer = data.buffer
 
         batch_size = self.params.reachability_batch_size
         summary = None
-        reach_step = self.reach_step.eval(session=self.session)
+        dist_step = self.distance_step.eval(session=self.session)
 
         prev_loss = 1e10
-        num_epochs = self.params.reachability_train_epochs
-        # if self._is_bootstrap(env_steps):
-        #     num_epochs = max(10, num_epochs * 2)  # during bootstrap do more epochs to train faster!
+        num_epochs = 10
 
-        log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
+        log.info('Training distance %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
 
         for epoch in range(num_epochs):
             losses = []
@@ -1167,22 +1242,22 @@ class AgentTMAX(AgentLearner):
             obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
 
             for i in range(0, len(obs_first) - 1, batch_size):
-                with_summaries = self._should_write_summaries(reach_step) and summary is None
-                summaries = [self.reach_summaries] if with_summaries else []
+                with_summaries = self._should_write_summaries(dist_step) and summary is None
+                summaries = [self.dist_summaries] if with_summaries else []
 
                 start, end = i, i + batch_size
 
                 result = self.session.run(
-                    [self.reachability.loss, self.train_reachability] + summaries,
+                    [self.distance.loss, self.train_distance] + summaries,
                     feed_dict={
-                        self.reachability.ph_obs_first: obs_first[start:end],
-                        self.reachability.ph_obs_second: obs_second[start:end],
-                        self.reachability.ph_labels: labels[start:end],
+                        self.distance.ph_obs_first: obs_first[start:end],
+                        self.distance.ph_obs_second: obs_second[start:end],
+                        self.distance.ph_labels: labels[start:end],
                     }
                 )
 
-                reach_step += 1
-                self._maybe_save(reach_step, env_steps)
+                dist_step += 1
+                self._maybe_save(dist_step, env_steps)
                 losses.append(result[0])
 
                 if with_summaries:
@@ -1192,7 +1267,7 @@ class AgentTMAX(AgentLearner):
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
             if avg_loss > prev_loss:
-                log.info('Early stopping after %d epochs because reachability did not improve', epoch + 1)
+                log.info('Early stopping after %d epochs because distance net did not improve', epoch + 1)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
             prev_loss = avg_loss
@@ -1320,8 +1395,9 @@ class AgentTMAX(AgentLearner):
         buffer = TmaxPPOBuffer()
 
         trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)  # separate buffer for complete episode trajectories
-        reachability_buffer = ReachabilityBuffer(self.params)
-        inverse_buffer = InverseBuffer(self.params)
+        # reachability_buffer = ReachabilityBuffer(self.params)
+        distance_buffer = DistanceBuffer(self.params)
+        # inverse_buffer = InverseBuffer(self.params)
         locomotion_buffer = LocomotionBuffer(self.params)
 
         tmax_mgr = self.tmax_mgr
@@ -1333,43 +1409,43 @@ class AgentTMAX(AgentLearner):
             return s >= self.params.train_for_steps or es > self.params.train_for_env_steps
 
         while not end_of_training(step, env_steps):
-            timing = Timing({'experience': time.time(), 'rollout': time.time()})
-            buffer.reset()
-            is_bootstrap = self._is_bootstrap(env_steps)
-
             # collecting experience
+            timing = Timing()
             num_steps = 0
-            for rollout_step in range(self.params.rollout):
-                neighbors, num_neigh = self.tmax_mgr.get_neighbors()
-                actions, action_probs, values, masks = self._policy_step(
-                    observations, neighbors, num_neigh, intentions, is_bootstrap,
-                )
+            batch_start = time.time()
+            with timing.timeit('experience'):
+                buffer.reset()
+                is_bootstrap = self._is_bootstrap(env_steps)
+                for rollout_step in range(self.params.rollout):
+                    neighbors, num_neigh = self.tmax_mgr.get_neighbors()
+                    actions, action_probs, values, masks = self._policy_step(
+                        observations, neighbors, num_neigh, intentions, is_bootstrap,
+                    )
 
-                # wait for all the workers to complete an environment step
-                new_observations, rewards, dones, infos = multi_env.step(actions)
+                    # wait for all the workers to complete an environment step
+                    new_observations, rewards, dones, infos = multi_env.step(actions)
 
-                trajectory_buffer.add(observations, actions, dones, tmax_mgr)
-                bonuses, intentions = tmax_mgr.update(new_observations, dones, is_bootstrap)
-                rewards = self._combine_rewards(multi_env.num_envs, rewards, bonuses, intentions)
+                    trajectory_buffer.add(observations, actions, dones, tmax_mgr)
+                    bonuses, intentions = tmax_mgr.update(new_observations, dones, is_bootstrap)
+                    rewards = self._combine_rewards(multi_env.num_envs, rewards, bonuses, intentions)
 
-                # add experience from all environments to the current buffer(s)
-                buffer.add(
-                    observations, actions, action_probs,
-                    rewards, dones, values,
-                    neighbors, num_neigh,
-                    intentions,
-                    masks,
-                )
-                observations = new_observations
+                    # add experience from all environments to the current buffer(s)
+                    buffer.add(
+                        observations, actions, action_probs,
+                        rewards, dones, values,
+                        neighbors, num_neigh,
+                        intentions,
+                        masks,
+                    )
+                    observations = new_observations
 
-                num_steps += num_env_steps(infos, multi_env.num_envs)
+                    num_steps += num_env_steps(infos, multi_env.num_envs)
 
-            # last step values are required for TD-return calculation
-            neighbors, num_neigh = tmax_mgr.get_neighbors()
-            _, _, values, _ = self._policy_step(observations, neighbors, num_neigh, intentions, is_bootstrap)
-            buffer.values.append(values)
+                # last step values are required for TD-return calculation
+                neighbors, num_neigh = tmax_mgr.get_neighbors()
+                _, _, values, _ = self._policy_step(observations, neighbors, num_neigh, intentions, is_bootstrap)
+                buffer.values.append(values)
 
-            timing.experience = time.time() - timing.experience
             env_steps += num_steps
 
             # calculate discounted returns and GAE
@@ -1381,9 +1457,14 @@ class AgentTMAX(AgentLearner):
                     step = self._train_actor_critic(buffer, env_steps)
 
             # update reachability net
-            with timing.timeit('reach'):
-                reachability_buffer.extract_data(trajectory_buffer.complete_trajectories)
-                self._maybe_train_reachability(reachability_buffer, env_steps)
+            # with timing.timeit('reach'):
+            #     reachability_buffer.extract_data(trajectory_buffer.complete_trajectories)
+            #     self._maybe_train_reachability(reachability_buffer, env_steps)
+
+            # update distance net
+            with timing.timeit('distance'):
+                distance_buffer.extract_data(trajectory_buffer.complete_trajectories)
+                self._maybe_train_distance(distance_buffer, env_steps)
 
             # update inverse net
             # with timing.timeit('inverse'):
@@ -1397,7 +1478,7 @@ class AgentTMAX(AgentLearner):
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)
-            fps = num_steps / (time.time() - timing.rollout)
+            fps = num_steps / (time.time() - batch_start)
 
             self._maybe_print(step, env_steps, avg_reward, avg_length, fps, timing)
             self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps, bonuses)

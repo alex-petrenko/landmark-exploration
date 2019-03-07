@@ -256,5 +256,5 @@ class ClipRewardWrapper(gym.RewardWrapper):
 
     def reward(self, reward):
         reward = min(1.0, reward)
-        reward = max(-0.1, reward)
+        reward = max(-0.01, reward)
         return reward

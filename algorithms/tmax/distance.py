@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 
+from algorithms.algo_utils import EPS
 from algorithms.buffer import Buffer
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import get_observation_space
@@ -18,80 +19,68 @@ from utils.timing import Timing
 from utils.utils import log, vis_dir, ensure_dir_exists
 
 
-class ReachabilityNetwork:
+class DistanceNetwork:
     def __init__(self, env, params):
         obs_space = get_observation_space(env)
         self.ph_obs_first, self.ph_obs_second = placeholders_from_spaces(obs_space, obs_space)
         self.ph_labels = tf.placeholder(dtype=tf.int32, shape=(None, ))
 
-        with tf.variable_scope('reach') as scope:
-            encoder = tf.make_template(
-                'siamese_enc', make_encoder, create_scope_now_=True, env=env, regularizer=None, params=params,
+        with tf.variable_scope('distance') as scope:
+            reg = tf.contrib.layers.l2_regularizer(scale=1e-5)
+
+            def make_embedding(obs):
+                conv_encoder = make_encoder(obs, env, reg, params, 'dist_enc')
+                x = conv_encoder.encoded_input
+                x = dense(x, 256, reg)
+                x = tf.contrib.layers.fully_connected(x, 32, activation_fn=None)
+                return x
+
+            embedding_net = tf.make_template('embedding_net', make_embedding, create_scope_now_=True)
+
+            first_embedding = embedding_net(self.ph_obs_first)
+            second_embedding = embedding_net(self.ph_obs_second)
+
+            self.distances = tf.sqrt(
+                tf.reduce_sum(tf.squared_difference(first_embedding, second_embedding), axis=1) + EPS,
             )
+            clipped_distances = tf.clip_by_value(self.distances, 0.0, 10.0)
 
-            obs_first_enc = encoder(self.ph_obs_first)
-            obs_second_enc = encoder(self.ph_obs_second)
-            observations_encoded = tf.concat([obs_first_enc.encoded_input, obs_second_enc.encoded_input], axis=1)
+            distance_losses = tf.where(tf.equal(self.ph_labels, 0), self.distances, -clipped_distances)
+            self.distance_loss = tf.reduce_mean(distance_losses)
 
-            self.reg = tf.contrib.layers.l2_regularizer(scale=1e-5)
+            is_far = tf.to_float(self.ph_labels)
+            num_close = tf.reduce_sum(1.0 - is_far) + EPS
+            num_far = tf.reduce_sum(is_far) + EPS
 
-            fc_layers = [256, 256]
-            conv_features = tf.stop_gradient(observations_encoded)
-            x = conv_features
-            for fc_layer_size in fc_layers:
-                x = dense(x, fc_layer_size, self.reg)
+            self.avg_loss_close = tf.reduce_sum(distance_losses * (1 - is_far)) / num_close
+            self.avg_loss_far = tf.reduce_sum(distance_losses * is_far) / num_far
 
-            logits = tf.contrib.layers.fully_connected(x, 2, activation_fn=None)
-            self.probabilities = tf.nn.softmax(logits)
-            self.correct = tf.reduce_mean(tf.to_float(tf.equal(self.ph_labels, tf.cast(tf.argmax(logits, axis=1), tf.int32))))
-
-            self.reach_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=self.ph_labels)
-            self.reach_loss = tf.reduce_mean(self.reach_loss)
-
-            x = tf.stop_gradient(obs_first_enc.encoded_input)
-            x = dense(x, 256, self.reg)
-            x = dense(x, 256, self.reg)
-            first_logits = tf.contrib.layers.fully_connected(x, 2, activation_fn=None)
-            self.first_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=first_logits, labels=self.ph_labels)
-            self.first_loss = tf.reduce_mean(self.first_loss)
-            self.first_correct = tf.reduce_mean(tf.to_float(tf.equal(self.ph_labels, tf.cast(tf.argmax(first_logits, axis=1), dtype=tf.int32))))
-
-            x = tf.stop_gradient(obs_second_enc.encoded_input)
-            x = dense(x, 256, self.reg)
-            x = dense(x, 256, self.reg)
-            second_logits = tf.contrib.layers.fully_connected(x, 2, activation_fn=None)
-            self.second_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=second_logits, labels=self.ph_labels)
-            self.second_loss = tf.reduce_mean(self.second_loss)
-            self.second_correct = tf.reduce_mean(tf.to_float(tf.equal(self.ph_labels, tf.cast(tf.argmax(second_logits, axis=1), dtype=tf.int32))))
-
-            # self.obs_decoded = DecoderCNN(tf.stop_gradient(obs_first_enc.encoded_input), 'reach_dec').decoded
-            # self.normalized_obs = obs_first_enc.normalized_obs
-            # self.reconst_loss = tf.nn.l2_loss(self.normalized_obs - self.obs_decoded) / (64 * 64)
+            self.avg_dist_close = tf.reduce_sum(self.distances * (1 - is_far)) / num_close
+            self.avg_dist_far = tf.reduce_sum(self.distances * is_far) / num_far
 
             reg_losses = tf.losses.get_regularization_losses(scope=scope.name)
             self.reg_loss = tf.reduce_sum(reg_losses)
 
-            self.loss = self.reach_loss + self.first_loss + self.second_loss + self.reg_loss
+            self.avg_coord_first = tf.reduce_mean(tf.abs(first_embedding))
+            self.avg_coord_second = tf.reduce_mean(tf.abs(second_embedding))
+            self.proximity_loss = self.avg_coord_first + self.avg_coord_second
 
-    def get_probabilities(self, session, obs_first, obs_second):
-        probabilities = session.run(
-            self.probabilities,
+            self.loss = self.distance_loss + 0.1 * self.proximity_loss + self.reg_loss
+
+    def get_distances(self, session, obs_first, obs_second):
+        distances = session.run(
+            self.distances,
             feed_dict={self.ph_obs_first: obs_first, self.ph_obs_second: obs_second},
         )
-        return probabilities
-
-    def distances(self, session, obs_first, obs_second):
-        probs = self.get_probabilities(session, obs_first, obs_second)
-        return [p[1] for p in probs]
+        return distances
 
 
-class ReachabilityBuffer:
-    """Training data for the reachability network (observation pairs and labels)."""
-
+class DistanceBuffer:
     def __init__(self, params):
         self.buffer = Buffer()
         self.close_buff, self.far_buff = Buffer(), Buffer()
         self.batch_num = 0
+        self.total_data = 0
 
         self._vis_dirs = deque([])
 
@@ -111,7 +100,7 @@ class ReachabilityBuffer:
 
         close = self.params.reachable_threshold
         far = self.params.unreachable_threshold
-        far_limit = max(0, int(np.random.normal(200, 50)))
+        far_limit = max(0, int(np.random.normal(300, 100)))
         if random.random() < 0.1:
             far_limit = 1e9
 
@@ -119,6 +108,7 @@ class ReachabilityBuffer:
 
         timing = Timing()
         data = Buffer()
+        close_data = Buffer()
 
         with timing.timeit('trajectories'):
             for trajectory in trajectories:
@@ -127,9 +117,6 @@ class ReachabilityBuffer:
 
                 first_frames = [Frame(i) for i in range(len(trajectory))]
                 second_frames = [Frame(i) for i in range(len(trajectory))]
-
-                indices = np.arange(len(trajectory))
-                np.random.shuffle(indices)
 
                 obs = trajectory.obs
 
@@ -155,6 +142,9 @@ class ReachabilityBuffer:
                         far_i -= 1
                     second_frames[i].set_limits(close_i, far_i)
 
+                indices = np.arange(len(trajectory))
+                np.random.shuffle(indices)
+
                 for idx in indices:
                     frame = first_frames[idx]
                     if frame.far and frame.close:
@@ -176,22 +166,26 @@ class ReachabilityBuffer:
                             if not frame.close:
                                 # trying to find second close observation
                                 second_close_i = -1
-                                close_indices = list(range(frame.i + 1, frame.close_i))
-                                random.shuffle(close_indices)
+                                start, end = frame.i, frame.close_i
 
-                                for i in close_indices:
-                                    if second_frames[i].close:
-                                        continue
+                                if end > start:
+                                    random_idx = np.random.randint(start, end)
 
-                                    second_close_i = i
-                                    break
+                                    for step in range(max(random_idx - start, end - random_idx)):
+                                        for delta in (-step, step):
+                                            i = random_idx + delta
+                                            if start < i < end and not second_frames[i].close:
+                                                second_close_i = i
+                                                break
+
+                                        if second_close_i != -1:
+                                            break
 
                                 if second_close_i == -1:
-                                    # failed to find "close" observation, skip
                                     frame.fail_close = True
                                     continue
-
-                                second_frame_close = second_frames[second_close_i]
+                                else:
+                                    second_frame_close = second_frames[second_close_i]
 
                             if not frame.far:
                                 # trying to find second far observation
@@ -201,32 +195,33 @@ class ReachabilityBuffer:
                                 if frame.i + far_limit > frame.far_i + close_in_time:
                                     end = min(end, frame.i + far_limit)
 
-                                far_indices = list(range(start, end))
+                                if end > start:
+                                    random_idx = np.random.randint(start, end)
 
-                                random.shuffle(far_indices)
+                                    for step in range(max(random_idx - start, end - random_idx)):
+                                        for delta in (-step, step):
+                                            i = random_idx + delta
+                                            if start < i < end and not second_frames[i].far:
+                                                second_far_i = i
+                                                break
 
-                                for i in far_indices:
-                                    if second_frames[i].far:
-                                        continue
-
-                                    second_far_i = i
-                                    break
+                                        if second_far_i != -1:
+                                            break
 
                                 if second_far_i == -1:
-                                    # failed to find "far" observation, skip
                                     frame.fail_far = True
                                     continue
-
-                                second_frame_far = second_frames[second_far_i]
+                                else:
+                                    second_frame_far = second_frames[second_far_i]
 
                             if second_frame_close is not None:
                                 frame.close = second_frame_close.close = True
-                                q.append((second_frame_close, False))
                                 buffer.add(idx_first=frame.i, idx_second=second_frame_close.i, label=0)
+                                q.append((second_frame_close, False))
                             if second_frame_far is not None:
                                 frame.far = second_frame_far.far = True
-                                q.append((second_frame_far, False))
                                 buffer.add(idx_first=frame.i, idx_second=second_frame_far.i, label=1)
+                                q.append((second_frame_far, False))
 
                         else:  # this is a second observation in a pair
                             first_frame_close, first_frame_far = None, None
@@ -234,61 +229,64 @@ class ReachabilityBuffer:
                             if not frame.close:
                                 # trying to find first close observation
                                 first_close_i = -1
-                                close_indices = list(range(frame.i - 1, frame.close_i, -1))
-                                random.shuffle(close_indices)
+                                start, end = frame.close_i, frame.i
 
-                                for i in close_indices:
-                                    if first_frames[i].close:
-                                        continue
+                                if end > start:
+                                    random_idx = np.random.randint(start, end)
 
-                                    first_close_i = i
-                                    break
+                                    for step in range(max(random_idx - start, end - random_idx)):
+                                        for delta in (-step, step):
+                                            i = random_idx + delta
+                                            if start < i < end and not first_frames[i].close:
+                                                first_close_i = i
+                                                break
+
+                                        if first_close_i != -1:
+                                            break
 
                                 if first_close_i == -1:
-                                    # failed to find "close" observation, skip
                                     frame.fail_close = True
                                     continue
-
-                                first_frame_close = first_frames[first_close_i]
+                                else:
+                                    first_frame_close = first_frames[first_close_i]
 
                             if not frame.far:
                                 # trying to find first far observation
                                 first_far_i = -1
-                                start = 0
-                                end = frame.far_i
+                                start, end = 0, frame.far_i
                                 if frame.i - far_limit < frame.far_i - close_in_time:
                                     start = max(start, frame.i - far_limit)
 
-                                far_indices = list(range(start, end))
+                                if end > start:
+                                    random_idx = np.random.randint(start, end)
 
-                                random.shuffle(far_indices)
+                                    for step in range(max(random_idx - start, end - random_idx)):
+                                        for delta in (-step, step):
+                                            i = random_idx + delta
+                                            if start < i < end and not first_frames[i].far:
+                                                first_far_i = i
+                                                break
 
-                                for i in far_indices:
-                                    if first_frames[i].far:
-                                        continue
-
-                                    first_far_i = i
-                                    break
+                                        if first_far_i == -1:
+                                            break
 
                                 if first_far_i == -1:
-                                    # failed to find "far" observation, skip
                                     frame.fail_far = True
                                     continue
-
-                                first_frame_far = first_frames[first_far_i]
+                                else:
+                                    first_frame_far = first_frames[first_far_i]
 
                             if first_frame_close is not None:
                                 frame.close = first_frame_close.close = True
-                                q.append((first_frame_close, True))
                                 buffer.add(idx_first=first_frame_close.i, idx_second=frame.i, label=0)
+                                q.append((first_frame_close, True))
                             if first_frame_far is not None:
                                 frame.far = first_frame_far.far = True
-                                q.append((first_frame_far, False))
                                 buffer.add(idx_first=first_frame_far.i, idx_second=frame.i, label=1)
+                                q.append((first_frame_far, True))
 
                     # end while loop
                     if len(buffer) >= 5:
-                        # log.info('Buffer size %d,  trajectory len %d', len(buffer), len(trajectory))
                         idx_first = buffer.idx_first
                         idx_second = buffer.idx_second
                         labels = buffer.label
@@ -300,7 +298,6 @@ class ReachabilityBuffer:
                                 num_far_in_time += 1
 
                         if num_far_in_time <= len(buffer) // 4:
-                            # log.info('Buffer does not contain far_in_time close observations')
                             pass
                         else:
                             for i in range(len(buffer)):
@@ -316,31 +313,48 @@ class ReachabilityBuffer:
                                     idx_first=i1,
                                     idx_second=i2,
                                 )
-                                data.add(
-                                    obs_first=obs[i2],
-                                    obs_second=obs[i1],
-                                    labels=label,
-                                    dist=dist,
-                                    idx_first=i2,
-                                    idx_second=i1,
-                                )
+
+                # end for loop
+                np.random.shuffle(indices)
+
+                avg_data_per_batch = self.total_data / (self.batch_num + 1)
+
+                for idx in indices:
+                    if len(close_data) > avg_data_per_batch:
+                        break
+
+                    frame = first_frames[idx]
+                    if frame.close_i <= frame.i + 1:
+                        continue
+
+                    close_idx = np.random.randint(frame.i + 1, frame.close_i)
+                    close_data.add(
+                        obs_first=obs[frame.i],
+                        obs_second=obs[close_idx],
+                        labels=0,
+                        dist=close_idx - frame.i,
+                        idx_first=frame.i,
+                        idx_second=close_idx,
+                    )
 
         with timing.timeit('add_and_shuffle'):
             self.buffer.add_buff(data)
+            self.total_data += len(data)
+            self.buffer.add_buff(close_data)
             self.shuffle_data()
             self.buffer.trim_at(self.params.reachability_target_buffer_size)
 
-        if self.batch_num % 60 == 0:
+        if self.batch_num % 10 == 0:
             with timing.timeit('visualize'):
                 self._visualize_data()
 
         self.batch_num += 1
-        log.info('Reachability timing %s', timing)
+        log.info('Distance timing %s', timing)
 
     def has_enough_data(self):
         len_data, min_data = len(self.buffer), self.params.reachability_target_buffer_size // 40
         if len_data < min_data:
-            log.info('Need to gather more data to train reachability net, %d/%d', len_data, min_data)
+            log.info('Need to gather more data to train distance net, %d/%d', len_data, min_data)
             return False
         return True
 
