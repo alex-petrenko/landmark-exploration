@@ -16,10 +16,10 @@ from algorithms.models import make_model
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     image_summaries_rgb, summary_avg_min_max, merge_summaries, tf_shape, placeholder
-from algorithms.tmax.distance import DistanceNetwork, DistanceBuffer
 from algorithms.tmax.graph_encoders import make_graph_encoder
 from algorithms.tmax.landmarks_encoder import LandmarksEncoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer
+from algorithms.tmax.reachability import ReachabilityNetwork, ReachabilityBuffer
 from algorithms.tmax.tmax_utils import TmaxMode
 from algorithms.tmax.topological_map import TopologicalMap
 from algorithms.tmax.trajectory import TrajectoryBuffer
@@ -285,9 +285,7 @@ class TmaxManager:
             self._log_verbose('Env %d reachability: %r', env_i, neighbor_distance)
 
     def _sample_mode(self, env_i):
-        modes = [TmaxMode.EXPLORATION]
-        if not self._is_bootstrap:
-            modes.append(TmaxMode.SEARCH)
+        modes = [TmaxMode.SEARCH]
 
         # neighbor_indices = self.maps[env_i].neighbor_indices()
         # if len(neighbor_indices) > 1:
@@ -346,7 +344,7 @@ class TmaxManager:
         self.idle_frames[env_i] = 0
         self.action_frames[env_i] = np.random.randint(1, 3)
 
-        if random.random() < 0.999:  # (TODO! there must be a better policy)
+        if random.random() < 0.5:  # (TODO! there must be a better policy)
             # reset graph with some probability
             m.reset(obs)  # reset graph
 
@@ -375,9 +373,9 @@ class TmaxManager:
 
         bonuses = np.zeros([num_envs])
 
-        # if is_bootstrap:
-        #     # don't bother updating the graph when the reachability net isn't trained yet
-        #     return bonuses, self.get_intentions()
+        if is_bootstrap:
+            # don't bother updating the graph when the reachability net isn't trained yet
+            return bonuses, self.get_intentions()
 
         for env_i, m in enumerate(maps):
             self.samples_per_mode[self.mode[env_i]] += 1
@@ -400,7 +398,7 @@ class TmaxManager:
         assert len(neighborhood_obs) == len(current_obs)
 
         # calculate reachability for all neighborhoods in all envs
-        distances = self.agent.distance.get_distances(self.agent.session, neighborhood_obs, current_obs)
+        distances = self.agent.reachability.distances(self.agent.session, neighborhood_obs, current_obs)
 
         new_landmark_candidates = []
         closest_landmark_idx = [-1] * self.num_envs
@@ -418,6 +416,7 @@ class TmaxManager:
             closest_landmark_idx[env_i] = neighbor_indices[min_d_idx]
 
             if min_d > self.max_landmark_distance[env_i]:
+                # dense reward:
                 # bonuses[env_i] += (min_d - self.max_landmark_distance[env_i]) * self.params.map_expansion_reward
                 self.max_landmark_distance[env_i] = min_d
 
@@ -462,7 +461,7 @@ class TmaxManager:
         batch_size = 1024
         for i in range(0, len(non_neighborhood_obs), batch_size):
             start, end = i, i + batch_size
-            distances_batch = self.agent.distance.get_distances(
+            distances_batch = self.agent.reachability.distances(
                 self.agent.session, non_neighborhood_obs[start:end], current_obs[start:end],
             )
             distances.extend(distances_batch)
@@ -490,7 +489,7 @@ class TmaxManager:
                     self._log_verbose('Change current landmark to %d (loop closure)', m.curr_landmark_idx)
                     self._select_locomotion_target(env_i)
 
-                    bonuses[env_i] += self.params.map_expansion_reward  # we found a new edge! Cool!
+                    bonuses[env_i] += self.params.map_expansion_reward // 2  # we found a new edge! Cool!
                     self.max_landmark_distance[env_i] = 0.0
                     self.is_landmark[env_i] = True
             else:
@@ -593,7 +592,7 @@ class AgentTMAX(AgentLearner):
 
             # ppo-specific
             self.ppo_clip_ratio = 1.1  # we use clip(x, e, 1/e) instead of clip(x, 1+e, 1-e) in the paper
-            self.target_kl = 0.033
+            self.target_kl = 0.03
             self.batch_size = 512
             self.ppo_epochs = 10
 
@@ -605,16 +604,16 @@ class AgentTMAX(AgentLearner):
             self.use_neighborhood_encoder = True
             self.graph_enc_name = 'rnn'  # 'rnn', 'deepsets'
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
-            self.graph_encoder_rnn_size = 256  # size of GRU layer in RNN neighborhood encoder
+            self.graph_encoder_rnn_size = 128  # size of GRU layer in RNN neighborhood encoder
 
             self.reachable_threshold = 12  # num. of frames between obs, such that one is reachable from the other
             self.unreachable_threshold = 30  # num. of frames between obs, such that one is unreachable from the other
-            self.reachability_target_buffer_size = 180000  # target number of training examples to store
-            self.reachability_train_epochs = 2
+            self.reachability_target_buffer_size = 80000  # target number of training examples to store
+            self.reachability_train_epochs = 1
             self.reachability_batch_size = 256
 
-            self.new_landmark_threshold = 9.9  # condition for considering current observation a "new landmark"
-            self.loop_closure_threshold = 3.0  # condition for graph loop closure (finding new edge)
+            self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
+            self.loop_closure_threshold = 0.3  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.2  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 20  # max trajectory length to be utilized for locomotion training
@@ -645,9 +644,6 @@ class AgentTMAX(AgentLearner):
         self.actor_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='actor_step')
         self.critic_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='critic_step')
         self.reach_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='reach_step')
-        self.distance_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='distance_step')
-
-        # self.inverse_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='inverse_step')
         self.locomotion_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='locomotion_step')
 
         self.make_env_func = make_env_func
@@ -663,9 +659,7 @@ class AgentTMAX(AgentLearner):
 
         self.actor_critic = ActorCritic(env, self.ph_observations, self.ph_intentions, self.params)
 
-        # self.reachability = ReachabilityNetwork(env, params)
-        self.distance = DistanceNetwork(env, params)
-        # self.inverse = InverseNetwork(env, params)
+        self.reachability = ReachabilityNetwork(env, params)
         self.locomotion = LocomotionNetwork(env, params)
 
         if self.params.use_neighborhood_encoder is None:
@@ -689,14 +683,8 @@ class AgentTMAX(AgentLearner):
         critic_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='critic_opt')
         self.train_critic = critic_opt.minimize(self.objectives.critic_loss, global_step=self.critic_step)
 
-        # reach_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='reach_opt')
-        # self.train_reachability = reach_opt.minimize(self.reachability.loss, global_step=self.reach_step)
-
-        distance_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='dist_opt')
-        self.train_distance = distance_opt.minimize(self.distance.loss, global_step=self.distance_step)
-
-        # inverse_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='inverse_opt')
-        # self.train_inverse = inverse_opt.minimize(self.inverse.loss, global_step=self.inverse_step)
+        reach_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='reach_opt')
+        self.train_reachability = reach_opt.minimize(self.reachability.loss, global_step=self.reach_step)
 
         locomotion_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='locomotion_opt')
         self.train_locomotion = locomotion_opt.minimize(self.locomotion.loss, global_step=self.locomotion_step)
@@ -706,9 +694,7 @@ class AgentTMAX(AgentLearner):
 
         self.actor_summaries = merge_summaries(collections=['actor'])
         self.critic_summaries = merge_summaries(collections=['critic'])
-        # self.reach_summaries = merge_summaries(collections=['reachability'])
-        self.dist_summaries = merge_summaries(collections=['distance_net'])
-        # self.inverse_summaries = merge_summaries(collections=['inverse'])
+        self.reach_summaries = merge_summaries(collections=['reachability'])
         self.locomotion_summaries = merge_summaries(collections=['locomotion'])
 
         self.saver = tf.train.Saver(max_to_keep=3)
@@ -811,51 +797,14 @@ class AgentTMAX(AgentLearner):
             critic_scalar('value_loss', obj.value_loss)
             critic_scalar('critic_training_steps', self.critic_step)
 
-        # with tf.name_scope('reachability'):
-        #     reachability_scalar = partial(tf.summary.scalar, collections=['reachability'])
-        #     reachability_scalar('reach_loss', self.reachability.reach_loss)
-        #     reachability_scalar('reach_correct', self.reachability.correct)
-        #
-        #     reachability_scalar('first_loss', self.reachability.first_loss)
-        #     reachability_scalar('first_correct', self.reachability.first_correct)
-        #
-        #     reachability_scalar('second_loss', self.reachability.second_loss)
-        #     reachability_scalar('second_correct', self.reachability.second_correct)
-        #
-        #     reachability_scalar('reg_loss', self.reachability.reg_loss)
-
-            # reachability_scalar('reconst_loss', self.reachability.reconst_loss)
-            # image_summaries_rgb(self.reachability.normalized_obs, name='source', collections=['reachability'])
-            # image_summaries_rgb(self.reachability.obs_decoded, name='decoded', collections=['reachability'])
-
-        with tf.name_scope('distance_net'):
-            distance_scalar = partial(tf.summary.scalar, collections=['distance_net'])
-            distance_scalar('reg_loss', self.distance.reg_loss)
-            distance_scalar('distance_loss', self.distance.distance_loss)
-            distance_scalar('proximity_loss', self.distance.proximity_loss)
-            distance_scalar('loss', self.distance.loss)
-
-            distance_scalar('avg_loss_close', self.distance.avg_loss_close)
-            distance_scalar('avg_loss_far', self.distance.avg_loss_far)
-
-            distance_scalar('avg_dist_close', self.distance.avg_dist_close)
-            distance_scalar('avg_dist_far', self.distance.avg_dist_far)
-
-            distance_scalar('avg_coord_first', self.distance.avg_coord_first)
-            distance_scalar('avg_coord_second', self.distance.avg_coord_second)
-
-        # with tf.name_scope('inverse_dynamics'):
-        #     inverse_scalar = partial(tf.summary.scalar, collections=['inverse'])
-        #     inverse_scalar('actions_loss', self.inverse.actions_loss)
-        #     inverse_scalar('loss', self.inverse.loss)
-        #     inverse_scalar('reg_loss', self.inverse.reg_loss)
-        #     inverse_scalar('reconst_loss', self.inverse.reconst_loss)
-        #     image_summaries_rgb(self.inverse.normalized_obs, name='source', collections=['inverse'])
-        #     image_summaries_rgb(self.inverse.obs_decoded, name='decoded', collections=['inverse'])
+        with tf.name_scope('reachability'):
+            reachability_scalar = partial(tf.summary.scalar, collections=['reachability'])
+            reachability_scalar('reach_loss', self.reachability.reach_loss)
+            reachability_scalar('reach_correct', self.reachability.correct)
+            reachability_scalar('reg_loss', self.reachability.reg_loss)
 
         with tf.name_scope('locomotion'):
             locomotion_scalar = partial(tf.summary.scalar, collections=['locomotion'])
-            # locomotion_scalar('distance_loss', self.locomotion.distance_loss)
             locomotion_scalar('actions_loss', self.locomotion.actions_loss)
             locomotion_scalar('loss', self.locomotion.loss)
             locomotion_scalar('entropy', tf.reduce_mean(self.locomotion.actions_distribution.entropy()))
@@ -990,6 +939,7 @@ class AgentTMAX(AgentLearner):
         values = np.zeros(num_envs, np.float32)
         masks = np.zeros(num_envs, np.int32)
 
+        # EXPLORATION policy (explore + idle) is used only for Montezuma
         env_i = env_indices[TmaxMode.EXPLORATION]
         if len(env_i) > 0:
             masks[env_i] = 0  # don't train with ppo
@@ -1162,60 +1112,7 @@ class AgentTMAX(AgentLearner):
         """Check whether we're still in the initial bootstrapping stage."""
         return env_steps < self.params.bootstrap_env_steps
 
-    # def _maybe_train_reachability(self, data, env_steps):
-    #     if not data.has_enough_data():
-    #         return
-    #
-    #     buffer = data.buffer
-    #
-    #     batch_size = self.params.reachability_batch_size
-    #     summary = None
-    #     reach_step = self.reach_step.eval(session=self.session)
-    #
-    #     prev_loss = 1e10
-    #     num_epochs = self.params.reachability_train_epochs
-    #     # if self._is_bootstrap(env_steps):
-    #     #     num_epochs = max(10, num_epochs * 2)  # during bootstrap do more epochs to train faster!
-    #
-    #     log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
-    #
-    #     for epoch in range(num_epochs):
-    #         losses = []
-    #         buffer.shuffle_data()
-    #         obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
-    #
-    #         for i in range(0, len(obs_first) - 1, batch_size):
-    #             with_summaries = self._should_write_summaries(reach_step) and summary is None
-    #             summaries = [self.reach_summaries] if with_summaries else []
-    #
-    #             start, end = i, i + batch_size
-    #
-    #             result = self.session.run(
-    #                 [self.reachability.loss, self.train_reachability] + summaries,
-    #                 feed_dict={
-    #                     self.reachability.ph_obs_first: obs_first[start:end],
-    #                     self.reachability.ph_obs_second: obs_second[start:end],
-    #                     self.reachability.ph_labels: labels[start:end],
-    #                 }
-    #             )
-    #
-    #             reach_step += 1
-    #             self._maybe_save(reach_step, env_steps)
-    #             losses.append(result[0])
-    #
-    #             if with_summaries:
-    #                 summary = result[-1]
-    #                 self.summary_writer.add_summary(summary, global_step=env_steps)
-    #
-    #         # check loss improvement at the end of each epoch, early stop if necessary
-    #         avg_loss = np.mean(losses)
-    #         if avg_loss > prev_loss:
-    #             log.info('Early stopping after %d epochs because reachability did not improve', epoch + 1)
-    #             log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
-    #             break
-    #         prev_loss = avg_loss
-    #
-    def _maybe_train_distance(self, data, env_steps):
+    def _maybe_train_reachability(self, data, env_steps):
         if not data.has_enough_data():
             return
 
@@ -1223,12 +1120,14 @@ class AgentTMAX(AgentLearner):
 
         batch_size = self.params.reachability_batch_size
         summary = None
-        dist_step = self.distance_step.eval(session=self.session)
+        reach_step = self.reach_step.eval(session=self.session)
 
         prev_loss = 1e10
-        num_epochs = 1
+        num_epochs = self.params.reachability_train_epochs
+        if self._is_bootstrap(env_steps):
+            num_epochs = max(10, num_epochs * 2)  # during bootstrap do more epochs to train faster!
 
-        log.info('Training distance %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
+        log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
 
         for epoch in range(num_epochs):
             losses = []
@@ -1236,22 +1135,22 @@ class AgentTMAX(AgentLearner):
             obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
 
             for i in range(0, len(obs_first) - 1, batch_size):
-                with_summaries = self._should_write_summaries(dist_step) and summary is None
-                summaries = [self.dist_summaries] if with_summaries else []
+                with_summaries = self._should_write_summaries(reach_step) and summary is None
+                summaries = [self.reach_summaries] if with_summaries else []
 
                 start, end = i, i + batch_size
 
                 result = self.session.run(
-                    [self.distance.loss, self.train_distance] + summaries,
+                    [self.reachability.loss, self.train_reachability] + summaries,
                     feed_dict={
-                        self.distance.ph_obs_first: obs_first[start:end],
-                        self.distance.ph_obs_second: obs_second[start:end],
-                        self.distance.ph_labels: labels[start:end],
+                        self.reachability.ph_obs_first: obs_first[start:end],
+                        self.reachability.ph_obs_second: obs_second[start:end],
+                        self.reachability.ph_labels: labels[start:end],
                     }
                 )
 
-                dist_step += 1
-                self._maybe_save(dist_step, env_steps)
+                reach_step += 1
+                self._maybe_save(reach_step, env_steps)
                 losses.append(result[0])
 
                 if with_summaries:
@@ -1261,58 +1160,7 @@ class AgentTMAX(AgentLearner):
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
             if avg_loss > prev_loss:
-                log.info('Early stopping after %d epochs because distance net did not improve', epoch + 1)
-                log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
-                break
-            prev_loss = avg_loss
-
-    def _maybe_train_inverse(self, data, env_steps):
-        if not data.has_enough_data():
-            return
-
-        buffer = data.buffer
-
-        batch_size = self.params.reachability_batch_size
-        summary = None
-        inverse_step = self.inverse_step.eval(session=self.session)
-
-        prev_loss = 1e10
-        num_epochs = self.params.reachability_train_epochs
-
-        log.info('Training inverse network %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
-
-        for epoch in range(num_epochs):
-            losses = []
-            buffer.shuffle_data()
-            obs_i, obs_i_plus_1, actions = buffer.obs_i, buffer.obs_i_plus_1, buffer.actions
-
-            for i in range(0, len(obs_i) - 1, batch_size):
-                with_summaries = self._should_write_summaries(inverse_step) and summary is None
-                summaries = [self.inverse_summaries] if with_summaries else []
-
-                start, end = i, i + batch_size
-
-                result = self.session.run(
-                    [self.inverse.loss, self.train_inverse] + summaries,
-                    feed_dict={
-                        self.inverse.ph_obs_first: obs_i[start:end],
-                        self.inverse.ph_obs_second: obs_i_plus_1[start:end],
-                        self.inverse.ph_actions: actions[start:end],
-                    }
-                )
-
-                inverse_step += 1
-                # self._maybe_save(inverse_step, env_steps)
-                losses.append(result[0])
-
-                if with_summaries:
-                    summary = result[-1]
-                    self.summary_writer.add_summary(summary, global_step=env_steps)
-
-            # check loss improvement at the end of each epoch, early stop if necessary
-            avg_loss = np.mean(losses)
-            if avg_loss > prev_loss:
-                log.info('Early stopping after %d epochs because inverse did not improve', epoch + 1)
+                log.info('Early stopping after %d epochs because reachability did not improve', epoch + 1)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
             prev_loss = avg_loss
@@ -1337,7 +1185,6 @@ class AgentTMAX(AgentLearner):
             losses = []
             buffer.shuffle_data()
             obs_curr, obs_goal, actions = buffer.obs_curr, buffer.obs_goal, buffer.actions
-            # distance, train_distance, train_actions = data.distance, data.train_distance, data.train_actions
 
             for i in range(0, len(obs_curr) - 1, batch_size):
                 with_summaries = self._should_write_summaries(loco_step) and summary is None
@@ -1389,9 +1236,7 @@ class AgentTMAX(AgentLearner):
         buffer = TmaxPPOBuffer()
 
         trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)  # separate buffer for complete episode trajectories
-        # reachability_buffer = ReachabilityBuffer(self.params)
-        distance_buffer = DistanceBuffer(self.params)
-        # inverse_buffer = InverseBuffer(self.params)
+        reachability_buffer = ReachabilityBuffer(self.params)
         locomotion_buffer = LocomotionBuffer(self.params)
 
         tmax_mgr = self.tmax_mgr
@@ -1451,19 +1296,9 @@ class AgentTMAX(AgentLearner):
                     step = self._train_actor_critic(buffer, env_steps)
 
             # update reachability net
-            # with timing.timeit('reach'):
-            #     reachability_buffer.extract_data(trajectory_buffer.complete_trajectories)
-            #     self._maybe_train_reachability(reachability_buffer, env_steps)
-
-            # update distance net
-            with timing.timeit('distance'):
-                distance_buffer.extract_data(trajectory_buffer.complete_trajectories)
-                self._maybe_train_distance(distance_buffer, env_steps)
-
-            # update inverse net
-            # with timing.timeit('inverse'):
-            #     inverse_buffer.extract_data(trajectory_buffer.complete_trajectories)
-            #     self._maybe_train_inverse(inverse_buffer, env_steps)
+            with timing.timeit('reach'):
+                reachability_buffer.extract_data(trajectory_buffer.complete_trajectories)
+                self._maybe_train_reachability(reachability_buffer, env_steps)
 
             # update locomotion net
             with timing.timeit('locomotion'):
