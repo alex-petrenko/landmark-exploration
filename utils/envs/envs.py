@@ -9,5 +9,7 @@ def create_env(env, **kwargs):
         return make_doom_env(doom_env_by_name(env), **kwargs)
     elif env.startswith('atari_'):
         return make_atari_env(atari_env_by_name(env), **kwargs)
+    elif env.startswith('dmlab_'):
+        return make_dmlab_env(dmlab_env_by_name(env), **kwargs)
     else:
         raise Exception('Unsupported env {0}'.format(env))
