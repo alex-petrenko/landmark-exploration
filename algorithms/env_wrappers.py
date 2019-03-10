@@ -148,22 +148,31 @@ class NormalizeWrapper(gym.core.Wrapper):
         return [-self._normalize_to, self._normalize_to]
 
 
-class ResizeAndGrayscaleWrapper(gym.core.Wrapper):
+class ResizeWrapper(gym.core.Wrapper):
     """Resize observation frames to specified (w,h) and convert to grayscale."""
 
-    def __init__(self, env, w, h, add_channel_dim=False, area_interpolation=False):
-        super(ResizeAndGrayscaleWrapper, self).__init__(env)
+    def __init__(self, env, w, h, grayscale=True, add_channel_dim=False, area_interpolation=False):
+        super(ResizeWrapper, self).__init__(env)
         low, high = env.observation_space.low.flat[0], env.observation_space.high.flat[0]
-        new_shape = [w, h, 1] if add_channel_dim else [w, h]
+
+        if grayscale:
+            new_shape = [w, h, 1] if add_channel_dim else [w, h]
+        else:
+            channels = env.observation_space.shape[-1]
+            new_shape = [w, h, channels]
+
         self.add_channel_dim = add_channel_dim
         self.observation_space = spaces.Box(low, high, shape=new_shape, dtype=env.observation_space.dtype)
         self.w = w
         self.h = h
         self.interpolation = cv2.INTER_AREA if area_interpolation else cv2.INTER_NEAREST
+        self.grayscale = grayscale
 
     def _observation(self, obs):
         obs = cv2.resize(obs, (self.w, self.h), interpolation=self.interpolation)
-        obs = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
+        if self.grayscale:
+            obs = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
+
         if self.add_channel_dim:
             return obs[:, :, None]  # add new dimension (expected by tensorflow)
         else:

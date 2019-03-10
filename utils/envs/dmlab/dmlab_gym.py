@@ -76,8 +76,7 @@ class DmlabGymEnv(gym.Env):
         since_last_frame = time.time() - self._last_frame
         wait_time_sec = max(1.0 / self._render_fps - since_last_frame, 0.001)
         wait_time_ms = max(int(1000 * wait_time_sec), 1)
-        # cv2.waitKey(wait_time_ms)
-        time.sleep(wait_time_sec)
+        cv2.waitKey(wait_time_ms)
         self._last_frame = time.time()
 
     def close(self):

@@ -2,7 +2,7 @@ import gym
 # noinspection PyUnresolvedReferences
 import vizdoomgym
 
-from algorithms.env_wrappers import ResizeAndGrayscaleWrapper, StackFramesWrapper, RewardScalingWrapper, \
+from algorithms.env_wrappers import ResizeWrapper, StackFramesWrapper, RewardScalingWrapper, \
     SkipAndStackFramesWrapper, TimeLimitWrapper, RemainingTimeWrapper
 from utils.envs.doom.wrappers.observation_space import SetResolutionWrapper
 from utils.envs.doom.wrappers.step_human_input import StepHumanInput
@@ -48,7 +48,7 @@ def make_doom_env(doom_cfg, mode='train', has_timer=False, human_input=False):
     else:
         env = SetResolutionWrapper(env, '160x120')
 
-    env = ResizeAndGrayscaleWrapper(env, DOOM_W, DOOM_H)
+    env = ResizeWrapper(env, DOOM_W, DOOM_H)
 
     timeout = doom_cfg.default_timeout - 10
     env = TimeLimitWrapper(env, limit=timeout, random_variation_steps=5)

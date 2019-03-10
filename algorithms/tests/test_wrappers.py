@@ -7,7 +7,7 @@ from gym import spaces
 
 from algorithms.agent import AgentRandom
 from algorithms.algo_utils import EPS
-from algorithms.env_wrappers import NormalizeWrapper, StackFramesWrapper, unwrap_env, ResizeAndGrayscaleWrapper, \
+from algorithms.env_wrappers import NormalizeWrapper, StackFramesWrapper, unwrap_env, ResizeWrapper, \
     SkipAndStackFramesWrapper, TimeLimitWrapper, RemainingTimeWrapper
 from algorithms.multi_env import MultiEnv
 from utils.envs.doom.doom_utils import make_doom_env, DOOM_W, DOOM_H, doom_env_by_name
@@ -58,7 +58,7 @@ class TestWrappers(TestCase):
 
     def test_stacked_pixels(self):
         orig_env = gym.make(TEST_ENV)
-        env = ResizeAndGrayscaleWrapper(orig_env, DOOM_W, DOOM_H)
+        env = ResizeWrapper(orig_env, DOOM_W, DOOM_H)
 
         stack = 5
         env = StackFramesWrapper(env, stack)
@@ -66,7 +66,7 @@ class TestWrappers(TestCase):
 
     def test_repeat(self):
         env = gym.make(TEST_ENV)
-        env = ResizeAndGrayscaleWrapper(env, DOOM_W, DOOM_H)
+        env = ResizeWrapper(env, DOOM_W, DOOM_H)
         env = SkipAndStackFramesWrapper(env, skip_frames=4, stack_frames=3)
         env.reset()
         _, _, _, info = env.step(0)

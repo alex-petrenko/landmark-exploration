@@ -1,4 +1,5 @@
 from utils.envs.atari.atari_utils import make_atari_env, atari_env_by_name
+from utils.envs.dmlab.dmlab_utils import make_dmlab_env, dmlab_env_by_name
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
 
 

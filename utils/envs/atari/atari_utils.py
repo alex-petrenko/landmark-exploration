@@ -1,6 +1,6 @@
 import gym
 
-from algorithms.env_wrappers import ResizeAndGrayscaleWrapper, ClipRewardWrapper
+from algorithms.env_wrappers import ResizeWrapper, ClipRewardWrapper
 from utils.envs.atari.atari_wrappers import StickyActionWrapper, MaxAndSkipWrapper, AtariVisitedRoomsInfoWrapper, \
     RenderWrapper, OneLifeWrapper
 
@@ -42,7 +42,7 @@ def make_atari_env(atari_cfg, mode='train'):
     if 'Montezuma' in atari_cfg.env_id or 'Pitfall' in atari_cfg.env_id:
         env = AtariVisitedRoomsInfoWrapper(env)
 
-    env = ResizeAndGrayscaleWrapper(env, ATARI_W, ATARI_H, add_channel_dim=True, area_interpolation=True)
+    env = ResizeWrapper(env, ATARI_W, ATARI_H, add_channel_dim=True, area_interpolation=True)
     env = ClipRewardWrapper(env)
 
     if mode == 'test':
