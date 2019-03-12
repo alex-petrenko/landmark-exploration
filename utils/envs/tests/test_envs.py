@@ -1,7 +1,5 @@
-import unittest
-
-import numpy as np
 import time
+import unittest
 from unittest import TestCase
 
 from algorithms.agent import AgentRandom

@@ -47,21 +47,24 @@ level_cache = LevelCache(join(project_root(), '.dmlab_cache'))
 
 
 class DmlabGymEnv(gym.Env):
-    def __init__(self):
+    def __init__(self, level, action_repeat, extra_cfg=None):
         self._width = 96
         self._height = 72
         self._main_observation = 'BGR_INTERLEAVED'
-        self._action_repeat = 4
+        self._action_repeat = action_repeat
 
         self._random_state = None
 
-        level_name = 'contributed/dmlab30/explore_goal_locations_large'
         observation_format = [self._main_observation, 'DEBUG.POS.TRANS']
-        config = {'width': str(self._width), 'height': str(self._height)}
+        config = {'width': self._width, 'height': self._height}
+        if extra_cfg is not None:
+            config.update(extra_cfg)
+        config = {k: str(v) for k, v in config.items()}
+
         renderer = 'hardware'
 
         self._dmlab = deepmind_lab.Lab(
-            level_name, observation_format, config=config, renderer=renderer, level_cache=level_cache,
+            level, observation_format, config=config, renderer=renderer, level_cache=level_cache,
         )
 
         self._action_set = ACTION_SET
@@ -70,7 +73,7 @@ class DmlabGymEnv(gym.Env):
         self._last_observation = None
 
         self._render_scale = 5
-        self._render_fps = 10
+        self._render_fps = 30
         self._last_frame = time.time()
 
         self.action_space = gym.spaces.Discrete(len(self._action_set))
