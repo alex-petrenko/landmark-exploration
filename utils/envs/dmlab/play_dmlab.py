@@ -3,9 +3,8 @@ from threading import Thread
 
 from pynput.keyboard import Key, Listener
 
-from utils.envs.dmlab.dmlab_gym import DmlabGymEnv
+from utils.envs.dmlab.dmlab_utils import make_dmlab_env, dmlab_env_by_name
 from utils.utils import log
-
 
 action_table = {
     Key.up: 1,
@@ -38,7 +37,7 @@ def on_release(key):
 
 
 def play():
-    env = DmlabGymEnv()
+    env = make_dmlab_env(dmlab_env_by_name('dmlab_sparse'), mode='test')
     env.seed(0)
     env.reset()
 

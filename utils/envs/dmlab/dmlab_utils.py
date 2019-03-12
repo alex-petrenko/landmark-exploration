@@ -1,4 +1,3 @@
-from algorithms.env_wrappers import ResizeWrapper
 from utils.envs.dmlab.dmlab_gym import DmlabGymEnv
 
 
@@ -30,5 +29,4 @@ def make_dmlab_env(cfg, mode='train'):
         repeat_actions = 1
 
     env = DmlabGymEnv(cfg.level, repeat_actions, cfg.extra_cfg)
-    env = ResizeWrapper(env, 84, 84, grayscale=False, add_channel_dim=False, area_interpolation=False)
     return env

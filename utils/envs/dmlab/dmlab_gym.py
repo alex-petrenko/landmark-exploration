@@ -48,9 +48,8 @@ level_cache = LevelCache(join(project_root(), '.dmlab_cache'))
 
 class DmlabGymEnv(gym.Env):
     def __init__(self, level, action_repeat, extra_cfg=None):
-        self._width = 96
-        self._height = 72
-        self._main_observation = 'BGR_INTERLEAVED'
+        self._width = self._height = 84
+        self._main_observation = 'DEBUG.CAMERA_INTERLEAVED.PLAYER_VIEW_NO_RETICLE'
         self._action_repeat = action_repeat
 
         self._random_state = None
@@ -104,14 +103,16 @@ class DmlabGymEnv(gym.Env):
         if self._last_observation is None and self._dmlab.is_running():
             self._last_observation = self._dmlab.observations()[self._main_observation]
 
-        img_rgb = self._last_observation
+        img = self._last_observation
         if mode == 'rgb_array':
-            return img_rgb
+            return img
         elif mode != 'human':
             raise Exception(f'Rendering mode {mode} not supported')
 
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
         scale = self._render_scale
-        img_big = cv2.resize(img_rgb, (self._width * scale, self._height * scale), interpolation=cv2.INTER_NEAREST)
+        img_big = cv2.resize(img, (self._width * scale, self._height * scale), interpolation=cv2.INTER_NEAREST)
         cv2.imshow('atari', img_big)
 
         since_last_frame = time.time() - self._last_frame
