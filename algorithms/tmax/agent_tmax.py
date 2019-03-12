@@ -1278,7 +1278,7 @@ class AgentTMAX(AgentLearner):
                     )
                     observations = new_observations
 
-                    num_steps += num_env_steps(infos, multi_env.num_envs)
+                    num_steps += num_env_steps(infos)
 
                 # last step values are required for TD-return calculation
                 neighbors, num_neigh = tmax_mgr.get_neighbors()

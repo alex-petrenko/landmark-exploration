@@ -470,7 +470,7 @@ class AgentPPO(AgentLearner):
                 buffer.add(observations, actions, action_probs, rewards, dones, values)
                 observations = new_observation
 
-                num_steps += num_env_steps(infos, multi_env.num_envs)
+                num_steps += num_env_steps(infos)
 
             # last step values are required for TD-return calculation
             _, _, values = self.actor_critic.invoke(self.session, observations)

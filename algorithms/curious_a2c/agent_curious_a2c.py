@@ -490,7 +490,7 @@ class AgentCuriousA2C(AgentA2C):
                 img_obs = next_img_obs
                 timer_obs = next_timer
 
-                env_steps += num_env_steps(infos, multi_env.num_envs)
+                env_steps += num_env_steps(infos)
 
                 if rollout_step != self.params.rollout - 1:
                     # we don't need the newest observation in the training batch, already have enough
