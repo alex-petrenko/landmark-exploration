@@ -521,11 +521,11 @@ class AgentTMAX(AgentLearner):
             self.reachability_batch_size = 256
 
             self.directed_edges = False  # whether to add directed on undirected edges on landmark discovery
-            self.new_landmark_threshold = 0.99  # condition for considering current observation a "new landmark"
+            self.new_landmark_threshold = 0.995  # condition for considering current observation a "new landmark"
             self.loop_closure_threshold = 0.3  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 1.0  # reward for finding new vertex or new edge in the topological map
 
-            self.locomotion_max_trajectory = 25  # max trajectory length to be utilized for locomotion training
+            self.locomotion_max_trajectory = 30  # max trajectory length to be utilized for locomotion training
             self.locomotion_target_buffer_size = 20000  # target number of (obs, goal, action) tuples to store
             self.locomotion_train_epochs = 1
             self.locomotion_batch_size = 256

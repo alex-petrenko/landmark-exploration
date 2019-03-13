@@ -72,7 +72,7 @@ class DmlabGymEnv(gym.Env):
         self._last_observation = None
 
         self._render_scale = 5
-        self._render_fps = 60
+        self._render_fps = 30
         self._last_frame = time.time()
 
         self.action_space = gym.spaces.Discrete(len(self._action_set))
