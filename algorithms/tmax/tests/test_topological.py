@@ -69,10 +69,14 @@ class TestGraph(TestCase):
         new_graph = nx.relabel_nodes(graph, relabeling)
 
         from matplotlib import pyplot as plt
+        figure = plt.gcf()
+        figure.clear()
 
         nx.draw(
             new_graph, nx.kamada_kawai_layout(new_graph),
             node_size=100, node_color=list(graph.nodes), edge_color='#cccccc', cmap=plt.cm.get_cmap('plasma'),
-            with_labels=True, font_color='#ffffff', font_size=7
+            with_labels=True, font_color='#ffffff', font_size=7,
         )
         plt.show()
+        figure = plt.gcf()
+        figure.clear()

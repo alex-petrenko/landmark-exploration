@@ -114,9 +114,12 @@ class TestDmlab(TestCase):
     def test_dmlab_env(self):
         self.assertIsNotNone(self.make_env())
 
-    def test_dmlab_performance(self):
+    def skipped_test_dmlab_performance(self):
         test_env_performance(self, 'dmlab')
 
-    @unittest.skip('Only works when run individually because of limitations of dmlab')
-    def test_dmlab_performance_multi(self):
+    def skipped_test_dmlab_performance_multi(self):
+        """
+        Does not work well together with other tests, because of limitations of DMLab.
+        I think it does not work after VizDoom because of some conflict of graphics contexts.
+        """
         test_multi_env_performance(self, 'dmlab', num_envs=128, num_workers=16)
