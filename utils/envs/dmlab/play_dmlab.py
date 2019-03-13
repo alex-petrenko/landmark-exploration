@@ -17,6 +17,10 @@ current_actions = []
 terminate = False
 
 
+def key_to_action(key):
+    return action_table.get(key, None)
+
+
 def on_press(key):
     if key == Key.esc:
         global terminate
@@ -24,16 +28,18 @@ def on_press(key):
         return False
 
     global current_actions
-    if key in action_table:
-        if action_table[key] not in current_actions:
-            current_actions.append(action_table[key])
+    action = key_to_action(key)
+    if action is not None:
+        if action not in current_actions:
+            current_actions.append(action)
 
 
 def on_release(key):
     global current_actions
-    if key in action_table:
-        if action_table[key] in current_actions:
-            current_actions.remove(action_table[key])
+    action = key_to_action(key)
+    if action is not None:
+        if action not in current_actions:
+            current_actions.remove(action)
 
 
 def play():

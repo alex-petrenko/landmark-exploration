@@ -1,33 +1,16 @@
-import numpy as np
 import random
 import sys
 from threading import Thread
 
-from gym.envs.atari.atari_env import ACTION_MEANING
+import numpy as np
 from pynput.keyboard import Key, Listener, KeyCode
 
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax
+from utils.envs.atari import atari_utils
+from utils.envs.dmlab import play_dmlab
 from utils.envs.envs import create_env
 from utils.utils import log
-
-
-def action_name_to_action(action_name):
-    for action, name in ACTION_MEANING.items():
-        if name == action_name:
-            return action
-
-    log.warning('Unknown action %s', action_name)
-    return None
-
-
-action_table = {
-    Key.space: 'FIRE',
-    Key.up: 'UP',
-    Key.down: 'DOWN',
-    Key.left: 'LEFT',
-    Key.right: 'RIGHT',
-}
 
 
 class PolicyType:
@@ -40,8 +23,10 @@ store_landmark = True
 terminate = False
 policy_type = PolicyType.PLAYER
 current_actions = []
+key_to_action = None
 
 
+# noinspection PyCallingNonCallable
 def on_press(key):
     if key == Key.esc:
         global terminate
@@ -49,9 +34,10 @@ def on_press(key):
         return False
 
     global current_actions
-    if key in action_table:
-        if action_table[key] not in current_actions:
-            current_actions.append(action_table[key])
+    action = key_to_action(key)
+    if action is not None:
+        if action not in current_actions:
+            current_actions.append(action)
 
     global store_landmark
     if key == Key.enter:
@@ -64,14 +50,24 @@ def on_press(key):
             log.info('Switch to policy %d (%r)', t, k)
 
 
+# noinspection PyCallingNonCallable
 def on_release(key):
     global current_actions
-    if key in action_table:
-        if action_table[key] in current_actions:
-            current_actions.remove(action_table[key])
+    action = key_to_action(key)
+    if action is not None:
+        if action in current_actions:
+            current_actions.remove(action)
 
 
 def play_and_visualize(params, env_id):
+    global key_to_action
+    if 'dmlab' in env_id:
+        key_to_action = play_dmlab.key_to_action
+    elif 'atari' in env_id:
+        key_to_action = atari_utils.key_to_action
+    else:
+        raise Exception('Unknown env')
+
     def make_env_func():
         e = create_env(env_id, mode='test')
         e.seed(0)
@@ -98,20 +94,18 @@ def play_and_visualize(params, env_id):
     current_landmark_frame = frame
     idle_frames = 0
     deliberate_actions = 0
-    action = 0
 
     while not terminate:
         if done:
             obs = env.reset()
-            action = 0
 
         env.render()
 
         if len(current_actions) > 0:
             # key combinations are not handled, but this is purely for testing
-            action_name = current_actions[-1]
+            action = current_actions[-1]
         else:
-            action_name = 'NOOP'
+            action = 0
 
         if policy_type == PolicyType.RANDOM:
             action = env.action_space.sample()
@@ -130,7 +124,6 @@ def play_and_visualize(params, env_id):
         elif policy_type == PolicyType.LOCOMOTION:
             action = agent.locomotion.navigate(agent.session, [obs], [current_landmark], deterministic=True)
         else:
-            action = action_name_to_action(action_name)
             idle_frames = 0
 
         obs, reward, done, info = env.step(action)
@@ -145,7 +138,7 @@ def play_and_visualize(params, env_id):
             store_landmark = False
 
         if frame % 1 == 0:
-            distances = agent.distance.get_distances(
+            distances = agent.reachability.distances(
                 agent.session, [current_landmark, obs], [obs, obs],
             )
             log.info(

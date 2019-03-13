@@ -1,10 +1,39 @@
 import gym
+from gym.envs.atari.atari_env import ACTION_MEANING
+from pynput.keyboard import Key
 
 from algorithms.env_wrappers import ResizeWrapper, ClipRewardWrapper
 from utils.envs.atari.atari_wrappers import StickyActionWrapper, MaxAndSkipWrapper, AtariVisitedRoomsInfoWrapper, \
     RenderWrapper, OneLifeWrapper
+from utils.utils import log
 
 ATARI_W = ATARI_H = 84
+
+
+def action_name_to_action(action_name):
+    for action, name in ACTION_MEANING.items():
+        if name == action_name:
+            return action
+
+    log.warning('Unknown action %s', action_name)
+    return None
+
+
+action_table = {
+    Key.space: 'FIRE',
+    Key.up: 'UP',
+    Key.down: 'DOWN',
+    Key.left: 'LEFT',
+    Key.right: 'RIGHT',
+}
+
+
+def key_to_action(key):
+    if key not in action_table:
+        return None
+
+    action_name = action_table[key]
+    return action_name_to_action(action_name)
 
 
 class AtariCfg:
