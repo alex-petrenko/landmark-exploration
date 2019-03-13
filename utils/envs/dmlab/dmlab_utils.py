@@ -13,6 +13,7 @@ DMLAB_ENVS = [
     DmLabCfg(
         'dmlab_very_sparse', 'contributed/dmlab30/explore_goal_locations_large', extra_cfg={'minGoalDistance': '10'},
     ),
+    DmLabCfg('dmlab_sparse_doors', 'contributed/dmlab30/explore_obstructed_goals_large'),
 ]
 
 

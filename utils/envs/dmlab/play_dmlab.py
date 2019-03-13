@@ -37,7 +37,7 @@ def on_release(key):
 
 
 def play():
-    env = make_dmlab_env(dmlab_env_by_name('dmlab_sparse'), mode='test')
+    env = make_dmlab_env(dmlab_env_by_name('dmlab_sparse_doors'), mode='test')
     env.seed(0)
     env.reset()
 

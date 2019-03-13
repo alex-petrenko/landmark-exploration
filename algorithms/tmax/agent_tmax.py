@@ -30,9 +30,8 @@ from utils.utils import log, AttrDict, numpy_all_the_way, min_with_idx
 
 
 class ActorCritic:
-    def __init__(self, env, ph_observations, ph_intentions, params):
+    def __init__(self, env, ph_observations, params):
         self.ph_observations = ph_observations
-        self.ph_intentions = ph_intentions
 
         # placeholders for the topological map
         self.ph_neighbors, self.ph_num_neighbors = None, None
@@ -62,8 +61,7 @@ class ActorCritic:
             self.ph_neighbors = None
             act_obs_and_neighborhoods = act_encoded_obs
 
-        actor_all_input = tf.concat([act_obs_and_neighborhoods, ph_intentions], axis=1)
-        actor_model = make_model(actor_all_input, reg, params, 'act_mdl')
+        actor_model = make_model(act_obs_and_neighborhoods, reg, params, 'act_mdl')
 
         actions_fc = dense(actor_model.latent, params.model_fc_size // 2, reg)
         action_logits = tf.contrib.layers.fully_connected(actions_fc, self.num_actions, activation_fn=None)
@@ -87,33 +85,32 @@ class ActorCritic:
         else:
             value_obs_and_neighborhoods = value_encoded_obs
 
-        value_all_input = tf.concat([value_obs_and_neighborhoods, ph_intentions], axis=1)
-        value_model = make_model(value_all_input, reg, params, 'val_mdl')
+        value_model = make_model(value_obs_and_neighborhoods, reg, params, 'val_mdl')
 
         value_fc = dense(value_model.latent, params.model_fc_size // 2, reg)
         self.value = tf.squeeze(tf.contrib.layers.fully_connected(value_fc, 1, activation_fn=None), axis=[1])
 
         log.info('Total parameters so far: %d', count_total_parameters())
 
-    def input_dict(self, observations, neighbors_encoded, num_neighbors, intentions):
-        feed_dict = {self.ph_observations: observations, self.ph_intentions: intentions}
+    def input_dict(self, observations, neighbors_encoded, num_neighbors):
+        feed_dict = {self.ph_observations: observations}
         if self.ph_neighbors is not None and self.ph_num_neighbors is not None:
             feed_dict[self.ph_neighbors] = neighbors_encoded
             feed_dict[self.ph_num_neighbors] = num_neighbors
         return feed_dict
 
-    def invoke(self, session, observations, neighbors_encoded, num_neighbors, intentions, deterministic=False):
+    def invoke(self, session, observations, neighbors_encoded, num_neighbors, deterministic=False):
         ops = [
             self.best_action_deterministic if deterministic else self.act,
             self.action_prob,
             self.value,
         ]
-        feed_dict = self.input_dict(observations, neighbors_encoded, num_neighbors, intentions)
+        feed_dict = self.input_dict(observations, neighbors_encoded, num_neighbors)
         actions, action_prob, values = session.run(ops, feed_dict=feed_dict)
         return actions, action_prob, values
 
-    def best_action(self, session, observations, neighbors_encoded, num_neighbors, intentions, deterministic=False):
-        feed_dict = self.input_dict(observations, neighbors_encoded, num_neighbors, intentions)
+    def best_action(self, session, observations, neighbors_encoded, num_neighbors, deterministic=False):
+        feed_dict = self.input_dict(observations, neighbors_encoded, num_neighbors)
         actions = session.run(self.best_action_deterministic if deterministic else self.act, feed_dict=feed_dict)
         return actions
 
@@ -126,18 +123,16 @@ class TmaxPPOBuffer:
     def __init__(self):
         self.obs = self.actions = self.action_probs = self.rewards = self.dones = self.values = None
         self.neighbors, self.num_neighbors = None, None
-        self.intentions = None
         self.masks = None
         self.advantages = self.returns = None
 
     def reset(self):
         self.obs, self.actions, self.action_probs, self.rewards, self.dones, self.values = [], [], [], [], [], []
         self.neighbors, self.num_neighbors = [], []
-        self.intentions = []
         self.masks = []
         self.advantages = self.returns = None
 
-    def add(self, obs, actions, action_probs, rewards, dones, values, neighbors, num_neighbors, intentions, masks):
+    def add(self, obs, actions, action_probs, rewards, dones, values, neighbors, num_neighbors, masks):
         """Append one-step data to the current batch of observations."""
         args = copy.copy(locals())
         for arg_name, arg_value in args.items():
@@ -184,39 +179,8 @@ class TmaxPPOBuffer:
         assert self.obs.shape[0] == num_batches
         assert self.rewards.shape[0] == num_batches
         assert self.neighbors.shape[0] == num_batches
-        assert self.intentions.shape[0] == num_batches
         assert self.masks.shape[0] == num_batches
         return num_batches
-
-
-class Intention:
-    """The mode of operation: whether we care about only external reward, or only internal reward, or both."""
-    EXTRINSIC_REWARD, INTRINSIC_REWARD = range(2)
-
-    NUM_MODES = 3
-    EXPLORER, CURIOUS, GREEDY = range(NUM_MODES)
-
-    MODES = {
-        EXPLORER: [INTRINSIC_REWARD],
-        CURIOUS: [EXTRINSIC_REWARD, INTRINSIC_REWARD],
-        GREEDY: [EXTRINSIC_REWARD],
-    }
-
-    @classmethod
-    def vector(cls, mode):
-        """Determines what kind of reward the agent should care about."""
-        intention = [0, 0]
-        for reward_type in cls.MODES[mode]:
-            intention[reward_type] = 1
-
-        assert sum(intention) > 0  # having no reward at all does not make sense
-        return intention
-
-    @classmethod
-    def sample_random(cls):
-        modes = [cls.CURIOUS]
-        mode = np.random.randint(0, len(modes))
-        return modes[mode]
 
 
 class TmaxManager:
@@ -237,7 +201,6 @@ class TmaxManager:
             self.params.num_envs, self.params.max_neighborhood_size, agent.encoded_landmark_size,
         ])
         self.maps = None
-        self.intentions = [Intention.sample_random() for _ in range(self.num_envs)]
         self.landmarks_encoder = LandmarksEncoder(agent.actor_critic.encode_landmarks)
 
         self.episode_frames = [0] * self.num_envs
@@ -356,8 +319,6 @@ class TmaxManager:
 
         self._sample_mode(env_i)  # decide what we're going to do now
 
-        self.intentions[env_i] = Intention.sample_random()  # TODO: remove this?
-
         assert self.mode[env_i] is not None
         if self.mode[env_i] == TmaxMode.LOCOMOTION:
             assert self.locomotion_targets[env_i] is not None
@@ -375,7 +336,7 @@ class TmaxManager:
 
         if is_bootstrap:
             # don't bother updating the graph when the reachability net isn't trained yet
-            return bonuses, self.get_intentions()
+            return bonuses
 
         for env_i, m in enumerate(maps):
             self.samples_per_mode[self.mode[env_i]] += 1
@@ -516,7 +477,7 @@ class TmaxManager:
             assert closest_landmark_idx[env_i] >= 0
             self.closest_landmarks[env_i].append(closest_landmark_idx[env_i])
 
-        return bonuses, self.get_intentions()
+        return bonuses
 
     def get_neighbors(self):
         if not self.params.use_neighborhood_encoder:
@@ -562,10 +523,6 @@ class TmaxManager:
             neighbors_buffer[env_idx, neighbor_idx] = self.landmarks_encoder.encoded_landmarks[neighbor_hash]
 
         return neighbors_buffer, num_neighbors
-
-    def get_intentions(self):
-        intentions = [Intention.vector(intention) for intention in self.intentions]
-        return intentions
 
 
 class AgentTMAX(AgentLearner):
@@ -655,9 +612,7 @@ class AgentTMAX(AgentLearner):
         self.ph_advantages, self.ph_returns, self.ph_old_action_probs = placeholders(None, None, None)
         self.ph_masks = placeholder(None, tf.int32)  # to mask experience that does not come from RL policy
 
-        self.ph_intentions = placeholder(2)  # 3 possible intentions (0, 1), (1, 1), and (1, 0)
-
-        self.actor_critic = ActorCritic(env, self.ph_observations, self.ph_intentions, self.params)
+        self.actor_critic = ActorCritic(env, self.ph_observations, self.params)
 
         self.reachability = ReachabilityNetwork(env, params)
         self.locomotion = LocomotionNetwork(env, params)
@@ -911,13 +866,12 @@ class AgentTMAX(AgentLearner):
 
     def best_action(self, observations, deterministic=False):
         neighbors, num_neighbors = self.tmax_mgr.get_neighbors()
-        intentions = self.tmax_mgr.get_intentions()
         actions = self.actor_critic.best_action(
-            self.session, observations, neighbors, num_neighbors, intentions, deterministic,
+            self.session, observations, neighbors, num_neighbors, deterministic,
         )
         return actions[0]
 
-    def _policy_step(self, observations, neighbors, num_neighbors, intentions, is_bootstrap):
+    def _policy_step(self, observations, neighbors, num_neighbors, is_bootstrap):
         """Run exploration or locomotion policy depending on the state of the particular environment."""
         tmax_mgr = self.tmax_mgr
         num_envs = len(observations)
@@ -929,7 +883,6 @@ class AgentTMAX(AgentLearner):
         assert total_num_indices == num_envs
 
         observations = np.asarray(observations)
-        intentions = np.asarray(intentions)
         if neighbors is not None:
             neighbors = np.asarray(neighbors)
             num_neighbors = np.asarray(num_neighbors)
@@ -978,8 +931,7 @@ class AgentTMAX(AgentLearner):
                     neighbors_policy = neighbors[non_idle_i]
                     num_neighbors_policy = num_neighbors[non_idle_i]
                 actions[non_idle_i], action_probs[non_idle_i], values[non_idle_i] = self.actor_critic.invoke(
-                    self.session, observations[non_idle_i], neighbors_policy, num_neighbors_policy,
-                    intentions[non_idle_i], deterministic=False,
+                    self.session, observations[non_idle_i], neighbors_policy, num_neighbors_policy, deterministic=False,
                 )
 
         env_i = env_indices[TmaxMode.LOCOMOTION]
@@ -999,7 +951,7 @@ class AgentTMAX(AgentLearner):
                 neighbors_policy = neighbors[env_i]
                 num_neighbors_policy = num_neighbors[env_i]
             actions[env_i], action_probs[env_i], values[env_i] = self.actor_critic.invoke(
-                self.session, observations[env_i], neighbors_policy, num_neighbors_policy, intentions[env_i],
+                self.session, observations[env_i], neighbors_policy, num_neighbors_policy,
             )
             for env_index in env_i:
                 tmax_mgr.deliberate_action[env_index] = True
@@ -1022,7 +974,7 @@ class AgentTMAX(AgentLearner):
                 summaries = [self.actor_summaries] if with_summaries else []
 
                 policy_input = self.actor_critic.input_dict(
-                    buffer.obs[i], buffer.neighbors[i], buffer.num_neighbors[i], buffer.intentions[i],
+                    buffer.obs[i], buffer.neighbors[i], buffer.num_neighbors[i],
                 )
 
                 result = self.session.run(
@@ -1076,7 +1028,7 @@ class AgentTMAX(AgentLearner):
                 summaries = [self.critic_summaries] if with_summaries else []
 
                 policy_input = self.actor_critic.input_dict(
-                    buffer.obs[i], buffer.neighbors[i], buffer.num_neighbors[i], buffer.intentions[i],
+                    buffer.obs[i], buffer.neighbors[i], buffer.num_neighbors[i],
                 )
 
                 result = self.session.run(
@@ -1217,14 +1169,12 @@ class AgentTMAX(AgentLearner):
             prev_loss = avg_loss
 
     @staticmethod
-    def _combine_rewards(num_envs, extrinsic, intrinsic, intentions):
+    def _combine_rewards(num_envs, extrinsic, intrinsic):
         per_frame_reward = -0.001
         rewards = [per_frame_reward] * num_envs
 
         for env_idx in range(num_envs):
-            intention = intentions[env_idx]
-            rewards[env_idx] += extrinsic[env_idx] * intention[Intention.EXTRINSIC_REWARD]
-            rewards[env_idx] += intrinsic[env_idx] * intention[Intention.INTRINSIC_REWARD]
+            rewards[env_idx] += extrinsic[env_idx] + intrinsic[env_idx]
 
         return rewards
 
@@ -1241,7 +1191,6 @@ class AgentTMAX(AgentLearner):
 
         tmax_mgr = self.tmax_mgr
         tmax_mgr.initialize(observations)
-        intentions = tmax_mgr.get_intentions()
         bonuses = [0] * multi_env.num_envs
 
         def end_of_training(s, es):
@@ -1258,22 +1207,21 @@ class AgentTMAX(AgentLearner):
                 for rollout_step in range(self.params.rollout):
                     neighbors, num_neigh = self.tmax_mgr.get_neighbors()
                     actions, action_probs, values, masks = self._policy_step(
-                        observations, neighbors, num_neigh, intentions, is_bootstrap,
+                        observations, neighbors, num_neigh, is_bootstrap,
                     )
 
                     # wait for all the workers to complete an environment step
                     new_observations, rewards, dones, infos = multi_env.step(actions)
 
                     trajectory_buffer.add(observations, actions, dones, tmax_mgr)
-                    bonuses, intentions = tmax_mgr.update(new_observations, dones, is_bootstrap)
-                    rewards = self._combine_rewards(multi_env.num_envs, rewards, bonuses, intentions)
+                    bonuses = tmax_mgr.update(new_observations, dones, is_bootstrap)
+                    rewards = self._combine_rewards(multi_env.num_envs, rewards, bonuses)
 
                     # add experience from all environments to the current buffer(s)
                     buffer.add(
                         observations, actions, action_probs,
                         rewards, dones, values,
                         neighbors, num_neigh,
-                        intentions,
                         masks,
                     )
                     observations = new_observations
@@ -1282,7 +1230,7 @@ class AgentTMAX(AgentLearner):
 
                 # last step values are required for TD-return calculation
                 neighbors, num_neigh = tmax_mgr.get_neighbors()
-                _, _, values, _ = self._policy_step(observations, neighbors, num_neigh, intentions, is_bootstrap)
+                _, _, values, _ = self._policy_step(observations, neighbors, num_neigh, is_bootstrap)
                 buffer.values.append(values)
 
             env_steps += num_steps
