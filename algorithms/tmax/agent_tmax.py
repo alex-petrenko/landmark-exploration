@@ -10,6 +10,7 @@ from tensorflow.contrib import slim
 
 from algorithms.agent import AgentLearner, TrainStatus
 from algorithms.algo_utils import calculate_gae, EPS, num_env_steps
+from algorithms.baselines.ppo.agent_ppo import PPOBuffer
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import get_observation_space
 from algorithms.models import make_model
@@ -119,68 +120,22 @@ class ActorCritic:
         return session.run(self.encoded_obs, feed_dict={self.ph_observations: landmarks})
 
 
-class TmaxPPOBuffer:
+class TmaxPPOBuffer(PPOBuffer):
     def __init__(self):
-        self.obs = self.actions = self.action_probs = self.rewards = self.dones = self.values = None
+        super(TmaxPPOBuffer, self).__init__()
         self.neighbors, self.num_neighbors = None, None
         self.masks = None
-        self.advantages = self.returns = None
 
     def reset(self):
-        self.obs, self.actions, self.action_probs, self.rewards, self.dones, self.values = [], [], [], [], [], []
+        super(TmaxPPOBuffer, self).reset()
         self.neighbors, self.num_neighbors = [], []
         self.masks = []
-        self.advantages = self.returns = None
 
+    # noinspection PyMethodOverriding
     def add(self, obs, actions, action_probs, rewards, dones, values, neighbors, num_neighbors, masks):
         """Append one-step data to the current batch of observations."""
         args = copy.copy(locals())
-        for arg_name, arg_value in args.items():
-            if arg_name in self.__dict__ and arg_value is not None:
-                self.__dict__[arg_name].append(arg_value)
-
-    def finalize_batch(self, gamma, gae_lambda):
-        # convert everything in the buffer into numpy arrays
-        for item, x in self.__dict__.items():
-            if x is None:
-                continue
-            self.__dict__[item] = np.asarray(x)
-
-        # calculate discounted returns and GAE
-        self.advantages, self.returns = calculate_gae(self.rewards, self.dones, self.values, gamma, gae_lambda)
-
-        # values vector has one extra last value that we don't need
-        self.values = self.values[:-1]
-        assert self.values.shape == self.advantages.shape
-
-    def generate_batches(self, batch_size):
-        num_transitions = self.obs.shape[0] * self.obs.shape[1]
-        if num_transitions % batch_size != 0:
-            raise Exception(f'Batch size {batch_size} does not divide experience size {num_transitions}')
-
-        chaos = np.random.permutation(num_transitions)
-        num_batches = num_transitions // batch_size
-
-        for item, x in self.__dict__.items():
-            if x is None:
-                continue
-
-            if x.size == 0 or len(x.shape) < 2:
-                # "fake" batch data to simplify the code downstream
-                self.__dict__[item] = np.array([None] * num_batches)  # each "batch" will just contain a None value
-                continue
-
-            data_shape = x.shape[2:]
-            x = x.reshape((num_transitions,) + data_shape)  # collapse [rollout, num_envs] into one dimension
-            x = x[chaos]
-            x = x.reshape((-1, batch_size) + data_shape)  # split into batches
-            self.__dict__[item] = x
-
-        assert self.obs.shape[0] == num_batches
-        assert self.rewards.shape[0] == num_batches
-        assert self.neighbors.shape[0] == num_batches
-        assert self.masks.shape[0] == num_batches
-        return num_batches
+        super(TmaxPPOBuffer, self)._add_args(args)
 
 
 class TmaxManager:
@@ -220,12 +175,10 @@ class TmaxManager:
         self.idle_frames = [0] * self.num_envs
         self.action_frames = [np.random.randint(1, 3) for _ in range(self.num_envs)]
 
-        self.deliberate_action = [False] * self.num_envs
+        self.deliberate_action = [True] * self.num_envs
 
         self.samples_per_mode = {
-            TmaxMode.EXPLORATION: 0,
-            TmaxMode.LOCOMOTION: 0,
-            TmaxMode.SEARCH: 0,
+            TmaxMode.EXPLORATION: 0, TmaxMode.LOCOMOTION: 0, TmaxMode.IDLE_EXPLORATION: 0,
         }
 
         self.max_landmark_distance = [0.0] * self.num_envs
@@ -248,7 +201,7 @@ class TmaxManager:
             self._log_verbose('Env %d reachability: %r', env_i, neighbor_distance)
 
     def _sample_mode(self, env_i):
-        modes = [TmaxMode.SEARCH]
+        modes = [TmaxMode.EXPLORATION]
 
         # neighbor_indices = self.maps[env_i].neighbor_indices()
         # if len(neighbor_indices) > 1:
@@ -307,13 +260,11 @@ class TmaxManager:
         self.idle_frames[env_i] = 0
         self.action_frames[env_i] = np.random.randint(1, 3)
 
-        if random.random() < 0.5:  # (TODO! there must be a better policy)
-            # reset graph with some probability
-            m.reset(obs)  # reset graph
+        m.reset(obs)  # reset graph
 
         self.episode_frames[env_i] = 0
 
-        m.curr_landmark_idx = 0  # TODO! proper localization? we're assuming start in exact same place
+        m.curr_landmark_idx = 0  # TODO! proper localization? we're assuming start at 0th landmark
         self.closest_landmarks[env_i] = [m.curr_landmark_idx]
         self.new_landmark_candidate_frames[env_i] = 0
 
@@ -324,7 +275,7 @@ class TmaxManager:
             assert self.locomotion_targets[env_i] is not None
 
     def update(self, obs, dones, is_bootstrap=False, verbose=False):
-        """Omnipotent function for the management of topological maps and policy modes."""
+        """Omnipotent function for the management of topological maps and policy modes, as well as localization."""
         self._verbose = verbose
         self._is_bootstrap = is_bootstrap
         maps = self.maps
@@ -401,7 +352,7 @@ class TmaxManager:
         del current_obs
 
         # Agents in some environments discovered landmarks that are far away from all landmarks in the immediate
-        # neighborhood. There are two possibilities:
+        # vicinity. There are two possibilities:
         # 1) A new landmark should be created and added to the graph
         # 2) We're close to some other vertex in the graph - we've found a "loop closure", a new edge in a graph
 
@@ -578,7 +529,7 @@ class AgentTMAX(AgentLearner):
             self.locomotion_train_epochs = 1
             self.locomotion_batch_size = 256
 
-            self.bootstrap_env_steps = 2000 * 1000
+            self.bootstrap_env_steps = 1000 * 1000
 
             self.gif_save_rate = 100  # number of seconds to wait before saving another gif to tensorboard
             self.gif_summary_num_envs = 2
@@ -847,7 +798,7 @@ class AgentTMAX(AgentLearner):
         num_envs = self.params.gif_summary_num_envs
 
         trajectories = [
-            numpy_all_the_way(t.obs)[:, :, :, -1] for t in trajectory_buffer.complete_trajectories[:num_envs]
+            numpy_all_the_way(t.obs)[:, :, :, -3:] for t in trajectory_buffer.complete_trajectories[:num_envs]
         ]
         self._write_gif_summaries(tag='obs_trajectories', gif_images=trajectories, step=env_steps)
 
@@ -876,7 +827,7 @@ class AgentTMAX(AgentLearner):
         tmax_mgr = self.tmax_mgr
         num_envs = len(observations)
 
-        env_indices = {TmaxMode.EXPLORATION: [], TmaxMode.LOCOMOTION: [], TmaxMode.SEARCH: []}
+        env_indices = {TmaxMode.IDLE_EXPLORATION: [], TmaxMode.LOCOMOTION: [], TmaxMode.EXPLORATION: []}
         for env_i, mode in enumerate(tmax_mgr.mode):
             env_indices[mode].append(env_i)
         total_num_indices = sum(len(v) for v in env_indices.values())
@@ -892,8 +843,8 @@ class AgentTMAX(AgentLearner):
         values = np.zeros(num_envs, np.float32)
         masks = np.zeros(num_envs, np.int32)
 
-        # EXPLORATION policy (explore + idle) is used only for Montezuma
-        env_i = env_indices[TmaxMode.EXPLORATION]
+        # IDLE_EXPLORATION policy (explore + idle) is used only for Montezuma
+        env_i = env_indices[TmaxMode.IDLE_EXPLORATION]
         if len(env_i) > 0:
             masks[env_i] = 0  # don't train with ppo
 
@@ -943,7 +894,7 @@ class AgentTMAX(AgentLearner):
             for env_index in env_i:
                 tmax_mgr.deliberate_action[env_index] = True
 
-        env_i = env_indices[TmaxMode.SEARCH]
+        env_i = env_indices[TmaxMode.EXPLORATION]
         if len(env_i) > 0:
             masks[env_i] = 1
             neighbors_policy = num_neighbors_policy = None
@@ -965,26 +916,28 @@ class AgentTMAX(AgentLearner):
 
         kl_running_avg = 0.0
         early_stop = False
-        for epoch in range(self.params.ppo_epochs):
-            num_batches = buffer.generate_batches(self.params.batch_size)
-            total_num_steps = self.params.ppo_epochs * num_batches
 
-            for i in range(num_batches):
+        for epoch in range(self.params.ppo_epochs):
+            buffer.shuffle()
+
+            for i in range(0, len(buffer), self.params.batch_size):
                 with_summaries = self._should_write_summaries(actor_step) and summary is None
                 summaries = [self.actor_summaries] if with_summaries else []
 
+                start, end = i, i + self.params.batch_size
+
                 policy_input = self.actor_critic.input_dict(
-                    buffer.obs[i], buffer.neighbors[i], buffer.num_neighbors[i],
+                    buffer.obs[start:end], buffer.neighbors[start:end], buffer.num_neighbors[start:end],
                 )
 
                 result = self.session.run(
                     [self.objectives.sample_kl, self.train_actor] + summaries,
                     feed_dict={
-                        self.ph_actions: buffer.actions[i],
-                        self.ph_old_action_probs: buffer.action_probs[i],
-                        self.ph_advantages: buffer.advantages[i],
-                        self.ph_returns: buffer.returns[i],
-                        self.ph_masks: buffer.masks[i],
+                        self.ph_actions: buffer.actions[start:end],
+                        self.ph_old_action_probs: buffer.action_probs[start:end],
+                        self.ph_advantages: buffer.advantages[start:end],
+                        self.ph_returns: buffer.returns[start:end],
+                        self.ph_masks: buffer.masks[start:end],
                         **policy_input,
                     }
                 )
@@ -1002,7 +955,7 @@ class AgentTMAX(AgentLearner):
                 if kl_running_avg > self.params.target_kl:
                     log.info(
                         'Early stopping after %d/%d steps because of high KL divergence %f > %f',
-                        epoch * num_batches + i, total_num_steps, sample_kl, self.params.target_kl,
+                        epoch + 1, self.params.ppo_epochs, sample_kl, self.params.target_kl,
                     )
                     early_stop = True
                     break
@@ -1021,21 +974,23 @@ class AgentTMAX(AgentLearner):
         prev_loss = 1e10
         for epoch in range(self.params.ppo_epochs):
             losses = []
-            num_batches = buffer.generate_batches(self.params.batch_size)
+            buffer.shuffle()
 
-            for i in range(num_batches):
+            for i in range(0, len(buffer), self.params.batch_size):
                 with_summaries = self._should_write_summaries(critic_step) and summary is None
                 summaries = [self.critic_summaries] if with_summaries else []
 
+                start, end = i, i + self.params.batch_size
+
                 policy_input = self.actor_critic.input_dict(
-                    buffer.obs[i], buffer.neighbors[i], buffer.num_neighbors[i],
+                    buffer.obs[start:end], buffer.neighbors[start:end], buffer.num_neighbors[start:end],
                 )
 
                 result = self.session.run(
                     [self.objectives.critic_loss, self.train_critic] + summaries,
                     feed_dict={
-                        self.ph_returns: buffer.returns[i],
-                        self.ph_masks: buffer.masks[i],
+                        self.ph_returns: buffer.returns[start:end],
+                        self.ph_masks: buffer.masks[start:end],
                         **policy_input
                     },
                 )
@@ -1049,15 +1004,17 @@ class AgentTMAX(AgentLearner):
 
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
-            if avg_loss > 0.995 * prev_loss:
-                log.info('Early stopping after %d epochs because critic did not improve enough', epoch + 1)
+            if avg_loss >= prev_loss:
+                log.info('Early stopping after %d epochs because critic did not improve', epoch + 1)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
             prev_loss = avg_loss
 
-    def _train_actor_critic(self, buffer, env_steps):
-        step = self._train_actor(buffer, env_steps)
-        self._train_critic(buffer, env_steps)
+    def _train_actor_critic(self, buffer, env_steps, timing):
+        with timing.timeit('tr_actor'):
+            step = self._train_actor(buffer, env_steps)
+        with timing.timeit('tr_critic'):
+            self._train_critic(buffer, env_steps)
         return step
 
     def _is_bootstrap(self, env_steps):
@@ -1111,7 +1068,7 @@ class AgentTMAX(AgentLearner):
 
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
-            if avg_loss > prev_loss:
+            if avg_loss >= prev_loss:
                 log.info('Early stopping after %d epochs because reachability did not improve', epoch + 1)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
@@ -1162,7 +1119,7 @@ class AgentTMAX(AgentLearner):
 
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
-            if avg_loss > prev_loss:
+            if avg_loss >= prev_loss:
                 log.info('Early stopping after %d epochs because locomotion did not improve', epoch)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
@@ -1238,10 +1195,13 @@ class AgentTMAX(AgentLearner):
             # calculate discounted returns and GAE
             buffer.finalize_batch(self.params.gamma, self.params.gae_lambda)
 
+            traj_len, traj_nbytes = trajectory_buffer.obs_size()
+            log.info('Len trajectories %d size %.1fM', traj_len, traj_nbytes / 1e6)
+
             # update actor and critic
             with timing.timeit('train'):
                 if not is_bootstrap:
-                    step = self._train_actor_critic(buffer, env_steps)
+                    step = self._train_actor_critic(buffer, env_steps, timing)
 
             # update reachability net
             with timing.timeit('reach'):

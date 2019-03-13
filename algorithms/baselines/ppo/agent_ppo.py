@@ -1,3 +1,4 @@
+import copy
 import math
 import time
 from functools import partial
@@ -15,6 +16,7 @@ from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     image_summaries_rgb, summary_avg_min_max, merge_summaries
 from utils.distributions import CategoricalProbabilityDistribution
+from utils.timing import Timing
 from utils.utils import log, AttrDict, summaries_dir
 
 
@@ -73,20 +75,21 @@ class PPOBuffer:
         self.obs, self.actions, self.action_probs, self.rewards, self.dones, self.values = [], [], [], [], [], []
         self.advantages = self.returns = None
 
+    def _add_args(self, args):
+        for arg_name, arg_value in args.items():
+            if arg_name in self.__dict__ and arg_value is not None:
+                self.__dict__[arg_name].append(arg_value)
+
     def add(self, obs, actions, action_probs, rewards, dones, values):
-        self.obs.append(obs)
-        self.actions.append(actions)
-        self.action_probs.append(action_probs)
-        self.rewards.append(rewards)
-        self.dones.append(dones)
-        self.values.append(values)
+        args = copy.copy(locals())
+        self._add_args(args)
 
     def finalize_batch(self, gamma, gae_lambda):
         # convert everything in the buffer into numpy arrays
         for item, x in self.__dict__.items():
             if x is None:
                 continue
-            self.__dict__[item] = np.asarray(x, np.float32)
+            self.__dict__[item] = np.asarray(x)  # preserve existing array type (e.g. uint8 for images)
 
         # calculate discounted returns and GAE
         self.advantages, self.returns = calculate_gae(self.rewards, self.dones, self.values, gamma, gae_lambda)
@@ -95,37 +98,28 @@ class PPOBuffer:
         self.values = self.values[:-1]
         assert self.values.shape == self.advantages.shape
 
-    def _generate_batches(self, batch_size):
         num_transitions = self.obs.shape[0] * self.obs.shape[1]
-        if num_transitions % batch_size != 0:
-            raise Exception(f'Batch size {batch_size} does not divide experience size {num_transitions}')
-
-        chaos = np.random.permutation(num_transitions)
-
         for item, x in self.__dict__.items():
             if x is None or x.size == 0:
                 continue
 
             data_shape = x.shape[2:]
-            x = x.reshape((num_transitions,) + data_shape)  # collapse [rollout, num_envs] into one dimension
-            x = x[chaos]
-            x = x.reshape((-1, batch_size) + data_shape)  # split into batches
-            self.__dict__[item] = x
+            # collapse [num_batches, batch_size] into one dimension
+            self.__dict__[item] = x.reshape((num_transitions,) + data_shape)
 
-        num_batches = num_transitions // batch_size
-        assert self.obs.shape[0] == num_batches
-        assert self.rewards.shape[0] == num_batches
-        return num_batches
+    def shuffle(self):
+        """Shuffle all buffers in-place with the same random seed."""
+        rng_state = np.random.get_state()
 
-    def _generate_batches_recurrent(self, batch_size, trajectory_len):
-        # TODO!
-        pass
+        for x in self.__dict__.values():
+            if x is None or x.size == 0:
+                continue
 
-    def generate_batches(self, batch_size, trajectory_len):
-        if trajectory_len <= 1:
-            return self._generate_batches(batch_size)
-        else:
-            return self._generate_batches_recurrent(batch_size, trajectory_len)
+            np.random.set_state(rng_state)
+            np.random.shuffle(x)
+
+    def __len__(self):
+        return len(self.obs)
 
 
 class AgentPPO(AgentLearner):
@@ -190,10 +184,8 @@ class AgentPPO(AgentLearner):
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
 
-        self.obs_shape = list(get_observation_space(env).shape)
-        input_shape = [None] + self.obs_shape  # add batch dimension
-        self.obs_shape = [-1] + self.obs_shape
-        self.ph_observations = tf.placeholder(tf.float32, shape=input_shape)
+        self.obs_shape = [-1] + list(get_observation_space(env).shape)
+        self.ph_observations = placeholder_from_space(get_observation_space(env))
         self.ph_actions = placeholder_from_space(env.action_space)  # actions sampled from the policy
         self.ph_advantages, self.ph_returns, self.ph_old_action_probs = placeholders(None, None, None)
 
@@ -314,8 +306,7 @@ class AgentPPO(AgentLearner):
     def _maybe_print(self, step, avg_rewards, avg_length, fps, t):
         log.info('<====== Step %d ======>', step)
         log.info('Avg FPS: %.1f', fps)
-        log.info('Experience for batch took %.3f sec (%.1f batches/s)', t.experience, 1.0 / t.experience)
-        log.info('Train step for batch took %.3f sec (%.1f batches/s)', t.train, 1.0 / t.train)
+        log.info('Timing: %s', t)
 
         if math.isnan(avg_rewards) or math.isnan(avg_length):
             return
@@ -350,29 +341,31 @@ class AgentPPO(AgentLearner):
         actions = self.actor_critic.best_action(self.session, observation, deterministic)
         return actions[0]
 
-    def _train_actor(self, buffer, env_steps, trajectory_length):
+    def _train_actor(self, buffer, env_steps):
         # train actor for multiple epochs on all collected experience
         summary = None
         actor_step = self.actor_step.eval(session=self.session)
 
         kl_running_avg = 0.0
         early_stop = False
-        for epoch in range(self.params.ppo_epochs):
-            num_batches = buffer.generate_batches(self.params.batch_size, trajectory_length)
-            total_num_steps = self.params.ppo_epochs * num_batches
 
-            for i in range(num_batches):
+        for epoch in range(self.params.ppo_epochs):
+            buffer.shuffle()
+
+            for i in range(0, len(buffer), self.params.batch_size):
                 with_summaries = self._should_write_summaries(actor_step) and summary is None
                 summaries = [self.actor_summaries] if with_summaries else []
+
+                start, end = i, i + self.params.batch_size
 
                 result = self.session.run(
                     [self.objectives.sample_kl, self.train_actor] + summaries,
                     feed_dict={
-                        self.ph_observations: buffer.obs[i],
-                        self.ph_actions: buffer.actions[i],
-                        self.ph_old_action_probs: buffer.action_probs[i],
-                        self.ph_advantages: buffer.advantages[i],
-                        self.ph_returns: buffer.returns[i],
+                        self.ph_observations: buffer.obs[start:end],
+                        self.ph_actions: buffer.actions[start:end],
+                        self.ph_old_action_probs: buffer.action_probs[start:end],
+                        self.ph_advantages: buffer.advantages[start:end],
+                        self.ph_returns: buffer.returns[start:end],
                     }
                 )
 
@@ -388,38 +381,39 @@ class AgentPPO(AgentLearner):
 
                 if kl_running_avg > self.params.target_kl:
                     log.info(
-                        'Early stopping after %d/%d steps because of high KL divergence %f > %f',
-                        epoch * num_batches + i, total_num_steps, sample_kl, self.params.target_kl,
+                        'Early stopping after %d/%d epochs because of high KL divergence %f > %f',
+                        epoch + 1, self.params.ppo_epochs, sample_kl, self.params.target_kl,
                     )
                     early_stop = True
                     break
 
             if early_stop:
-                log.info('Early stopping after %d of %d epochs...', epoch, self.params.ppo_epochs)
+                log.info('Early stopping after %d of %d epochs...', epoch + 1, self.params.ppo_epochs)
                 break
 
         return actor_step
 
-    def _train_critic(self, buffer, env_steps, trajectory_length):
+    def _train_critic(self, buffer, env_steps):
         # train critic
         summary = None
         critic_step = self.critic_step.eval(session=self.session)
 
         prev_loss = 1e10
-        losses = []
-
         for epoch in range(self.params.ppo_epochs):
-            num_batches = buffer.generate_batches(self.params.batch_size, trajectory_length)
+            losses = []
+            buffer.shuffle()
 
-            for i in range(num_batches):
+            for i in range(0, len(buffer), self.params.batch_size):
                 with_summaries = self._should_write_summaries(critic_step) and summary is None
                 summaries = [self.critic_summaries] if with_summaries else []
+
+                start, end = i, i + self.params.batch_size
 
                 result = self.session.run(
                     [self.objectives.critic_loss, self.train_critic] + summaries,
                     feed_dict={
-                        self.ph_observations: buffer.obs[i],
-                        self.ph_returns: buffer.returns[i],
+                        self.ph_observations: buffer.obs[start:end],
+                        self.ph_returns: buffer.returns[start:end],
                     }
                 )
 
@@ -432,16 +426,17 @@ class AgentPPO(AgentLearner):
 
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
-            if avg_loss > 0.995 * prev_loss:
-                log.info('Early stopping after %d epochs because critic did not improve enough', epoch)
+            if avg_loss >= prev_loss:
+                log.info('Early stopping after %d epochs because critic did not improve', epoch)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
             prev_loss = avg_loss
 
-    def _train(self, buffer, env_steps):
-        trajectory_length = self.params.rnn_rollout if self.params.model_recurrent else 1
-        step = self._train_actor(buffer, env_steps, trajectory_length)
-        self._train_critic(buffer, env_steps, trajectory_length)
+    def _train(self, buffer, env_steps, timing):
+        with timing.timeit('tr_actor'):
+            step = self._train_actor(buffer, env_steps)
+        with timing.timeit('tr_critic'):
+            self._train_critic(buffer, env_steps)
         return step
 
     def _learn_loop(self, multi_env):
@@ -455,41 +450,42 @@ class AgentPPO(AgentLearner):
             return s >= self.params.train_for_steps or es > self.params.train_for_env_steps
 
         while not end_of_training(step, env_steps):
-            timing = AttrDict({'experience': time.time(), 'rollout': time.time()})
+            timing = Timing()
+            num_steps = 0
+            batch_start = time.time()
+
             buffer.reset()
 
-            # collecting experience
-            num_steps = 0
-            for rollout_step in range(self.params.rollout):
-                actions, action_probs, values = self.actor_critic.invoke(self.session, observations)
+            with timing.timeit('experience'):
+                # collecting experience
+                for rollout_step in range(self.params.rollout):
+                    actions, action_probs, values = self.actor_critic.invoke(self.session, observations)
 
-                # wait for all the workers to complete an environment step
-                new_observation, rewards, dones, infos = multi_env.step(actions)
+                    # wait for all the workers to complete an environment step
+                    new_observation, rewards, dones, infos = multi_env.step(actions)
 
-                # add experience from all environments to the current buffer
-                buffer.add(observations, actions, action_probs, rewards, dones, values)
-                observations = new_observation
+                    # add experience from all environments to the current buffer
+                    buffer.add(observations, actions, action_probs, rewards, dones, values)
+                    observations = new_observation
 
-                num_steps += num_env_steps(infos)
+                    num_steps += num_env_steps(infos)
 
-            # last step values are required for TD-return calculation
-            _, _, values = self.actor_critic.invoke(self.session, observations)
-            buffer.values.append(values)
+                # last step values are required for TD-return calculation
+                _, _, values = self.actor_critic.invoke(self.session, observations)
+                buffer.values.append(values)
 
-            timing.experience = time.time() - timing.experience
             env_steps += num_steps
 
             # calculate discounted returns and GAE
             buffer.finalize_batch(self.params.gamma, self.params.gae_lambda)
 
             # update actor and critic
-            timing.train = time.time()
-            step = self._train(buffer, env_steps)
-            timing.train = time.time() - timing.train
+            with timing.timeit('train'):
+                step = self._train(buffer, env_steps, timing)
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)
-            fps = num_steps / (time.time() - timing.rollout)
+            fps = num_steps / (time.time() - batch_start)
 
             self._maybe_print(step, avg_reward, avg_length, fps, timing)
             self._maybe_aux_summaries(env_steps, avg_reward, avg_length)

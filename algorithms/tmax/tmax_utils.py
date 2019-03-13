@@ -12,10 +12,8 @@ def parse_args_tmax(params_cls):
 
 class TmaxMode:
     """
-    EXPLORATION: explore + idle to train distance metric (for Montezuma, not needed for 3D mazes)
+    EXPLORATION: looking for new landmarks/edges
+    IDLE_EXPLORATION: explore + idle to train distance metric (for Montezuma, not needed for 3D mazes)
     LOCOMOTION: moving between landmarks in the graph
-    SEARCH: looking for new landmarks/edges
-
-    We probably need better names for these.
     """
-    EXPLORATION, LOCOMOTION, SEARCH = range(3)
+    EXPLORATION, LOCOMOTION, IDLE_EXPLORATION = range(3)

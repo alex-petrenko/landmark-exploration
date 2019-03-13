@@ -91,7 +91,7 @@ class LocomotionBuffer:
     def __init__(self, params):
         self.params = params
 
-        self.visualize_trajectories = {TmaxMode.EXPLORATION: None, TmaxMode.LOCOMOTION: None}
+        self.visualize_trajectories = {TmaxMode.IDLE_EXPLORATION: None, TmaxMode.LOCOMOTION: None}
 
         self.obs_curr, self.obs_goal, self.actions = [], [], []
 

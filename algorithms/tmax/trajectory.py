@@ -29,6 +29,12 @@ class Trajectory:
     def __len__(self):
         return len(self.obs)
 
+    def obs_nbytes(self):
+        if len(self) == 0:
+            return 0
+        obs_size = self.obs[0].nbytes
+        return len(self) * obs_size
+
 
 class TrajectoryBuffer:
     """Store trajectories for multiple parallel environments."""
@@ -58,3 +64,12 @@ class TrajectoryBuffer:
                     tmax_mgr.is_landmark[env_idx],
                     tmax_mgr.deliberate_action[env_idx],
                 )
+
+    def obs_size(self):
+        total_len = total_nbytes = 0
+        for traj_buffer in [self.current_trajectories, self.complete_trajectories]:
+            for traj in traj_buffer:
+                total_len += len(traj)
+                total_nbytes += traj.obs_nbytes()
+
+        return total_len, total_nbytes

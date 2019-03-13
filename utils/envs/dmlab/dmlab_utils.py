@@ -5,6 +5,7 @@ class DmLabCfg:
     def __init__(self, name, level, extra_cfg=None):
         self.name = name
         self.level = level
+        self.default_timer = 7200
         self.extra_cfg = {} if extra_cfg is None else extra_cfg
 
 

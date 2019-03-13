@@ -54,11 +54,10 @@ class TestPPO(TestCase):
         buff.values = np.append(buff.values, np.ones((1, num_envs)), axis=0)
 
         buff.finalize_batch(0.999, 0.99)
-        buff.generate_batches(batch_size, trajectory_len=1)
+        buff.shuffle()
 
-        num_batches = (num_envs * rollout) // batch_size
-        self.assertEqual(buff.obs.shape, (num_batches, batch_size, obs_size))
-        self.assertEqual(buff.rewards.shape, (num_batches, batch_size))
+        self.assertEqual(buff.obs.shape, (rollout * num_envs, obs_size))
+        self.assertEqual(buff.rewards.shape, (rollout * num_envs, ))
 
 
 class TestPPOPerformance(TestCase):
