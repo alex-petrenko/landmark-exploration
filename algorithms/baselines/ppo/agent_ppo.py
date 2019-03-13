@@ -432,11 +432,9 @@ class AgentPPO(AgentLearner):
                 break
             prev_loss = avg_loss
 
-    def _train(self, buffer, env_steps, timing):
-        with timing.timeit('tr_actor'):
-            step = self._train_actor(buffer, env_steps)
-        with timing.timeit('tr_critic'):
-            self._train_critic(buffer, env_steps)
+    def _train(self, buffer, env_steps):
+        step = self._train_actor(buffer, env_steps)
+        self._train_critic(buffer, env_steps)
         return step
 
     def _learn_loop(self, multi_env):
@@ -481,7 +479,7 @@ class AgentPPO(AgentLearner):
 
             # update actor and critic
             with timing.timeit('train'):
-                step = self._train(buffer, env_steps, timing)
+                step = self._train(buffer, env_steps)
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)

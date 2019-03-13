@@ -169,7 +169,7 @@ class MultiEnv:
 
         for worker in self.workers:
             worker.task_queue.put((None, MsgType.INIT))
-            time.sleep(0.2)  # just in case
+            time.sleep(0.1)  # just in case
         for worker in self.workers:
             worker.task_queue.join()
         log.info('Envs initialized!')
@@ -275,7 +275,7 @@ class MultiEnv:
         log.info('Stopping multi env...')
         for worker in self.workers:
             worker.task_queue.put((None, MsgType.TERMINATE))
-            time.sleep(0.2)
+            time.sleep(0.1)
         for worker in self.workers:
             worker.process.join()
 

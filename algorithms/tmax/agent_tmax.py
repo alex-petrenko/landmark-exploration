@@ -285,10 +285,6 @@ class TmaxManager:
 
         bonuses = np.zeros([num_envs])
 
-        if is_bootstrap:
-            # don't bother updating the graph when the reachability net isn't trained yet
-            return bonuses
-
         for env_i, m in enumerate(maps):
             self.samples_per_mode[self.mode[env_i]] += 1
 
@@ -298,6 +294,10 @@ class TmaxManager:
             else:
                 self.episode_frames[env_i] += 1
                 self.is_landmark[env_i] = False
+
+        if is_bootstrap:
+            # don't bother updating the graph when the reachability net isn't trained yet
+            return bonuses
 
         # create a batch of all neighborhood observations from all envs for fast processing on GPU
         neighborhood_obs = []
@@ -524,8 +524,8 @@ class AgentTMAX(AgentLearner):
             self.loop_closure_threshold = 0.3  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.2  # reward for finding new vertex or new edge in the topological map
 
-            self.locomotion_max_trajectory = 20  # max trajectory length to be utilized for locomotion training
-            self.locomotion_target_buffer_size = 15000  # target number of (obs, goal, action) tuples to store
+            self.locomotion_max_trajectory = 25  # max trajectory length to be utilized for locomotion training
+            self.locomotion_target_buffer_size = 20000  # target number of (obs, goal, action) tuples to store
             self.locomotion_train_epochs = 1
             self.locomotion_batch_size = 256
 
@@ -787,7 +787,7 @@ class AgentTMAX(AgentLearner):
 
         self.summary_writer.flush()
 
-    def _maybe_trajectory_summaries(self, trajectory_buffer, locomotion_buffer, env_steps):
+    def _maybe_trajectory_summaries(self, trajectory_buffer, env_steps):
         time_since_last = time.time() - self._last_trajectory_summary
         if time_since_last < self.params.gif_save_rate or not trajectory_buffer.complete_trajectories:
             return
@@ -801,18 +801,6 @@ class AgentTMAX(AgentLearner):
             numpy_all_the_way(t.obs)[:, :, :, -3:] for t in trajectory_buffer.complete_trajectories[:num_envs]
         ]
         self._write_gif_summaries(tag='obs_trajectories', gif_images=trajectories, step=env_steps)
-
-        # visualize locomotion network training data
-        trajectory_exploration = locomotion_buffer.visualize_trajectories[TmaxMode.EXPLORATION]
-        if trajectory_exploration is not None:
-            trajectory_exploration = numpy_all_the_way(trajectory_exploration)[:, :, :, -1]
-            self._write_gif_summaries(tag='training_data_expl', gif_images=[trajectory_exploration], step=env_steps)
-
-        trajectory_locomotion = locomotion_buffer.visualize_trajectories[TmaxMode.LOCOMOTION]
-        if trajectory_locomotion is not None:
-            trajectory_locomotion = numpy_all_the_way(trajectory_locomotion)[:, :, :, -1]
-            self._write_gif_summaries(tag='training_data_loco', gif_images=[trajectory_locomotion], step=env_steps)
-
         log.info('Took %.3f seconds to write gif summaries', time.time() - start_gif_summaries)
 
     def best_action(self, observations, deterministic=False):
@@ -1010,11 +998,9 @@ class AgentTMAX(AgentLearner):
                 break
             prev_loss = avg_loss
 
-    def _train_actor_critic(self, buffer, env_steps, timing):
-        with timing.timeit('tr_actor'):
-            step = self._train_actor(buffer, env_steps)
-        with timing.timeit('tr_critic'):
-            self._train_critic(buffer, env_steps)
+    def _train_actor_critic(self, buffer, env_steps):
+        step = self._train_actor(buffer, env_steps)
+        self._train_critic(buffer, env_steps)
         return step
 
     def _is_bootstrap(self, env_steps):
@@ -1034,7 +1020,7 @@ class AgentTMAX(AgentLearner):
         prev_loss = 1e10
         num_epochs = self.params.reachability_train_epochs
         if self._is_bootstrap(env_steps):
-            num_epochs = max(10, num_epochs * 2)  # during bootstrap do more epochs to train faster!
+            num_epochs = max(5, num_epochs * 2)  # during bootstrap do more epochs to train faster!
 
         log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
 
@@ -1074,8 +1060,8 @@ class AgentTMAX(AgentLearner):
                 break
             prev_loss = avg_loss
 
-    def _maybe_train_locomotion(self, buffer, env_steps):
-        if not buffer.has_enough_data():
+    def _maybe_train_locomotion(self, data, env_steps):
+        if not data.has_enough_data():
             return
 
         batch_size = self.params.locomotion_batch_size
@@ -1085,15 +1071,12 @@ class AgentTMAX(AgentLearner):
         prev_loss = 1e10
 
         num_epochs = self.params.locomotion_train_epochs
-        # if self._is_bootstrap(env_steps):
-        #     num_epochs = max(10, num_epochs * 2)  # during bootstrap do more epochs to train faster!
-
-        log.info('Training locomotion %d pairs, batch %d, epochs %d', len(buffer.obs_curr), batch_size, num_epochs)
+        log.info('Training locomotion %d pairs, batch %d, epochs %d', len(data.buffer), batch_size, num_epochs)
 
         for epoch in range(num_epochs):
             losses = []
-            buffer.shuffle_data()
-            obs_curr, obs_goal, actions = buffer.obs_curr, buffer.obs_goal, buffer.actions
+            data.shuffle_data()
+            obs_curr, obs_goal, actions = data.buffer.obs_curr, data.buffer.obs_goal, data.buffer.actions
 
             for i in range(0, len(obs_curr) - 1, batch_size):
                 with_summaries = self._should_write_summaries(loco_step) and summary is None
@@ -1201,7 +1184,7 @@ class AgentTMAX(AgentLearner):
             # update actor and critic
             with timing.timeit('train'):
                 if not is_bootstrap:
-                    step = self._train_actor_critic(buffer, env_steps, timing)
+                    step = self._train_actor_critic(buffer, env_steps)
 
             # update reachability net
             with timing.timeit('reach'):
@@ -1221,7 +1204,7 @@ class AgentTMAX(AgentLearner):
             self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps, bonuses)
             self._maybe_map_summaries(tmax_mgr.maps, env_steps)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
-            self._maybe_trajectory_summaries(trajectory_buffer, locomotion_buffer, env_steps)
+            self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
 
             trajectory_buffer.reset_trajectories()
             # encoder changed, so we need to re-encode all landmarks

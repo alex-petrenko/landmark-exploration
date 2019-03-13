@@ -1,3 +1,4 @@
+from algorithms.env_wrappers import TimeLimitWrapper
 from utils.envs.dmlab.dmlab_gym import DmlabGymEnv
 
 
@@ -31,4 +32,5 @@ def make_dmlab_env(cfg, mode='train'):
         repeat_actions = 1
 
     env = DmlabGymEnv(cfg.level, repeat_actions, cfg.extra_cfg)
+    # env = TimeLimitWrapper(env, 500, 10)
     return env

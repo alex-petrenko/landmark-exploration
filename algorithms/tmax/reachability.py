@@ -1,6 +1,6 @@
 import os
-import shutil
 import time
+import shutil
 from collections import deque
 from os.path import join
 
@@ -146,8 +146,8 @@ class ReachabilityBuffer:
             return
 
         img_folder = vis_dir(self.params.experiment_dir())
-        img_folder = join(img_folder, f'reach_{time.time()}')
-        ensure_dir_exists(img_folder)
+        img_folder = ensure_dir_exists(join(img_folder, 'reach'))
+        img_folder = ensure_dir_exists(join(img_folder, f'reach_{time.time()}'))
 
         def save_images(examples, close_or_far):
             for visualize_i in range(len(examples)):
