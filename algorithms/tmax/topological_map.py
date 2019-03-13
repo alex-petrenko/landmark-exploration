@@ -10,8 +10,10 @@ def hash_observation(o):
 
 
 class TopologicalMap:
-    def __init__(self, initial_obs, verbose=False):
-        self.verbose = verbose
+    def __init__(self, initial_obs, directed_graph, verbose=False):
+        self._verbose = verbose
+        self._directed_graph = directed_graph
+
         self.landmarks = self.hashes = self.adjacency = None
         self.curr_landmark_idx = 0
         self.reset(initial_obs)
@@ -24,7 +26,7 @@ class TopologicalMap:
         self.curr_landmark_idx = 0
 
     def _log_verbose(self, msg, *args):
-        if not self.verbose:
+        if not self._verbose:
             return
         log.debug(msg, *args)
 
@@ -51,6 +53,12 @@ class TopologicalMap:
         self.adjacency[i2].append(i1)
         self._log_verbose('New und. edge %d-%d', i1, i2)
 
+    def _add_edge(self, i1, i2):
+        if self._directed_graph:
+            self._add_directed_edge(i1, i2)
+        else:
+            self._add_undirected_edge(i1, i2)
+
     def set_curr_landmark(self, landmark_idx):
         """Replace current landmark with the given landmark. Create necessary edges if needed."""
 
@@ -59,7 +67,7 @@ class TopologicalMap:
 
         if landmark_idx not in self.adjacency[self.curr_landmark_idx]:
             # create new edges, we found a loop closure!
-            self._add_directed_edge(self.curr_landmark_idx, landmark_idx)
+            self._add_edge(self.curr_landmark_idx, landmark_idx)
 
         self._log_verbose('Change current landmark to %d', landmark_idx)
         self.curr_landmark_idx = landmark_idx
@@ -70,7 +78,7 @@ class TopologicalMap:
         self.hashes.append(hash_observation(obs))
 
         self.adjacency.append([])
-        self._add_directed_edge(self.curr_landmark_idx, new_landmark_idx)
+        self._add_edge(self.curr_landmark_idx, new_landmark_idx)
         assert len(self.adjacency) == len(self.landmarks)
         self._log_verbose('Added new landmark %d', new_landmark_idx)
         return new_landmark_idx

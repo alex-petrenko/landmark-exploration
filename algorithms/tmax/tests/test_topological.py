@@ -15,7 +15,7 @@ class TestGraph(TestCase):
         env = make_doom_env(doom_env_by_name(TEST_ENV_NAME))
         initial_obs = env.reset()
 
-        m = TopologicalMap(initial_obs)
+        m = TopologicalMap(initial_obs, directed_graph=True)
         self.assertEqual(len(m.landmarks), 1)
         self.assertEqual(len(m.adjacency), 1)
         self.assertEqual(len(m.adjacency[m.curr_landmark_idx]), 0)
@@ -37,7 +37,7 @@ class TestGraph(TestCase):
         self.assertEqual(len(m.non_neighbor_indices()), 1)
 
     def test_paths(self):
-        m = TopologicalMap(np.array(0))
+        m = TopologicalMap(np.array(0), directed_graph=True)
 
         for i in range(20):
             m.add_landmark(np.array(0))

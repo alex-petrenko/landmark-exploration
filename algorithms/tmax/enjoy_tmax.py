@@ -63,7 +63,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, fps=1000):
             if pause:
                 continue
 
-            action = agent.best_action([obs], deterministic=True)
+            action = agent.best_action([obs], deterministic=False)
             obs, rew, done, _ = env.step(action)
 
             if not done:

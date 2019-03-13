@@ -184,7 +184,7 @@ class TmaxManager:
         self.max_landmark_distance = [0.0] * self.num_envs
 
     def initialize(self, initial_obs):
-        self.maps = [TopologicalMap(obs) for obs in initial_obs]
+        self.maps = [TopologicalMap(obs, self.params.directed_edges) for obs in initial_obs]
         self.initialized = True
 
     def _log_verbose(self, s, *args):
@@ -401,7 +401,7 @@ class TmaxManager:
                     self._log_verbose('Change current landmark to %d (loop closure)', m.curr_landmark_idx)
                     self._select_locomotion_target(env_i)
 
-                    bonuses[env_i] += self.params.map_expansion_reward // 2  # we found a new edge! Cool!
+                    bonuses[env_i] += self.params.map_expansion_reward  # we found a new edge! Cool!
                     self.max_landmark_distance[env_i] = 0.0
                     self.is_landmark[env_i] = True
             else:
@@ -514,15 +514,16 @@ class AgentTMAX(AgentLearner):
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 128  # size of GRU layer in RNN neighborhood encoder
 
-            self.reachable_threshold = 12  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 30  # num. of frames between obs, such that one is unreachable from the other
+            self.reachable_threshold = 15  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 35  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 80000  # target number of training examples to store
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 256
 
-            self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
+            self.directed_edges = False  # whether to add directed on undirected edges on landmark discovery
+            self.new_landmark_threshold = 0.99  # condition for considering current observation a "new landmark"
             self.loop_closure_threshold = 0.3  # condition for graph loop closure (finding new edge)
-            self.map_expansion_reward = 0.2  # reward for finding new vertex or new edge in the topological map
+            self.map_expansion_reward = 1.0  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 25  # max trajectory length to be utilized for locomotion training
             self.locomotion_target_buffer_size = 20000  # target number of (obs, goal, action) tuples to store
