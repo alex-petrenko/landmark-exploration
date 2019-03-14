@@ -514,8 +514,8 @@ class AgentTMAX(AgentLearner):
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 128  # size of GRU layer in RNN neighborhood encoder
 
-            self.reachable_threshold = 20  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 40  # num. of frames between obs, such that one is unreachable from the other
+            self.reachable_threshold = 8  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 32  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 80000  # target number of training examples to store
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 256
