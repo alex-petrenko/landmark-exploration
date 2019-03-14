@@ -1,12 +1,10 @@
 import time
-import unittest
 from unittest import TestCase
 
 from algorithms.agent import AgentRandom
 from algorithms.algo_utils import num_env_steps
 from algorithms.multi_env import MultiEnv
 from utils.envs.atari.atari_utils import make_atari_env, atari_env_by_name
-from utils.envs.dmlab.dmlab_utils import make_dmlab_env, dmlab_env_by_name
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
 from utils.timing import Timing
 from utils.utils import log
@@ -107,11 +105,12 @@ class TestAtari(TestCase):
 class TestDmlab(TestCase):
     @staticmethod
     def make_env():
+        from utils.envs.dmlab.dmlab_utils import make_dmlab_env, dmlab_env_by_name
         env = make_dmlab_env(dmlab_env_by_name('dmlab_sparse'))
         env.seed(0)
         return env
 
-    def test_dmlab_env(self):
+    def skipped_test_dmlab_env(self):
         self.assertIsNotNone(self.make_env())
 
     def skipped_test_dmlab_performance(self):
