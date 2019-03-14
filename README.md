@@ -25,4 +25,6 @@ sudo apt-get install python3-tk-dbg
 To train PPO on a simple DOOM environment:
 ```
 python -m algorithms.baselines.ppo.train_ppo --env doom_basic --gpu_mem_fraction=0.3
+python -m algorithms.baselines.ppo.train_ppo --env doom_maze --gpu_mem_fraction=0.3
+python -m algorithms.baselines.ppo.train_ppo --env doom_maze_very_sparse --gpu_mem_fraction=0.3
 ```
