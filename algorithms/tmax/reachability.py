@@ -106,9 +106,10 @@ class ReachabilityBuffer:
                         data.add(obs_first=obs[i], obs_second=obs[second_idx], labels=1)
 
         with timing.timeit('add_and_shuffle'):
-            self.buffer.add_buff(data)
-            self.shuffle_data()
-            self.buffer.trim_at(self.params.reachability_target_buffer_size)
+            if len(data) > 0:
+                self.buffer.add_buff(data)
+                self.shuffle_data()
+                self.buffer.trim_at(self.params.reachability_target_buffer_size)
 
         if self.batch_num % 20 == 0:
             with timing.timeit('visualize'):

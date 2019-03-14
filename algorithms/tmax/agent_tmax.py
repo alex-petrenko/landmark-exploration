@@ -516,7 +516,7 @@ class AgentTMAX(AgentLearner):
 
             self.reachable_threshold = 8  # num. of frames between obs, such that one is reachable from the other
             self.unreachable_threshold = 32  # num. of frames between obs, such that one is unreachable from the other
-            self.reachability_target_buffer_size = 80000  # target number of training examples to store
+            self.reachability_target_buffer_size = 90000  # target number of training examples to store
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 256
 
