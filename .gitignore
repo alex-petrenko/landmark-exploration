@@ -115,7 +115,8 @@ train_dir_old/**
 .idea/**/usage.statistics.xml
 .idea/**/dictionaries
 .idea/**/shelf
-
+.idea/landmark-exploration.iml
+.idea/misc.xml
 
 # macOS
 .DS_Store
