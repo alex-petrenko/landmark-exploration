@@ -32,6 +32,6 @@ def make_dmlab_env(cfg, mode='train'):
         repeat_actions = 1
 
     env = DmlabGymEnv(cfg.level, repeat_actions, cfg.extra_cfg)
-    env = TimeLimitWrapper(env, 1800, 0)
+    env = TimeLimitWrapper(env, 900, 0)
     return env
 

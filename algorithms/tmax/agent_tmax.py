@@ -404,7 +404,7 @@ class TmaxManager:
                     bonuses[env_i] += self.params.map_expansion_reward  # we found a new edge! Cool!
                     self.max_landmark_distance[env_i] = 0.0
                     self.is_landmark[env_i] = True
-            else:
+            else:  # TODO: add a threshold
                 # vertex is relatively far away from all vertices in the graph, we've found a new landmark!
                 if self.new_landmark_candidate_frames[env_i] >= 3:
                     new_landmark_idx = m.add_landmark(obs[env_i])
