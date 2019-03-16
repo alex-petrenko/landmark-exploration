@@ -4,7 +4,7 @@ from functools import partial
 
 import tensorflow as tf
 
-from algorithms.algo_utils import num_env_steps, extract_keys
+from algorithms.algo_utils import num_env_steps, extract_keys, maybe_extract_key
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer
 from algorithms.curiosity.curiosity_model import CuriosityModel
 from algorithms.env_wrappers import get_observation_space
@@ -42,6 +42,7 @@ class AgentCuriousPPO(AgentPPO):
             self.clip_bonus = 1
             self.stack_past_frames = 3
             self.forward_fc = 512
+            self.prediction_bonus_coeff = 0.05  # scaling factor for prediction bonus vs env rewards
 
         @staticmethod
         def filename_prefix():
@@ -58,11 +59,14 @@ class AgentCuriousPPO(AgentPPO):
         self._cm = CuriosityModel(
             env, self.ph_observations, self.ph_next_observations, self.ph_actions, params.stack_past_frames,
             params.forward_fc, params=params)
-        self.cm_summaries = merge_summaries(collections=['cm'])
-        self.cm_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='cm_step')
 
         # add ICM loss keys to objective function
         self.objectives.update(self.add_cm_objectives())  # TODO: will this merging overwrite some keys?
+
+        self.add_curiosity_summaries()
+
+        self.cm_summaries = merge_summaries(collections=['cm'])
+        self.cm_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='cm_step')
 
         cm_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='cm_opt')
         self.train_cm = cm_opt.minimize(self.objectives.model_loss, global_step=self.cm_step)
@@ -118,21 +122,27 @@ class AgentCuriousPPO(AgentPPO):
         observations = buffer.obs
         actions = buffer.actions
         next_obs = buffer.next_obs
+        step = self.cm_step.eval(session=self.session)
+        summary = None
 
-        with_summaries = True  # self._should_write_summaries(step)
-        summaries = [self.cm_summaries] if with_summaries else []
-        result = self.session.run(
-            [self.train_cm] + summaries,
-            feed_dict={
-                self.ph_observations: observations,
-                self.ph_next_observations: next_obs,
-                self.ph_actions: actions,
-            },
-        )
+        for i in range(0, len(buffer), self.params.batch_size):
+            with_summaries = self._should_write_summaries(step) and summary is None
+            summaries = [self.cm_summaries] if with_summaries else []
 
-        if with_summaries:
-            summary = result[1]
-            self.summary_writer.add_summary(summary, global_step=env_steps)
+            start, end = i, i + self.params.batch_size
+
+            result = self.session.run(
+                [self.train_cm] + summaries,
+                feed_dict={
+                    self.ph_observations: observations[start:end],
+                    self.ph_next_observations: next_obs[start:end],
+                    self.ph_actions: actions[start:end],
+                },
+            )
+
+            if with_summaries:
+                summary = result[1]
+                self.summary_writer.add_summary(summary, global_step=env_steps)
 
     def _learn_loop(self, multi_env):
         """Main training loop."""
@@ -141,7 +151,7 @@ class AgentCuriousPPO(AgentPPO):
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
         observations = multi_env.reset()
-        img_obs = extract_keys(observations, 'obs')
+        img_obs = maybe_extract_key(observations, 'obs')
         buffer = CuriousPPOBuffer()
 
         def end_of_training(s, es):
@@ -163,7 +173,7 @@ class AgentCuriousPPO(AgentPPO):
                     new_observation, rewards, dones, infos = multi_env.step(actions)
 
                     # calculate curiosity bonus
-                    next_img_obs = extract_keys(new_observation, 'obs')  # TODO: use this for goal and current_obs
+                    next_img_obs = maybe_extract_key(new_observation, 'obs')  # TODO: use this for goal and current_obs
                     bonuses = self._prediction_curiosity_bonus(img_obs, actions, next_img_obs)
                     rewards += bonuses
 
