@@ -85,6 +85,7 @@ class StackFramesWrapper(gym.core.Wrapper):
         self._frames.append(new_observation)
         return self._render_stacked_frames(), reward, done, info
 
+
 class SkipFramesWrapper(gym.core.Wrapper):
     """Wrapper for action repeat over N frames to speed up training."""
 
@@ -92,8 +93,14 @@ class SkipFramesWrapper(gym.core.Wrapper):
         super(SkipFramesWrapper, self).__init__(env)
         self._skip_frames = skip_frames
 
+    def reset(self):
+        return self.env.reset()
+
     def step(self, action):
         done = False
+        info = {}
+        new_observation = None
+
         total_reward, num_frames = 0, 0
         for i in range(self._skip_frames):
             new_observation, reward, done, info = self.env.step(action)
@@ -105,6 +112,7 @@ class SkipFramesWrapper(gym.core.Wrapper):
         info['num_frames'] = num_frames
         return new_observation, total_reward, done, info
 
+
 class SkipAndStackFramesWrapper(StackFramesWrapper):
     """Wrapper for action repeat + stack multiple frames to capture dynamics."""
 
@@ -114,6 +122,7 @@ class SkipAndStackFramesWrapper(StackFramesWrapper):
 
     def step(self, action):
         done = False
+        info = {}
         total_reward, num_frames = 0, 0
         for i in range(self._skip_frames):
             new_observation, reward, done, info = self.env.step(action)
@@ -172,22 +181,33 @@ class ResizeWrapper(gym.core.Wrapper):
 
     def __init__(self, env, w, h, grayscale=True, add_channel_dim=False, area_interpolation=False):
         super(ResizeWrapper, self).__init__(env)
-        low, high = env.observation_space.low.flat[0], env.observation_space.high.flat[0]
 
-        if grayscale:
-            new_shape = [w, h, 1] if add_channel_dim else [w, h]
-        else:
-            channels = env.observation_space.shape[-1]
-            new_shape = [w, h, channels]
-
-        self.add_channel_dim = add_channel_dim
-        self.observation_space = spaces.Box(low, high, shape=new_shape, dtype=env.observation_space.dtype)
         self.w = w
         self.h = h
-        self.interpolation = cv2.INTER_AREA if area_interpolation else cv2.INTER_NEAREST
         self.grayscale = grayscale
+        self.add_channel_dim = add_channel_dim
+        self.interpolation = cv2.INTER_AREA if area_interpolation else cv2.INTER_NEAREST
 
-    def _observation(self, obs):
+        if isinstance(env.observation_space, spaces.Dict):
+            new_spaces = {}
+            for key, space in env.observation_space.spaces.items():
+                new_spaces[key] = self._calc_new_obs_space(space)
+            self.observation_space = spaces.Dict(new_spaces)
+        else:
+            self.observation_space = self._calc_new_obs_space(env.observation_space)
+
+    def _calc_new_obs_space(self, old_space):
+        low, high = old_space.low.flat[0], old_space.high.flat[0]
+
+        if self.grayscale:
+            new_shape = [self.w, self.h, 1] if self.add_channel_dim else [self.w, self.h]
+        else:
+            channels = old_space.shape[-1]
+            new_shape = [self.w, self.h, channels]
+
+        return spaces.Box(low, high, shape=new_shape, dtype=old_space.dtype)
+
+    def _convert_obs(self, obs):
         obs = cv2.resize(obs, (self.w, self.h), interpolation=self.interpolation)
         if self.grayscale:
             obs = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
@@ -196,6 +216,15 @@ class ResizeWrapper(gym.core.Wrapper):
             return obs[:, :, None]  # add new dimension (expected by tensorflow)
         else:
             return obs
+
+    def _observation(self, obs):
+        if isinstance(obs, dict):
+            new_obs = {}
+            for key, value in obs.items():
+                new_obs[key] = self._convert_obs(value)
+            return new_obs
+        else:
+            return self._convert_obs(obs)
 
     def reset(self):
         return self._observation(self.env.reset())

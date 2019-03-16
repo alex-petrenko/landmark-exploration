@@ -2,11 +2,9 @@ import gym
 # noinspection PyUnresolvedReferences
 import vizdoomgym
 
-from algorithms.env_wrappers import ResizeWrapper, StackFramesWrapper, RewardScalingWrapper, \
-    SkipAndStackFramesWrapper, TimeLimitWrapper, RemainingTimeWrapper
+from algorithms.env_wrappers import ResizeWrapper, RewardScalingWrapper, SkipFramesWrapper
 from utils.envs.doom.wrappers.observation_space import SetResolutionWrapper
 from utils.envs.doom.wrappers.step_human_input import StepHumanInput
-
 
 DOOM_W = DOOM_H = 84
 
@@ -17,7 +15,6 @@ class DoomCfg:
         self.env_id = env_id
         self.reward_scaling = reward_scaling
         self.default_timeout = default_timeout
-        self.has_timer = False
 
 
 DOOM_ENVS = [
@@ -25,6 +22,8 @@ DOOM_ENVS = [
     DoomCfg('doom_maze', 'VizdoomMyWayHome-v0', 1.0, 2100),
     DoomCfg('doom_maze_sparse', 'VizdoomMyWayHomeSparse-v0', 1.0, 2100),
     DoomCfg('doom_maze_very_sparse', 'VizdoomMyWayHomeVerySparse-v0', 1.0, 2100),
+
+    DoomCfg('doom_maze_goal', 'VizdoomMyWayHomeGoal-v0', 1.0, 2100),
 ]
 
 
@@ -35,7 +34,7 @@ def doom_env_by_name(name):
     raise Exception('Unknown Doom env')
 
 
-def make_doom_env(doom_cfg, mode='train', has_timer=False, human_input=False):
+def make_doom_env(doom_cfg, mode='train', human_input=False):
     env = gym.make(doom_cfg.env_id)
 
     if human_input:
@@ -48,21 +47,12 @@ def make_doom_env(doom_cfg, mode='train', has_timer=False, human_input=False):
     else:
         env = SetResolutionWrapper(env, '160x120')
 
-    env = ResizeWrapper(env, DOOM_W, DOOM_H)
+    env = ResizeWrapper(env, DOOM_W, DOOM_H, grayscale=False)
 
-    timeout = doom_cfg.default_timeout - 10
-    env = TimeLimitWrapper(env, limit=timeout, random_variation_steps=5)
+    if mode != 'test':
+        env = SkipFramesWrapper(env, skip_frames=4)
 
-    if mode == 'test':
-        # disable action repeat during test time
-        env = StackFramesWrapper(env, stack_past_frames=3)
-    else:
-        # during training we repeat the last action n times and stack the same number of frames to capture dynamics
-        env = SkipAndStackFramesWrapper(env, skip_frames=4, stack_frames=3)
-
-    env = RewardScalingWrapper(env, doom_cfg.reward_scaling)
-
-    if has_timer:
-        env = RemainingTimeWrapper(env)
+    if doom_cfg.reward_scaling != 1.0:
+        env = RewardScalingWrapper(env, doom_cfg.reward_scaling)
 
     return env

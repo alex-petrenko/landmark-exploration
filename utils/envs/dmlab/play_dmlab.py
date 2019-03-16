@@ -38,7 +38,7 @@ def on_release(key):
     global current_actions
     action = key_to_action(key)
     if action is not None:
-        if action not in current_actions:
+        if action in current_actions:
             current_actions.remove(action)
 
 

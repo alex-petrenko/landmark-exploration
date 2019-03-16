@@ -4,7 +4,7 @@ from utils.envs.envs import create_env
 
 
 def main():
-    env = create_env('doom_maze_very_sparse', mode='test')
+    env = create_env('doom_maze_goal', mode='test')
     return env.unwrapped.play_human_mode()
 
 

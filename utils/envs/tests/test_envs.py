@@ -80,6 +80,14 @@ class TestDoom(TestCase):
     def test_doom_env(self):
         self.assertIsNotNone(self.make_env())
 
+    def test_doom_goal_env(self):
+        env = make_doom_env(doom_env_by_name('doom_maze_goal'))
+        self.assertIsNotNone(env)
+        obs = env.reset()
+        self.assertIsInstance(obs, dict)
+        obs, reward, done, info = env.step(0)
+        self.assertIsInstance(obs, dict)
+
     def test_doom_performance(self):
         test_env_performance(self, 'doom')
 
