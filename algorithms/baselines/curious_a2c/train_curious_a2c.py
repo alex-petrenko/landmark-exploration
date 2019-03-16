@@ -1,7 +1,7 @@
 import sys
 
-from algorithms.curious_a2c.agent_curious_a2c import AgentCuriousA2C
-from algorithms.curious_a2c.curious_a2c_utils import *
+from algorithms.baselines.curious_a2c.agent_curious_a2c import AgentCuriousA2C
+from algorithms.baselines.curious_a2c.curious_a2c_utils import parse_args_curious_a2c
 from utils.envs.envs import create_env
 
 

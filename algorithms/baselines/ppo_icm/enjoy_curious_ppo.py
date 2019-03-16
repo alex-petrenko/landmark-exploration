@@ -1,21 +1,21 @@
-import cv2
 import sys
 
-from algorithms.curious_a2c.agent_curious_a2c import AgentCuriousA2C
-from algorithms.curious_a2c.curious_a2c_utils import parse_args_curious_a2c
+import cv2
+
+from algorithms.baselines.ppo.ppo_utils import parse_args_ppo
+from algorithms.baselines.ppo_icm.agent_curious_ppo import AgentCuriousPPO
 from utils.envs.envs import create_env
+from algorithms.exploit import run_policy_loop
 from utils.utils import log
 
-from algorithms.exploit import run_policy_loop
 
-
-def enjoy(params, env_id, max_num_episodes=1000000):
+def enjoy(params, env_id, max_num_episodes=1000000, fps=1500):
     def make_env_func():
         e = create_env(env_id, mode='test')
         e.seed(0)
         return e
 
-    agent = AgentCuriousA2C(make_env_func, params.load())
+    agent = AgentCuriousPPO(make_env_func, params.load())
     env = make_env_func()
 
     # this helps with screen recording
@@ -25,11 +25,11 @@ def enjoy(params, env_id, max_num_episodes=1000000):
         log.info('Press any key to start...')
         cv2.waitKey()
 
-    return run_policy_loop(agent, env, max_num_episodes, fps=1000, deterministic=False)
+    return run_policy_loop(agent, env, max_num_episodes, fps, deterministic=False)
 
 
 def main():
-    args, params = parse_args_curious_a2c(AgentCuriousA2C.Params)
+    args, params = parse_args_ppo(AgentCuriousPPO.Params)
     return enjoy(params, args.env)
 
 

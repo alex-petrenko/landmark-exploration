@@ -4,7 +4,8 @@ import sys
 from algorithms.agent import AgentRandom
 from algorithms.baselines.a2c.agent_a2c import AgentA2C
 from algorithms.baselines.ppo.agent_ppo import AgentPPO
-from algorithms.curious_a2c.agent_curious_a2c import AgentCuriousA2C
+from algorithms.baselines.ppo_icm.agent_curious_ppo import AgentCuriousPPO
+from algorithms.baselines.curious_a2c.agent_curious_a2c import AgentCuriousA2C
 from utils.utils import log, get_experiment_name
 
 
@@ -53,6 +54,8 @@ def parse_model():
         agent_cls = AgentCuriousA2C
     elif args.model == 'random':
         agent_cls = AgentRandom
+    elif args.model == 'curious_ppo':
+        agent_cls = AgentCuriousPPO
     else:
         raise Exception('Unsupported model {0}'.format(args.model))
 

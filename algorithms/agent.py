@@ -6,6 +6,7 @@ import gc
 
 import numpy as np
 import tensorflow as tf
+from tensorflow.contrib import slim
 
 from utils.gifs import encode_gif
 from utils.params import Params
@@ -95,6 +96,10 @@ class AgentLearner(Agent):
 
     def initialize(self):
         """Start the session."""
+        self.saver = tf.train.Saver(max_to_keep=3)
+        all_vars = tf.trainable_variables()
+        slim.model_analyzer.analyze_vars(all_vars, print_info=True)
+
         gpu_options = tf.GPUOptions()
         if self.params.gpu_mem_fraction != 1.0:
             gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=self.params.gpu_mem_fraction)

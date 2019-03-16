@@ -225,7 +225,7 @@ class AgentPPO(AgentLearner):
         critic_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='critic_opt')
         self.train_critic = critic_opt.minimize(self.objectives.critic_loss, global_step=self.critic_step)
 
-        self.add_summaries()
+        self.add_ppo_summaries()
 
         summary_dir = summaries_dir(self.params.experiment_dir())
         self.summary_writer = tf.summary.FileWriter(summary_dir)
@@ -299,7 +299,7 @@ class AgentPPO(AgentLearner):
 
         return AttrDict(locals())
 
-    def add_summaries(self):
+    def add_ppo_summaries(self):
         obj = self.objectives
 
         # summaries for the agent and the training process
