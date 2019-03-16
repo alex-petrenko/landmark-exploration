@@ -85,6 +85,25 @@ class StackFramesWrapper(gym.core.Wrapper):
         self._frames.append(new_observation)
         return self._render_stacked_frames(), reward, done, info
 
+class SkipFramesWrapper(gym.core.Wrapper):
+    """Wrapper for action repeat over N frames to speed up training."""
+
+    def __init__(self, env, skip_frames=4):
+        super(SkipFramesWrapper, self).__init__(env)
+        self._skip_frames = skip_frames
+
+    def step(self, action):
+        done = False
+        total_reward, num_frames = 0, 0
+        for i in range(self._skip_frames):
+            new_observation, reward, done, info = self.env.step(action)
+            num_frames += 1
+            total_reward += reward
+            if done:
+                break
+
+        info['num_frames'] = num_frames
+        return new_observation, total_reward, done, info
 
 class SkipAndStackFramesWrapper(StackFramesWrapper):
     """Wrapper for action repeat + stack multiple frames to capture dynamics."""
