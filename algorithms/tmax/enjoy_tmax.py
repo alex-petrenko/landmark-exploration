@@ -1,32 +1,75 @@
+import numpy as np
+import random
 import sys
 import time
 from threading import Thread
 
-from pynput.keyboard import Key, Listener
+import cv2
+from gym import spaces
+from pynput.keyboard import Key, Listener, KeyCode
 
+from algorithms.algo_utils import main_observation, maybe_extract_key
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax
+from utils.envs.atari import atari_utils
+from utils.envs.dmlab import play_dmlab
+from utils.envs.doom import doom_utils
 from utils.envs.envs import create_env
 from utils.utils import log
 
+
+class PolicyType:
+    RANDOM, AGENT, LOCOMOTION, PLAYER = range(4)
+    KEY_CHARS = {RANDOM: 'r', AGENT: 'a', LOCOMOTION: 'l', PLAYER: 'p'}
+    KEYS = {t: KeyCode.from_char(c) for t, c in KEY_CHARS.items()}
+
+
+store_landmark = True
 pause = False
 terminate = False
+policy_type = PolicyType.AGENT
+current_actions = []
+key_to_action = None
 
 
+# noinspection PyCallingNonCallable
 def on_press(key):
-    global pause
-    if key == Key.space:
-        pause = not pause
-
-
-def on_release(key):
     if key == Key.esc:
         global terminate
         terminate = True
         return False
 
+    global pause
+    if key == Key.space:
+        pause = not pause
 
-def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, fps=1000):
+    global current_actions
+    action = key_to_action(key)
+    if action is not None:
+        if action not in current_actions:
+            current_actions.append(action)
+
+    global store_landmark
+    if key == Key.enter:
+        store_landmark = True
+
+    global policy_type
+    for t, k in PolicyType.KEYS.items():
+        if key == k:
+            policy_type = t
+            log.info('Switch to policy %d (%r)', t, k)
+
+
+# noinspection PyCallingNonCallable
+def on_release(key):
+    global current_actions
+    action = key_to_action(key)
+    if action is not None:
+        if action in current_actions:
+            current_actions.remove(action)
+
+
+def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None):
     def make_env_func():
         e = create_env(env_id, mode='test')
         e.seed(0)
@@ -46,7 +89,14 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, fps=1000):
         return max_num_frames is not None and frames > max_num_frames
 
     for _ in range(max_num_episodes):
-        obs, done = env.reset(), False
+        env_obs, done = env.reset(), False
+        current_landmark = env_obs
+        obs = main_observation(env_obs)
+        if isinstance(env.observation_space, spaces.Dict):
+            goal_obs = maybe_extract_key(env_obs, 'goal')
+            cv2.imshow('goal', cv2.resize(goal_obs, (500, 500)))
+            cv2.waitKey(500)
+
         episode_reward, episode_frames = 0, 0
 
         if agent.tmax_mgr.initialized:
@@ -57,14 +107,26 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, fps=1000):
         start_episode = time.time()
         while not done and not terminate and not max_frames_reached(num_frames):
             env.render()
-            if fps < 1000:
-                time.sleep(1.0 / fps)
-
             if pause:
+                time.sleep(0.01)
                 continue
 
-            action = agent.best_action([obs], deterministic=False)
-            obs, rew, done, _ = env.step(action)
+            if len(current_actions) > 0:
+                # key combinations are not handled, but this is purely for testing
+                action = current_actions[-1]
+            else:
+                action = 0
+
+            if policy_type == PolicyType.RANDOM:
+                action = env.action_space.sample()
+            elif policy_type == PolicyType.AGENT:
+                action = agent.best_action([obs], deterministic=False)
+            elif policy_type == PolicyType.LOCOMOTION:
+                action = agent.locomotion.navigate(agent.session, [obs], [current_landmark], deterministic=False)[0]
+                log.info('Locomotion action %d', action)
+
+            env_obs, rew, done, _ = env.step(action)
+            obs = main_observation(env_obs)
 
             if not done:
                 bonus = agent.tmax_mgr.update([obs], [done], verbose=True)
@@ -78,6 +140,12 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, fps=1000):
 
             num_frames += 1
             episode_frames += 1
+
+            global store_landmark
+            if store_landmark:
+                log.warning('Store new landmark!')
+                current_landmark = obs
+                store_landmark = False
 
         env.render()
         log.info('Actual fps: %.1f', episode_frames / (time.time() - start_episode))
@@ -99,6 +167,19 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, fps=1000):
 
 
 def main():
+    args, params = parse_args_tmax(AgentTMAX.Params)
+    env_id = args.env
+
+    global key_to_action
+    if 'dmlab' in env_id:
+        key_to_action = play_dmlab.key_to_action
+    elif 'atari' in env_id:
+        key_to_action = atari_utils.key_to_action
+    elif 'doom' in env_id:
+        key_to_action = doom_utils.key_to_action
+    else:
+        raise Exception('Unknown env')
+
     # start keypress listener (to pause/resume execution or exit)
     def start_listener():
         with Listener(on_press=on_press, on_release=on_release) as listener:
@@ -107,7 +188,6 @@ def main():
     listener_thread = Thread(target=start_listener)
     listener_thread.start()
 
-    args, params = parse_args_tmax(AgentTMAX.Params)
     status = enjoy(params, args.env)
 
     log.debug('Press ESC to exit...')

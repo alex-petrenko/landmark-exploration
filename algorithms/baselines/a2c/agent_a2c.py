@@ -11,7 +11,7 @@ from tensorflow.contrib import slim
 
 from algorithms.agent import AgentLearner
 from algorithms.algo_utils import maybe_extract_key
-from algorithms.env_wrappers import has_image_observations, get_observation_space
+from algorithms.env_wrappers import has_image_observations, main_observation_space
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import count_total_parameters, dense, conv, put_kernels_on_grid
 from utils.distributions import CategoricalProbabilityDistribution
@@ -24,8 +24,8 @@ class Policy:
     def __init__(self, env, img_model_name, fc_layers, fc_size, lowdim_model_name, past_frames):
         self.regularizer = tf.contrib.layers.l2_regularizer(scale=1e-10)
 
-        image_obs = has_image_observations(get_observation_space(env))
-        obs_shape = list(get_observation_space(env).shape)
+        image_obs = has_image_observations(main_observation_space(env))
+        obs_shape = list(main_observation_space(env).shape)
         num_actions = env.action_space.n
 
         # process observations
@@ -148,7 +148,7 @@ class AgentA2C(AgentLearner):
             params.lowdim_model_name,
             params.stack_past_frames,
         )
-        self.obs_shape = [-1] + list(get_observation_space(env).shape)
+        self.obs_shape = [-1] + list(main_observation_space(env).shape)
         env.close()
 
         self.selected_actions = tf.placeholder(tf.int32, [None])  # action selected by the policy

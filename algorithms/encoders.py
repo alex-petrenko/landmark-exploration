@@ -6,7 +6,7 @@ import numpy as np
 
 import tensorflow as tf
 
-from algorithms.env_wrappers import has_image_observations, get_observation_space
+from algorithms.env_wrappers import has_image_observations, main_observation_space
 from algorithms.tf_utils import dense, conv, put_kernels_on_grid, tf_shape
 
 
@@ -109,7 +109,7 @@ def make_encoder(ph_observations, env, regularizer, params, name='enc'):
     :param params: params
     :param name: used to create an internal variable scope! Be careful!  <---
     """
-    obs_space = get_observation_space(env)
+    obs_space = main_observation_space(env)
     if has_image_observations(obs_space):
         if is_normalized(obs_space):
             obs_normalized = ph_observations

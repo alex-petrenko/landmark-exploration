@@ -10,7 +10,7 @@ from algorithms.agent import AgentLearner, AgentRandom
 from algorithms.algo_utils import RunningMeanStd, extract_keys
 from algorithms.buffer import Buffer
 from algorithms.encoders import is_normalized, tf_normalize
-from algorithms.env_wrappers import TimeLimitWrapper, get_observation_space
+from algorithms.env_wrappers import TimeLimitWrapper, main_observation_space
 from algorithms.exploit import run_policy_loop
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tf_utils import placeholder_from_space
@@ -81,7 +81,7 @@ class TestAlgoUtils(TestCase):
 class TestEncoders(TestCase):
     def test_normalize(self):
         env = make_doom_env(doom_env_by_name(TEST_ENV_NAME))
-        obs_space = get_observation_space(env)
+        obs_space = main_observation_space(env)
 
         env.reset()
         obs = [env.step(0)[0] for _ in range(10)]

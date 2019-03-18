@@ -13,7 +13,7 @@ import tensorflow as tf
 from algorithms.algo_utils import EPS
 from algorithms.buffer import Buffer
 from algorithms.encoders import make_encoder
-from algorithms.env_wrappers import get_observation_space
+from algorithms.env_wrappers import main_observation_space
 from algorithms.tf_utils import dense, placeholders_from_spaces
 from utils.timing import Timing
 from utils.utils import log, vis_dir, ensure_dir_exists
@@ -21,7 +21,7 @@ from utils.utils import log, vis_dir, ensure_dir_exists
 
 class DistanceNetwork:
     def __init__(self, env, params):
-        obs_space = get_observation_space(env)
+        obs_space = main_observation_space(env)
         self.ph_obs_first, self.ph_obs_second = placeholders_from_spaces(obs_space, obs_space)
         self.ph_labels = tf.placeholder(dtype=tf.int32, shape=(None, ))
 

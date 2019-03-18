@@ -3,7 +3,7 @@ import tensorflow as tf
 from algorithms.buffer import Buffer
 from algorithms.decoders import DecoderCNN
 from algorithms.encoders import make_encoder
-from algorithms.env_wrappers import get_observation_space
+from algorithms.env_wrappers import main_observation_space
 from algorithms.tf_utils import dense, placeholder_from_space, placeholders_from_spaces
 from utils.timing import Timing
 from utils.utils import log
@@ -12,7 +12,7 @@ from utils.utils import log
 class InverseNetwork:
     """Inverse network to predict the current action using a pair of states."""
     def __init__(self, env, params):
-        obs_space = get_observation_space(env)
+        obs_space = main_observation_space(env)
         self.ph_obs_first, self.ph_obs_second = placeholders_from_spaces(obs_space, obs_space)
         self.ph_actions = placeholder_from_space(env.action_space)
 

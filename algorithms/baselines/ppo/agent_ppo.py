@@ -10,7 +10,7 @@ from tensorflow.contrib import slim
 from algorithms.agent import AgentLearner, TrainStatus
 from algorithms.algo_utils import calculate_gae, EPS, num_env_steps
 from algorithms.encoders import make_encoder
-from algorithms.env_wrappers import get_observation_space
+from algorithms.env_wrappers import main_observation_space
 from algorithms.models import make_model
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
@@ -175,8 +175,8 @@ class AgentPPO(AgentLearner):
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
 
-        self.obs_shape = [-1] + list(get_observation_space(env).shape)
-        self.ph_observations = placeholder_from_space(get_observation_space(env))
+        self.obs_shape = [-1] + list(main_observation_space(env).shape)
+        self.ph_observations = placeholder_from_space(main_observation_space(env))
         self.ph_actions = placeholder_from_space(env.action_space)  # actions sampled from the policy
         self.ph_advantages, self.ph_returns, self.ph_old_action_probs = placeholders(None, None, None)
 

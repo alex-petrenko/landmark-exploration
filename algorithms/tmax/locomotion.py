@@ -9,7 +9,7 @@ import tensorflow as tf
 
 from algorithms.buffer import Buffer
 from algorithms.encoders import make_encoder
-from algorithms.env_wrappers import get_observation_space
+from algorithms.env_wrappers import main_observation_space
 from algorithms.tf_utils import placeholders_from_spaces, placeholder_from_space, dense
 from algorithms.tmax.tmax_utils import TmaxMode
 from utils.distributions import CategoricalProbabilityDistribution
@@ -19,7 +19,7 @@ from utils.utils import log, vis_dir, ensure_dir_exists
 
 class LocomotionNetwork:
     def __init__(self, env, params):
-        obs_space = get_observation_space(env)
+        obs_space = main_observation_space(env)
         self.ph_obs_curr, self.ph_obs_goal = placeholders_from_spaces(obs_space, obs_space)
         self.ph_actions = placeholder_from_space(env.action_space)
 

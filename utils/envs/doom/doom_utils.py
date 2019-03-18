@@ -1,12 +1,24 @@
 import gym
 # noinspection PyUnresolvedReferences
 import vizdoomgym
+from pynput.keyboard import Key
 
 from algorithms.env_wrappers import ResizeWrapper, RewardScalingWrapper, SkipFramesWrapper
 from utils.envs.doom.wrappers.observation_space import SetResolutionWrapper
 from utils.envs.doom.wrappers.step_human_input import StepHumanInput
 
 DOOM_W = DOOM_H = 84
+
+action_table = {
+    Key.up: 3,
+    Key.down: 6,
+    Key.left: 1,
+    Key.right: 2,
+}
+
+
+def key_to_action(key):
+    return action_table.get(key, None)
 
 
 class DoomCfg:

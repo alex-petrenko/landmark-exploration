@@ -16,6 +16,9 @@ class SetResolutionWrapper(gym.Wrapper):
             raise gym.error.Error(
                 'Error - The specified resolution "{}" is not supported by Vizdoom.'.format(target_resolution),
             )
+
+        orig_obs_space = self.observation_space
+
         parts = target_resolution.lower().split('x')
         width = int(parts[0])
         height = int(parts[1])
@@ -27,7 +30,16 @@ class SetResolutionWrapper(gym.Wrapper):
         self.unwrapped.screen_h = height
         self.unwrapped.screen_resolution = screen_res
         self.unwrapped.calc_observation_space()
-        self.observation_space = self.unwrapped.observation_space
+
+        if isinstance(orig_obs_space, gym.spaces.Dict):
+            new_obs_space = {}
+            for key, value in orig_obs_space.spaces.items():
+                new_obs_space[key] = self.unwrapped.observation_space
+            new_obs_space = gym.spaces.Dict(new_obs_space)
+        else:
+            new_obs_space = self.unwrapped.observation_space
+
+        self.observation_space = self.unwrapped.observation_space = new_obs_space
 
     def reset(self):
         return self.env.reset()

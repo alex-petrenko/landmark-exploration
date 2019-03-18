@@ -113,7 +113,7 @@ class DmlabGymEnv(gym.Env):
 
         scale = self._render_scale
         img_big = cv2.resize(img, (self._width * scale, self._height * scale), interpolation=cv2.INTER_NEAREST)
-        cv2.imshow('atari', img_big)
+        cv2.imshow('dmlab', img_big)
 
         since_last_frame = time.time() - self._last_frame
         wait_time_sec = max(1.0 / self._render_fps - since_last_frame, 0.001)

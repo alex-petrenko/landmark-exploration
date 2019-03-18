@@ -9,10 +9,10 @@ import tensorflow as tf
 from tensorflow.contrib import slim
 
 from algorithms.agent import AgentLearner, TrainStatus
-from algorithms.algo_utils import calculate_gae, EPS, num_env_steps
+from algorithms.algo_utils import EPS, num_env_steps, main_observation
 from algorithms.baselines.ppo.agent_ppo import PPOBuffer
 from algorithms.encoders import make_encoder
-from algorithms.env_wrappers import get_observation_space
+from algorithms.env_wrappers import main_observation_space
 from algorithms.models import make_model
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
@@ -558,8 +558,8 @@ class AgentTMAX(AgentLearner):
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
 
-        self.obs_shape = list(get_observation_space(env).shape)
-        self.ph_observations = placeholder_from_space(get_observation_space(env))
+        self.obs_shape = list(main_observation_space(env).shape)
+        self.ph_observations = placeholder_from_space(main_observation_space(env))
         self.ph_actions = placeholder_from_space(env.action_space)  # actions sampled from the policy
         self.ph_advantages, self.ph_returns, self.ph_old_action_probs = placeholders(None, None, None)
         self.ph_masks = placeholder(None, tf.int32)  # to mask experience that does not come from RL policy
@@ -1123,7 +1123,7 @@ class AgentTMAX(AgentLearner):
         """Main training loop."""
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
-        observations = multi_env.reset()
+        observations = main_observation(multi_env.reset())
         buffer = TmaxPPOBuffer()
 
         trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)  # separate buffer for complete episode trajectories
@@ -1153,6 +1153,7 @@ class AgentTMAX(AgentLearner):
 
                     # wait for all the workers to complete an environment step
                     new_observations, rewards, dones, infos = multi_env.step(actions)
+                    new_observations = main_observation(new_observations)
 
                     trajectory_buffer.add(observations, actions, dones, tmax_mgr)
                     bonuses = tmax_mgr.update(new_observations, dones, is_bootstrap)
