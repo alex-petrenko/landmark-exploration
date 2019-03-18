@@ -12,7 +12,6 @@ from algorithms.algo_utils import main_observation, maybe_extract_key
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from utils.envs.atari import atari_utils
-from utils.envs.dmlab import play_dmlab
 from utils.envs.doom import doom_utils
 from utils.envs.envs import create_env
 from utils.utils import log
@@ -172,6 +171,7 @@ def main():
 
     global key_to_action
     if 'dmlab' in env_id:
+        from utils.envs.dmlab import play_dmlab
         key_to_action = play_dmlab.key_to_action
     elif 'atari' in env_id:
         key_to_action = atari_utils.key_to_action
