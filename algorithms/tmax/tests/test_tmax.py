@@ -41,7 +41,7 @@ class TestTMAX(TestCase):
         root_dir = params.experiment_dir()
         self.assertTrue(os.path.isdir(root_dir))
 
-        enjoy(params, args.env, max_num_episodes=1, max_num_frames=50, fps=1000)
+        enjoy(params, args.env, max_num_episodes=1, max_num_frames=50)
         shutil.rmtree(tmax_train_dir)
 
         self.assertFalse(os.path.isdir(root_dir))
