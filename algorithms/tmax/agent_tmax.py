@@ -241,9 +241,8 @@ class TmaxManager:
 
         m = self.maps[env_i]
         path = m.get_path(m.curr_landmark_idx, final_target)
-        assert len(path) > 0
 
-        if len(path) <= 1:
+        if m.curr_landmark_idx == final_target or path is None or len(path) <= 1:
             # reached the target, switch to exploration policy
             self.mode[env_i] = TmaxMode.EXPLORATION
             self.locomotion_targets[env_i] = None
