@@ -95,7 +95,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None):
         episode_reward, episode_frames = 0, 0
 
         if agent.tmax_mgr.initialized:
-            agent.tmax_mgr.update([obs], [True], verbose=True)
+            agent.tmax_mgr.update([obs], [goal_obs], [True], verbose=True)
         else:
             agent.tmax_mgr.initialize([obs])
 
