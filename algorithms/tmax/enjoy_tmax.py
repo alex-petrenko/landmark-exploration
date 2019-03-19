@@ -102,6 +102,8 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None):
         start_episode = time.time()
         while not done and not terminate and not max_frames_reached(num_frames):
             env.render()
+            cv2.waitKey(1)  # to prevent window from fading
+
             if pause:
                 time.sleep(0.01)
                 continue
@@ -115,7 +117,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None):
             if policy_type == PolicyType.RANDOM:
                 action = env.action_space.sample()
             elif policy_type == PolicyType.AGENT:
-                action = agent.best_action_tmax([obs], [goal_obs], deterministic=False)
+                action = agent.policy_step([obs], [goal_obs], None, None, is_bootstrap=False)[0]
             elif policy_type == PolicyType.LOCOMOTION:
                 action = agent.locomotion.navigate(agent.session, [obs], [current_landmark], deterministic=False)[0]
                 log.info('Locomotion action %d', action)
@@ -158,6 +160,8 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None):
 
     agent.finalize()
     env.close()
+    cv2.destroyAllWindows()
+
     return 0
 
 

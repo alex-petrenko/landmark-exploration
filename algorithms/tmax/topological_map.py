@@ -17,6 +17,11 @@ class TopologicalMap:
 
         self.landmarks = self.hashes = self.adjacency = None
         self.curr_landmark_idx = 0
+
+        # variables needed for online localization
+        self.new_landmark_candidate_frames = 0
+        self.closest_landmarks = []
+
         self.reset(initial_obs)
 
     def reset(self, obs):
@@ -25,6 +30,12 @@ class TopologicalMap:
         self.hashes = [hash_observation(obs)]
         self.adjacency = [[]]  # initial vertex has no neighbors
         self.curr_landmark_idx = 0
+
+        self.new_episode()
+
+    def new_episode(self):
+        self.new_landmark_candidate_frames = 0
+        self.closest_landmarks = []
 
     def _log_verbose(self, msg, *args):
         if not self._verbose:

@@ -2,7 +2,7 @@ from algorithms.arguments import parse_args
 
 # values to use if not specified in the command line
 
-DEFAULT_EXPERIMENT_NAME = 'tmax_v014'
+DEFAULT_EXPERIMENT_NAME = 'tmax_v015'
 DEFAULT_ENV = 'doom_maze_very_sparse'
 
 
