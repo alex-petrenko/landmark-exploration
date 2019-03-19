@@ -89,7 +89,8 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None):
         current_landmark = env_obs
         obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
         if goal_obs is not None:
-            cv2.imshow('goal', cv2.resize(goal_obs, (500, 500)))
+            goal_obs_rgb = cv2.cvtColor(goal_obs, cv2.COLOR_BGR2RGB)
+            cv2.imshow('goal', cv2.resize(goal_obs_rgb, (500, 500)))
             cv2.waitKey(500)
 
         episode_reward, episode_frames = 0, 0
