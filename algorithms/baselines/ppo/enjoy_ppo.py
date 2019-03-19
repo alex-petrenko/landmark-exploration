@@ -25,7 +25,7 @@ def enjoy(params, env_id, max_num_episodes=1000000, fps=1500):
         log.info('Press any key to start...')
         cv2.waitKey()
 
-    return run_policy_loop(agent, env, max_num_episodes, fps, deterministic=False)
+    return run_policy_loop(agent, env, max_num_episodes, fps, max_num_frames=50, deterministic=False)
 
 
 def main():
