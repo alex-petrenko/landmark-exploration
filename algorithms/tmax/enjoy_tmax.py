@@ -1,14 +1,11 @@
-import numpy as np
-import random
 import sys
 import time
 from threading import Thread
 
 import cv2
-from gym import spaces
 from pynput.keyboard import Key, Listener, KeyCode
 
-from algorithms.algo_utils import main_observation, maybe_extract_key
+from algorithms.algo_utils import main_observation, goal_observation
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from utils.envs.atari import atari_utils
@@ -90,9 +87,8 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None):
     for _ in range(max_num_episodes):
         env_obs, done = env.reset(), False
         current_landmark = env_obs
-        obs = main_observation(env_obs)
-        if isinstance(env.observation_space, spaces.Dict):
-            goal_obs = maybe_extract_key(env_obs, 'goal')
+        obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
+        if goal_obs is not None:
             cv2.imshow('goal', cv2.resize(goal_obs, (500, 500)))
             cv2.waitKey(500)
 
@@ -119,13 +115,13 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None):
             if policy_type == PolicyType.RANDOM:
                 action = env.action_space.sample()
             elif policy_type == PolicyType.AGENT:
-                action = agent.best_action([obs], deterministic=False)
+                action = agent.best_action_tmax([obs], [goal_obs], deterministic=False)
             elif policy_type == PolicyType.LOCOMOTION:
                 action = agent.locomotion.navigate(agent.session, [obs], [current_landmark], deterministic=False)[0]
                 log.info('Locomotion action %d', action)
 
             env_obs, rew, done, _ = env.step(action)
-            obs = main_observation(env_obs)
+            obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
 
             if not done:
                 bonus = agent.tmax_mgr.update([obs], [done], verbose=True)

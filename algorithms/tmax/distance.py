@@ -29,7 +29,7 @@ class DistanceNetwork:
             reg = tf.contrib.layers.l2_regularizer(scale=1e-5)
 
             def make_embedding(obs):
-                conv_encoder = make_encoder(obs, env, reg, params, 'dist_enc')
+                conv_encoder = make_encoder(obs, obs_space, reg, params, 'dist_enc')
                 x = conv_encoder.encoded_input
                 x = dense(x, 256, reg)
                 x = tf.contrib.layers.fully_connected(x, 32, activation_fn=None)

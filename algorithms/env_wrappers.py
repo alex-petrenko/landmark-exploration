@@ -18,6 +18,18 @@ def unwrap_env(wrapped_env):
     return wrapped_env.unwrapped
 
 
+def is_goal_based_env(env):
+    dict_obs = isinstance(env.observation_space, spaces.Dict)
+    if not dict_obs:
+        return False
+
+    for key in ['obs', 'goal']:
+        if key not in env.observation_space.spaces:
+            return False
+
+    return True
+
+
 def main_observation_space(env):
     if hasattr(env.observation_space, 'spaces'):
         return env.observation_space.spaces['obs']
@@ -208,12 +220,9 @@ class ResizeWrapper(gym.core.Wrapper):
         return spaces.Box(low, high, shape=new_shape, dtype=old_space.dtype)
 
     def _convert_obs(self, obs):
-        try:
-            obs = cv2.resize(obs, (self.w, self.h), interpolation=self.interpolation)
-            if self.grayscale:
-                obs = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
-        except TypeError:
-            print("111")
+        obs = cv2.resize(obs, (self.w, self.h), interpolation=self.interpolation)
+        if self.grayscale:
+            obs = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
 
         if self.add_channel_dim:
             return obs[:, :, None]  # add new dimension (expected by tensorflow)

@@ -5,6 +5,7 @@ Tensorflow encoders used in different trainable models.
 import numpy as np
 
 import tensorflow as tf
+from gym import spaces
 
 from algorithms.env_wrappers import has_image_observations, main_observation_space
 from algorithms.tf_utils import dense, conv, put_kernels_on_grid, tf_shape
@@ -95,7 +96,7 @@ def tf_normalize(obs, obs_space):
     return obs
 
 
-def make_encoder(ph_observations, env, regularizer, params, name='enc'):
+def make_encoder(ph_observations, obs_space, regularizer, params, name='enc'):
     """
     Create an appropriate encoder according to params.
     'name' argument is used to create an internal variable scope, which allows you to use this function to create
@@ -103,13 +104,12 @@ def make_encoder(ph_observations, env, regularizer, params, name='enc'):
     If you're sharing encoder parameters, use tf.make_template, and make sure that 'name' stays default or passed as
     a keyword argument when the encoder template as created (so it's the same for all instances of the shared encoder)
 
-    :param ph_observations: obs
-    :param env: env
+    :param ph_observations: observation placeholder
+    :param obs_space: environment observation space
     :param regularizer: reg
     :param params: params
     :param name: used to create an internal variable scope! Be careful!  <---
     """
-    obs_space = main_observation_space(env)
     if has_image_observations(obs_space):
         if is_normalized(obs_space):
             obs_normalized = ph_observations
@@ -120,3 +120,32 @@ def make_encoder(ph_observations, env, regularizer, params, name='enc'):
     else:
         encoder = EncoderLowDimensional(ph_observations, regularizer, params.lowdim_enc_name, name)
     return encoder
+
+
+class EncoderWithGoal:
+    def __init__(self, ph_observations, ph_goal_obs, obs_space, reg, params, name):
+        with tf.variable_scope(name):
+            enc_template = tf.make_template(
+                'obs_enc', make_encoder, create_scope_now_=True, obs_space=obs_space, regularizer=reg, params=params,
+            )
+
+            # obs and goal encoders share parameters (via make_template)
+            self.encoder_obs = enc_template(ph_observations)
+            self.encoder_goal = enc_template(ph_goal_obs)
+
+            self.encoded_input = tf.concat([self.encoder_obs.encoded_input, self.encoder_goal.encoded_input], axis=1)
+
+
+def make_encoder_with_goal(ph_observations, ph_goal_obs, obs_space, regularizer, params, name='enc_with_goal'):
+    assert isinstance(obs_space, spaces.Dict)
+    main_obs_space = obs_space.spaces['obs']
+    goal_obs_space = obs_space.spaces['goal']
+
+    # main and goal obs spaces should be the same
+    assert main_obs_space.low.flat[0] == goal_obs_space.low.flat[0]
+    assert main_obs_space.high.flat[0] == goal_obs_space.high.flat[0]
+
+    encoder_with_goal = EncoderWithGoal(ph_observations, ph_goal_obs, main_obs_space, regularizer, params, name)
+    return encoder_with_goal
+
+

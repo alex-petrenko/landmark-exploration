@@ -25,7 +25,8 @@ class LocomotionNetwork:
 
         with tf.variable_scope('loco'):
             encoder = tf.make_template(
-                'siamese_enc_loco', make_encoder, create_scope_now_=True, env=env, regularizer=None, params=params,
+                'siamese_enc_loco', make_encoder, create_scope_now_=True,
+                obs_space=obs_space, regularizer=None, params=params,
             )
 
             obs_curr_encoded = encoder(self.ph_obs_curr).encoded_input
@@ -44,8 +45,6 @@ class LocomotionNetwork:
 
             actions_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.ph_actions, logits=action_logits)
             self.actions_loss = tf.reduce_mean(actions_loss)
-
-            # self.loss = self.actions_loss + self.distance_loss
             self.loss = self.actions_loss
 
     def navigate(self, session, obs_curr, obs_goal, deterministic=False):

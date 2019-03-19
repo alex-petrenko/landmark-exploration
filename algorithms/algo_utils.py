@@ -48,16 +48,27 @@ def update_mean_var_count_from_moments(mean, var, count, batch_mean, batch_var, 
 
 
 def main_observation(data):
-    return maybe_extract_key(data, 'obs')
+    obs = maybe_extract_key(data, 'obs')
+    if obs is None:
+        return data
+    else:
+        return obs
+
+
+def goal_observation(data):
+    return maybe_extract_key(data, 'goal')
 
 
 def maybe_extract_key(data, key):
     if isinstance(data, (list, tuple)) and isinstance(data[0], dict):
-        return extract_key(data, key)
+        if key in data[0]:
+            return extract_key(data, key)
+        else:
+            return None
     elif isinstance(data, dict):
-        return data[key]
+        return data.get(key, None)
     else:
-        return data
+        return None
 
 
 def extract_keys(list_of_dicts, *keys):

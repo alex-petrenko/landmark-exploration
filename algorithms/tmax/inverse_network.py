@@ -20,7 +20,8 @@ class InverseNetwork:
             reg = tf.contrib.layers.l2_regularizer(scale=1e-4)
 
             encoder = tf.make_template(
-                'siamese_enc_inverse', make_encoder, create_scope_now_=True, env=env, regularizer=reg, params=params,
+                'siamese_enc_inverse', make_encoder, create_scope_now_=True,
+                obs_space=obs_space, regularizer=reg, params=params,
             )
 
             obs_first_enc = encoder(self.ph_obs_first)

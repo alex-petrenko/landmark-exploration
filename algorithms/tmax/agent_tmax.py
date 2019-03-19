@@ -9,10 +9,10 @@ import tensorflow as tf
 from tensorflow.contrib import slim
 
 from algorithms.agent import AgentLearner, TrainStatus
-from algorithms.algo_utils import EPS, num_env_steps, main_observation
+from algorithms.algo_utils import EPS, num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import PPOBuffer
-from algorithms.encoders import make_encoder
-from algorithms.env_wrappers import main_observation_space
+from algorithms.encoders import make_encoder, make_encoder_with_goal
+from algorithms.env_wrappers import main_observation_space, is_goal_based_env
 from algorithms.models import make_model
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
@@ -32,7 +32,18 @@ from utils.utils import log, AttrDict, numpy_all_the_way, min_with_idx
 
 class ActorCritic:
     def __init__(self, env, ph_observations, params):
+        obs_space = env.observation_space
+
         self.ph_observations = ph_observations
+
+        # placeholder for the goal observation (if available)
+        self.ph_goal_obs = None
+        self.is_goal_env = is_goal_based_env(env)
+        if self.is_goal_env:
+            # goal obs has the same shape as main obs
+            self.ph_goal_obs = placeholder_from_space(main_observation_space(env))
+
+        make_encoder_func = make_encoder_with_goal if self.is_goal_env else make_encoder
 
         # placeholders for the topological map
         self.ph_neighbors, self.ph_num_neighbors = None, None
@@ -45,11 +56,20 @@ class ActorCritic:
 
         # actor computation graph
         act_encoder = tf.make_template(
-            'act_obs_enc', make_encoder, create_scope_now_=True, env=env, regularizer=reg, params=params,
+            'act_obs_enc', make_encoder_func, create_scope_now_=True,
+            obs_space=obs_space, regularizer=reg, params=params,
         )
-        act_encoded_obs = act_encoder(self.ph_observations).encoded_input
-        self.encoded_obs = act_encoded_obs  # use actor encoder as main observation encoder (including landmarks, etc.)
-        self.encoded_obs_size = tf_shape(self.encoded_obs)[-1]
+
+        # use actor encoder as main observation encoder (including landmarks, etc.)
+        if self.is_goal_env:
+            act_goal_encoder = act_encoder(self.ph_observations, self.ph_goal_obs)
+            act_encoded_obs = act_goal_encoder.encoded_input
+            self.encode_single_obs = act_goal_encoder.encoder_obs.encoded_input
+        else:
+            act_encoded_obs = act_encoder(self.ph_observations).encoded_input
+            self.encode_single_obs = act_encoded_obs
+
+        self.encoded_obs_size = tf_shape(self.encode_single_obs)[-1]
 
         if params.use_neighborhood_encoder:
             self.ph_neighbors = placeholder([params.max_neighborhood_size, self.encoded_obs_size])
@@ -73,9 +93,13 @@ class ActorCritic:
 
         # critic computation graph
         value_encoder = tf.make_template(
-            'val_obs_enc', make_encoder, create_scope_now_=True, env=env, regularizer=reg, params=params,
+            'val_obs_enc', make_encoder_func, create_scope_now_=True,
+            obs_space=obs_space, regularizer=reg, params=params,
         )
-        value_encoded_obs = value_encoder(self.ph_observations).encoded_input
+        if self.is_goal_env:
+            value_encoded_obs = value_encoder(self.ph_observations, self.ph_goal_obs).encoded_input
+        else:
+            value_encoded_obs = value_encoder(self.ph_observations).encoded_input
 
         if params.use_neighborhood_encoder:
             value_neighborhood_encoder = make_graph_encoder(
@@ -93,46 +117,50 @@ class ActorCritic:
 
         log.info('Total parameters so far: %d', count_total_parameters())
 
-    def input_dict(self, observations, neighbors_encoded, num_neighbors):
+    def input_dict(self, observations, goals, neighbors_encoded, num_neighbors):
         feed_dict = {self.ph_observations: observations}
+        if self.is_goal_env:
+            feed_dict[self.ph_goal_obs] = goals
         if self.ph_neighbors is not None and self.ph_num_neighbors is not None:
             feed_dict[self.ph_neighbors] = neighbors_encoded
             feed_dict[self.ph_num_neighbors] = num_neighbors
         return feed_dict
 
-    def invoke(self, session, observations, neighbors_encoded, num_neighbors, deterministic=False):
+    def invoke(self, session, observations, goals, neighbors_encoded, num_neighbors, deterministic=False):
         ops = [
             self.best_action_deterministic if deterministic else self.act,
             self.action_prob,
             self.value,
         ]
-        feed_dict = self.input_dict(observations, neighbors_encoded, num_neighbors)
+        feed_dict = self.input_dict(observations, goals, neighbors_encoded, num_neighbors)
         actions, action_prob, values = session.run(ops, feed_dict=feed_dict)
         return actions, action_prob, values
 
-    def best_action(self, session, observations, neighbors_encoded, num_neighbors, deterministic=False):
-        feed_dict = self.input_dict(observations, neighbors_encoded, num_neighbors)
+    def best_action(self, session, observations, goals, neighbors_encoded, num_neighbors, deterministic=False):
+        feed_dict = self.input_dict(observations, goals, neighbors_encoded, num_neighbors)
         actions = session.run(self.best_action_deterministic if deterministic else self.act, feed_dict=feed_dict)
         return actions
 
     def encode_landmarks(self, session, landmarks):
         """This is mainly used to precalculate the landmark embeddings."""
-        return session.run(self.encoded_obs, feed_dict={self.ph_observations: landmarks})
+        return session.run(self.encode_single_obs, feed_dict={self.ph_observations: landmarks})
 
 
 class TmaxPPOBuffer(PPOBuffer):
     def __init__(self):
         super(TmaxPPOBuffer, self).__init__()
+        self.goals = None
         self.neighbors, self.num_neighbors = None, None
         self.masks = None
 
     def reset(self):
         super(TmaxPPOBuffer, self).reset()
+        self.goals = []
         self.neighbors, self.num_neighbors = [], []
         self.masks = []
 
     # noinspection PyMethodOverriding
-    def add(self, obs, actions, action_probs, rewards, dones, values, neighbors, num_neighbors, masks):
+    def add(self, obs, goals, actions, action_probs, rewards, dones, values, neighbors, num_neighbors, masks):
         """Append one-step data to the current batch of observations."""
         args = copy.copy(locals())
         super(TmaxPPOBuffer, self)._add_args(args)
@@ -509,7 +537,7 @@ class AgentTMAX(AgentLearner):
             self.min_entropy_loss_coeff = 0.002
 
             # TMAX-specific parameters
-            self.use_neighborhood_encoder = True
+            self.use_neighborhood_encoder = False
             self.graph_enc_name = 'rnn'  # 'rnn', 'deepsets'
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 128  # size of GRU layer in RNN neighborhood encoder
@@ -557,6 +585,8 @@ class AgentTMAX(AgentLearner):
 
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
+
+        self.is_goal_env = is_goal_based_env(env)
 
         self.obs_shape = list(main_observation_space(env).shape)
         self.ph_observations = placeholder_from_space(main_observation_space(env))
@@ -674,6 +704,8 @@ class AgentTMAX(AgentLearner):
         # summaries for the agent and the training process
         with tf.name_scope('obs_summaries'):
             image_summaries_rgb(self.ph_observations, collections=['actor'])
+            if self.is_goal_env:
+                image_summaries_rgb(self.actor_critic.ph_goal_obs, collections=['actor'])
 
         with tf.name_scope('actor'):
             summary_avg_min_max('returns', self.ph_returns, collections=['actor'])
@@ -804,14 +836,14 @@ class AgentTMAX(AgentLearner):
         self._write_gif_summaries(tag='obs_trajectories', gif_images=trajectories, step=env_steps)
         log.info('Took %.3f seconds to write gif summaries', time.time() - start_gif_summaries)
 
-    def best_action(self, observations, deterministic=False):
+    def best_action_tmax(self, observations, goals, deterministic=False):
         neighbors, num_neighbors = self.tmax_mgr.get_neighbors()
         actions = self.actor_critic.best_action(
-            self.session, observations, neighbors, num_neighbors, deterministic,
+            self.session, observations, goals, neighbors, num_neighbors, deterministic,
         )
         return actions[0]
 
-    def _policy_step(self, observations, neighbors, num_neighbors, is_bootstrap):
+    def _policy_step(self, observations, goals, neighbors, num_neighbors, is_bootstrap):
         """Run exploration or locomotion policy depending on the state of the particular environment."""
         tmax_mgr = self.tmax_mgr
         num_envs = len(observations)
@@ -823,6 +855,8 @@ class AgentTMAX(AgentLearner):
         assert total_num_indices == num_envs
 
         observations = np.asarray(observations)
+        if goals is not None:
+            goals = np.asarray(goals)
         if neighbors is not None:
             neighbors = np.asarray(neighbors)
             num_neighbors = np.asarray(num_neighbors)
@@ -871,7 +905,8 @@ class AgentTMAX(AgentLearner):
                     neighbors_policy = neighbors[non_idle_i]
                     num_neighbors_policy = num_neighbors[non_idle_i]
                 actions[non_idle_i], action_probs[non_idle_i], values[non_idle_i] = self.actor_critic.invoke(
-                    self.session, observations[non_idle_i], neighbors_policy, num_neighbors_policy, deterministic=False,
+                    self.session, observations[non_idle_i], goals[non_idle_i],
+                    neighbors_policy, num_neighbors_policy, deterministic=False,
                 )
 
         env_i = env_indices[TmaxMode.LOCOMOTION]
@@ -886,12 +921,13 @@ class AgentTMAX(AgentLearner):
         env_i = env_indices[TmaxMode.EXPLORATION]
         if len(env_i) > 0:
             masks[env_i] = 1
+            goals_policy = goals[env_i] if self.is_goal_env else None
             neighbors_policy = num_neighbors_policy = None
             if neighbors is not None:
                 neighbors_policy = neighbors[env_i]
                 num_neighbors_policy = num_neighbors[env_i]
             actions[env_i], action_probs[env_i], values[env_i] = self.actor_critic.invoke(
-                self.session, observations[env_i], neighbors_policy, num_neighbors_policy,
+                self.session, observations[env_i], goals_policy, neighbors_policy, num_neighbors_policy,
             )
             for env_index in env_i:
                 tmax_mgr.deliberate_action[env_index] = True
@@ -916,7 +952,8 @@ class AgentTMAX(AgentLearner):
                 start, end = i, i + self.params.batch_size
 
                 policy_input = self.actor_critic.input_dict(
-                    buffer.obs[start:end], buffer.neighbors[start:end], buffer.num_neighbors[start:end],
+                    buffer.obs[start:end], buffer.goals[start:end],
+                    buffer.neighbors[start:end], buffer.num_neighbors[start:end],
                 )
 
                 result = self.session.run(
@@ -972,7 +1009,8 @@ class AgentTMAX(AgentLearner):
                 start, end = i, i + self.params.batch_size
 
                 policy_input = self.actor_critic.input_dict(
-                    buffer.obs[start:end], buffer.neighbors[start:end], buffer.num_neighbors[start:end],
+                    buffer.obs[start:end], buffer.goals[start:end],
+                    buffer.neighbors[start:end], buffer.num_neighbors[start:end],
                 )
 
                 result = self.session.run(
@@ -1123,7 +1161,9 @@ class AgentTMAX(AgentLearner):
         """Main training loop."""
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
-        observations = main_observation(multi_env.reset())
+        env_obs = multi_env.reset()
+        observations, goals = main_observation(env_obs), goal_observation(env_obs)
+
         buffer = TmaxPPOBuffer()
 
         trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)  # separate buffer for complete episode trajectories
@@ -1148,12 +1188,12 @@ class AgentTMAX(AgentLearner):
                 for rollout_step in range(self.params.rollout):
                     neighbors, num_neigh = self.tmax_mgr.get_neighbors()
                     actions, action_probs, values, masks = self._policy_step(
-                        observations, neighbors, num_neigh, is_bootstrap,
+                        observations, goals, neighbors, num_neigh, is_bootstrap,
                     )
 
                     # wait for all the workers to complete an environment step
-                    new_observations, rewards, dones, infos = multi_env.step(actions)
-                    new_observations = main_observation(new_observations)
+                    env_obs, rewards, dones, infos = multi_env.step(actions)
+                    new_observations, new_goals = main_observation(env_obs), goal_observation(env_obs)
 
                     trajectory_buffer.add(observations, actions, dones, tmax_mgr)
                     bonuses = tmax_mgr.update(new_observations, dones, is_bootstrap)
@@ -1161,18 +1201,18 @@ class AgentTMAX(AgentLearner):
 
                     # add experience from all environments to the current buffer(s)
                     buffer.add(
-                        observations, actions, action_probs,
+                        observations, goals, actions, action_probs,
                         rewards, dones, values,
                         neighbors, num_neigh,
                         masks,
                     )
-                    observations = new_observations
+                    observations, goals = new_observations, new_goals
 
                     num_steps += num_env_steps(infos)
 
                 # last step values are required for TD-return calculation
                 neighbors, num_neigh = tmax_mgr.get_neighbors()
-                _, _, values, _ = self._policy_step(observations, neighbors, num_neigh, is_bootstrap)
+                _, _, values, _ = self._policy_step(observations, goals, neighbors, num_neigh, is_bootstrap)
                 buffer.values.append(values)
 
             env_steps += num_steps
