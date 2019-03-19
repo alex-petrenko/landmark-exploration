@@ -1,3 +1,4 @@
+from collections import deque
 from hashlib import sha1
 
 from utils.utils import log, ensure_contigious
@@ -38,6 +39,22 @@ class TopologicalMap:
         neighbors = [self.curr_landmark_idx]
         neighbors.extend(self.adjacency[self.curr_landmark_idx])
         return neighbors
+
+    def reachable_indices(self, start_idx):
+        """Run BFS from current landmark to find the list of landmarks reachable from the current landmark."""
+        q = deque([])
+        q.append(start_idx)
+        reachable = {start_idx}  # hash set of visited vertices
+
+        while len(q) > 0:
+            curr_idx = q.popleft()
+            for adj_idx in self.adjacency[curr_idx]:
+                if adj_idx in reachable:
+                    continue
+                reachable.add(adj_idx)
+                q.append(adj_idx)
+
+        return list(reachable)
 
     def non_neighbor_indices(self):
         neighbors = self.neighbor_indices()
@@ -104,6 +121,17 @@ class TopologicalMap:
                     previous[neighbor] = u
 
         return distances, previous
+
+    def get_path(self, from_idx, to_idx):
+        path_lengths, path_prev = self.shortest_paths(from_idx)
+        if path_prev[to_idx] is None:
+            return None
+
+        path = [to_idx]
+        while path[-1] != from_idx:
+            path.append(path_prev[path[-1]])
+
+        return list(reversed(path))
 
     def to_nx_graph(self):
         import networkx as nx

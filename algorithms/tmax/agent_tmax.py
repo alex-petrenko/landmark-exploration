@@ -187,7 +187,9 @@ class TmaxManager:
         self.landmarks_encoder = LandmarksEncoder(agent.actor_critic.encode_landmarks)
 
         self.episode_frames = [0] * self.num_envs
-        self.locomotion_targets = [None] * self.num_envs
+        self.locomotion_targets = [None] * self.num_envs  # immediate goal for locomotion policy
+        self.locomotion_final_targets = [None] * self.num_envs  # final target (e.g. goal observation)
+        self.last_locomotion_success = [0] * self.num_envs
 
         self.mode = [TmaxMode.EXPLORATION] * self.num_envs
 
@@ -228,38 +230,27 @@ class TmaxManager:
                 neighbor_distance[neighbor_idx] = '{:.3f}'.format(distance[i])
             self._log_verbose('Env %d reachability: %r', env_i, neighbor_distance)
 
-    def _sample_mode(self, env_i):
-        modes = [TmaxMode.EXPLORATION]
-
-        # neighbor_indices = self.maps[env_i].neighbor_indices()
-        # if len(neighbor_indices) > 1:
-        #     modes.append(TmaxMode.LOCOMOTION)
-
-        samples_per_mode = {}
-        for mode in modes:
-            samples_per_mode[mode] = self.samples_per_mode[mode]
-
-        self.mode[env_i] = min(samples_per_mode, key=samples_per_mode.get)
-
-        if self.mode[env_i] == TmaxMode.LOCOMOTION:
-            self._select_locomotion_target(env_i)
-        else:
-            self.locomotion_targets[env_i] = None
-
     def _select_locomotion_target(self, env_i):
         if self.mode[env_i] != TmaxMode.LOCOMOTION:
+            self.locomotion_targets[env_i] = None
+            self.locomotion_final_targets[env_i] = None
             return
 
-        neighbor_indices = self.maps[env_i].neighbor_indices()
-        assert len(neighbor_indices) > 0
+        final_target = self.locomotion_final_targets[env_i]
+        assert final_target is not None
 
-        if len(neighbor_indices) <= 1:
-            self._sample_mode(env_i)
+        m = self.maps[env_i]
+        path = m.get_path(m.curr_landmark_idx, final_target)
+        assert len(path) > 0
+
+        if len(path) <= 1:
+            # reached the target, switch to exploration policy
+            self.mode[env_i] = TmaxMode.EXPLORATION
+            self.locomotion_targets[env_i] = None
+            self.locomotion_final_targets[env_i] = None
         else:
-            # first neighbor is "current" landmark, so we skip it
-            target = random.choice(neighbor_indices[1:])
-            self.locomotion_targets[env_i] = target
-            assert self.locomotion_targets[env_i] is not None
+            assert len(path) >= 2
+            self.locomotion_targets[env_i] = path[1]  # next vertex on the path
 
     def get_locomotion_targets(self, env_indices):
         assert len(env_indices) > 0
@@ -281,14 +272,16 @@ class TmaxManager:
         assert len(targets) == len(env_indices)
         return targets
 
-    def _new_episode(self, env_i, obs):
+    def _new_episode(self, env_i, goal):
         m = self.maps[env_i]
         self.mode[env_i] = None
-        self.locomotion_targets[env_i] = None
+        self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
+        self.last_locomotion_success[env_i] = 0
+
         self.idle_frames[env_i] = 0
         self.action_frames[env_i] = np.random.randint(1, 3)
 
-        m.reset(obs)  # reset graph
+        # m.reset(obs)  # reset graph
 
         self.episode_frames[env_i] = 0
 
@@ -296,13 +289,42 @@ class TmaxManager:
         self.closest_landmarks[env_i] = [m.curr_landmark_idx]
         self.new_landmark_candidate_frames[env_i] = 0
 
-        self._sample_mode(env_i)  # decide what we're going to do now
+        locomotion_goal_idx = m.curr_landmark_idx
+
+        if goal is not None:
+            # find reachable landmark that is closest to goal image according to distance metric
+            reachable_indices = m.reachable_indices(m.curr_landmark_idx)
+            reachable_landmarks, goal_obs = [], []
+            for reachable_idx in reachable_indices:
+                reachable_landmarks.append(m.landmarks[reachable_idx])
+                goal_obs.append(goal)
+
+            distances = self.agent.reachability.distances(self.agent.session, reachable_landmarks, goal_obs)
+            min_d, min_d_idx = min_with_idx(distances)
+
+            if min_d > 0.99:
+                # landmark closest to the goal is still too far from the goal, in this case let's pick locomotion goal
+                # randomly
+                locomotion_goal_idx = random.choice(reachable_indices)
+            else:
+                # landmark closest to the goal is quite close to the goal, let's go there
+                locomotion_goal_idx = reachable_indices[min_d_idx]
+
+        if locomotion_goal_idx == m.curr_landmark_idx:
+            self.mode[env_i] = TmaxMode.EXPLORATION
+            self.locomotion_final_targets[env_i] = None
+        else:
+            self.mode[env_i] = TmaxMode.LOCOMOTION
+            self.locomotion_final_targets[env_i] = locomotion_goal_idx
+
+        self._select_locomotion_target(env_i)
 
         assert self.mode[env_i] is not None
         if self.mode[env_i] == TmaxMode.LOCOMOTION:
             assert self.locomotion_targets[env_i] is not None
+            assert self.locomotion_final_targets[env_i] is not None
 
-    def update(self, obs, dones, is_bootstrap=False, verbose=False):
+    def update(self, obs, goals, dones, is_bootstrap=False, verbose=False):
         """Omnipotent function for the management of topological maps and policy modes, as well as localization."""
         self._verbose = verbose
         self._is_bootstrap = is_bootstrap
@@ -317,19 +339,23 @@ class TmaxManager:
             self.samples_per_mode[self.mode[env_i]] += 1
 
             if dones[env_i]:
-                self._new_episode(env_i, obs[env_i])
+                env_goal = None if goals is None else goals[env_i]
+                self._new_episode(env_i, env_goal)
                 self.is_landmark[env_i] = True  # TODO: assuming we always start with landmark
             else:
                 self.episode_frames[env_i] += 1
                 self.is_landmark[env_i] = False
+
+                if self.episode_frames[env_i] - self.last_locomotion_success[env_i] > 200:
+                    # we're not making progress towards the locomotion goal, let's switch to exploration
+                    self.mode[env_i] = TmaxMode.EXPLORATION
 
         if is_bootstrap:
             # don't bother updating the graph when the reachability net isn't trained yet
             return bonuses
 
         # create a batch of all neighborhood observations from all envs for fast processing on GPU
-        neighborhood_obs = []
-        current_obs = []
+        neighborhood_obs, current_obs = [], []
         for env_i, m in enumerate(maps):
             neighbor_indices = m.neighbor_indices()
             neighborhood_obs.extend([m.landmarks[i] for i in neighbor_indices])
@@ -372,6 +398,10 @@ class TmaxManager:
                     if closest_landmark_idx[env_i] != m.curr_landmark_idx:
                         m.set_curr_landmark(closest_landmark_idx[env_i])
                         self.is_landmark[env_i] = True
+
+                        if m.curr_landmark_idx == self.locomotion_targets[env_i]:
+                            self.last_locomotion_success[env_i] = self.episode_frames[env_i]
+
                         self._select_locomotion_target(env_i)
 
             j = j_next
@@ -542,19 +572,19 @@ class AgentTMAX(AgentLearner):
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 128  # size of GRU layer in RNN neighborhood encoder
 
-            self.reachable_threshold = 8  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 32  # num. of frames between obs, such that one is unreachable from the other
+            self.reachable_threshold = 10  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 30  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 90000  # target number of training examples to store
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 256
 
             self.directed_edges = False  # whether to add directed on undirected edges on landmark discovery
-            self.new_landmark_threshold = 0.995  # condition for considering current observation a "new landmark"
+            self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
             self.loop_closure_threshold = 0.3  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 1.0  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 30  # max trajectory length to be utilized for locomotion training
-            self.locomotion_target_buffer_size = 20000  # target number of (obs, goal, action) tuples to store
+            self.locomotion_target_buffer_size = 30000  # target number of (obs, goal, action) tuples to store
             self.locomotion_train_epochs = 1
             self.locomotion_batch_size = 256
 
@@ -835,6 +865,9 @@ class AgentTMAX(AgentLearner):
         ]
         self._write_gif_summaries(tag='obs_trajectories', gif_images=trajectories, step=env_steps)
         log.info('Took %.3f seconds to write gif summaries', time.time() - start_gif_summaries)
+
+    def best_action(self, observation):
+        raise NotImplementedError('Use best_action_tmax instead')
 
     def best_action_tmax(self, observations, goals, deterministic=False):
         neighbors, num_neighbors = self.tmax_mgr.get_neighbors()
@@ -1149,12 +1182,9 @@ class AgentTMAX(AgentLearner):
 
     @staticmethod
     def _combine_rewards(num_envs, extrinsic, intrinsic):
-        per_frame_reward = -0.001
-        rewards = [per_frame_reward] * num_envs
-
+        rewards = [0] * num_envs
         for env_idx in range(num_envs):
             rewards[env_idx] += extrinsic[env_idx] + intrinsic[env_idx]
-
         return rewards
 
     def _learn_loop(self, multi_env):
@@ -1196,7 +1226,7 @@ class AgentTMAX(AgentLearner):
                     new_observations, new_goals = main_observation(env_obs), goal_observation(env_obs)
 
                     trajectory_buffer.add(observations, actions, dones, tmax_mgr)
-                    bonuses = tmax_mgr.update(new_observations, dones, is_bootstrap)
+                    bonuses = tmax_mgr.update(new_observations, new_goals, dones, is_bootstrap)
                     rewards = self._combine_rewards(multi_env.num_envs, rewards, bonuses)
 
                     # add experience from all environments to the current buffer(s)

@@ -1,3 +1,4 @@
+import math
 import random
 from string import ascii_lowercase
 from unittest import TestCase
@@ -8,6 +9,7 @@ import numpy as np
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tmax.topological_map import TopologicalMap
 from utils.envs.doom.doom_utils import doom_env_by_name, make_doom_env
+from utils.utils import log
 
 
 class TestGraph(TestCase):
@@ -36,6 +38,12 @@ class TestGraph(TestCase):
         self.assertEqual(len(m.neighbor_indices()), 1)
         self.assertEqual(len(m.non_neighbor_indices()), 1)
 
+        self.assertEqual(sorted(m.reachable_indices(1)), [1])
+        self.assertEqual(sorted(m.reachable_indices(0)), [0, 1])
+
+        path = m.get_path(0, 1)
+        self.assertEqual(path, [0, 1])
+
     def test_paths(self):
         m = TopologicalMap(np.array(0), directed_graph=True)
 
@@ -45,23 +53,40 @@ class TestGraph(TestCase):
         m.adjacency[0] = []
 
         for i, adj in enumerate(m.adjacency):
-            for j in range(4):
-                rand = random.randint(0, len(m.adjacency) - 1)
-                if rand != 0 and rand != i and rand not in adj:
-                    adj.append(rand)
+            if i > len(m.adjacency) - 3:
+                continue
+
+            if random.random() < 0.9:
+                for j in range(random.randint(1, 3)):
+                    rand = random.randint(0, len(m.adjacency) - 1)
+                    if rand != 0 and rand != i and rand not in adj:
+                        adj.append(rand)
 
         shortest, _ = m.shortest_paths(0)
+        reachable = m.reachable_indices(0)
+        self.assertGreaterEqual(len(reachable), 1)
+        log.debug('Reachable vertices: %r', reachable)
+
+        max_path_idx = -1
+        max_path_length = -1
+        for i, path_length in enumerate(shortest):
+            if path_length == math.inf:
+                continue
+            if path_length > max_path_length:
+                max_path_length = path_length
+                max_path_idx = i
+
+        path = m.get_path(0, max_path_idx)
+        log.debug('Shortest path from %d to %d is %r', 0, max_path_idx, path)
 
         relabeling = {}
         for i, s in enumerate(shortest):
-            if i != 0 and s != float('inf'):
-                new_s = str(s)
+            if i != 0:
                 for c in ascii_lowercase:
-                    if new_s in relabeling.values():
-                        new_s = str(s) + c
-                    else:
+                    new_s = str(s) + c
+                    if new_s not in relabeling.values():
+                        relabeling[i] = new_s
                         break
-                relabeling[i] = new_s
             else:
                 relabeling[i] = s
 
