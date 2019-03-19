@@ -20,10 +20,12 @@ from utils.utils import log, AttrDict, experiments_dir
 
 
 class TestPPO(TestCase):
-    def test_ppo_train_run(self):
+    def ppo_train_run(self, env_name=None):
         test_dir_name = self.__class__.__name__
 
         args, params = parse_args_ppo(AgentPPO.Params)
+        if env_name is not None:
+            args.env = env_name
         params.experiments_root = test_dir_name
         params.num_envs = 16
         params.train_for_steps = 60
@@ -40,6 +42,12 @@ class TestPPO(TestCase):
         shutil.rmtree(join(experiments_dir(), params.experiments_root))
 
         self.assertFalse(os.path.isdir(root_dir))
+
+    def test_ppo_train_run(self):
+        self.ppo_train_run()
+
+    def test_ppo_train_run_goal(self):
+        self.ppo_train_run(env_name='doom_maze_goal')
 
     def test_buffer_batches(self):
         obs_size, num_envs, rollout, batch_size = 16, 10, 100, 50

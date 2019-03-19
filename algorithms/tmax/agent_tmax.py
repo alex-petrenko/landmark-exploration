@@ -149,13 +149,11 @@ class ActorCritic:
 class TmaxPPOBuffer(PPOBuffer):
     def __init__(self):
         super(TmaxPPOBuffer, self).__init__()
-        self.goals = None
         self.neighbors, self.num_neighbors = None, None
         self.masks = None
 
     def reset(self):
         super(TmaxPPOBuffer, self).reset()
-        self.goals = []
         self.neighbors, self.num_neighbors = [], []
         self.masks = []
 
