@@ -128,6 +128,8 @@ class LocomotionBuffer:
             self.shuffle_data()
             self.buffer.trim_at(self.params.locomotion_target_buffer_size)
 
+        log.info('Locomotion timing %s', timing)
+
     def has_enough_data(self):
         len_data, min_data = len(self.buffer), self.params.locomotion_target_buffer_size // 20
         if len_data < min_data:

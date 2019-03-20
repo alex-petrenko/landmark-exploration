@@ -2,6 +2,7 @@ import copy
 import math
 import random
 import time
+from collections import deque
 from functools import partial
 
 import numpy as np
@@ -190,6 +191,7 @@ class TmaxManager:
         self.locomotion_targets = [None] * self.num_envs  # immediate goal for locomotion policy
         self.locomotion_final_targets = [None] * self.num_envs  # final target (e.g. goal observation)
         self.last_locomotion_success = [0] * self.num_envs
+        self.locomotion_achieved_goal = deque([])
 
         self.mode = [TmaxMode.EXPLORATION] * self.num_envs
 
@@ -305,7 +307,7 @@ class TmaxManager:
                 # landmark closest to the goal is quite close to the goal, let's go there
                 locomotion_goal_idx = reachable_indices[min_d_idx]
 
-        if locomotion_goal_idx == m.curr_landmark_idx:
+        if locomotion_goal_idx == m.curr_landmark_idx or random.random() < 0.3:
             self.mode[env_i] = TmaxMode.EXPLORATION
             self.locomotion_final_targets[env_i] = None
         else:
@@ -367,6 +369,10 @@ class TmaxManager:
                             self.is_landmark[env_i] = True
                             if m.curr_landmark_idx == self.locomotion_targets[env_i]:
                                 self.last_locomotion_success[env_i] = self.episode_frames[env_i]
+                                self.locomotion_achieved_goal.append(1)
+                            else:
+                                self.locomotion_achieved_goal.append(0)
+
                             self._select_locomotion_target(env_i)
 
             j = j_next
@@ -475,9 +481,10 @@ class TmaxManager:
 
                 if self.episode_frames[env_i] - self.last_locomotion_success[env_i] > 200:
                     if self.mode[env_i] == TmaxMode.LOCOMOTION:
-                        # we're not making progress towards the locomotion goal, let's switch to exploration
+                        # we're not making progress towards the final goal, let's switch to exploration
                         self.mode[env_i] = TmaxMode.EXPLORATION
                         self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
+                        self.locomotion_achieved_goal.append(0)
 
         if is_bootstrap:
             # don't bother updating the graph when the reachability net isn't trained yet
@@ -581,10 +588,10 @@ class AgentTMAX(AgentLearner):
             self.directed_edges = False  # whether to add directed on undirected edges on landmark discovery
             self.new_landmark_threshold = 0.95  # condition for considering current observation a "new landmark"
             self.loop_closure_threshold = 0.3  # condition for graph loop closure (finding new edge)
-            self.map_expansion_reward = 1.0  # reward for finding new vertex or new edge in the topological map
+            self.map_expansion_reward = 0.2  # reward for finding new vertex or new edge in the topological map
 
-            self.locomotion_max_trajectory = 30  # max trajectory length to be utilized for locomotion training
-            self.locomotion_target_buffer_size = 30000  # target number of (obs, goal, action) tuples to store
+            self.locomotion_max_trajectory = 35  # max trajectory length to be utilized for locomotion training
+            self.locomotion_target_buffer_size = 35000  # target number of (obs, goal, action) tuples to store
             self.locomotion_train_epochs = 1
             self.locomotion_batch_size = 256
 
@@ -814,7 +821,9 @@ class AgentTMAX(AgentLearner):
         self.summary_writer.add_summary(summary, env_steps)
         self.summary_writer.flush()
 
-    def _maybe_map_summaries(self, maps, env_steps):
+    def _maybe_tmax_summaries(self, tmax_mgr, env_steps):
+        maps = tmax_mgr.maps
+
         num_landmarks = [len(m.landmarks) for m in maps]
         num_neighbors = [len(m.neighbor_indices()) for m in maps]
         num_edges = [m.num_edges() for m in maps]
@@ -823,10 +832,10 @@ class AgentTMAX(AgentLearner):
         avg_num_neighbors = sum(num_neighbors) / len(num_neighbors)
         avg_num_edges = sum(num_edges) / len(num_edges)
 
-        summary_obj = tf.Summary()
+        loco_summary_obj = tf.Summary()
 
         def summary(tag, value):
-            summary_obj.value.add(tag=f'map/{tag}', simple_value=float(value))
+            loco_summary_obj.value.add(tag=f'map/{tag}', simple_value=float(value))
 
         summary('avg_landmarks', avg_num_landmarks)
         summary('max_landmarks', max(num_landmarks))
@@ -834,7 +843,7 @@ class AgentTMAX(AgentLearner):
         summary('max_neighbors', max(num_neighbors))
         summary('avg_edges', avg_num_edges)
         summary('max_edges', max(num_edges))
-        self.summary_writer.add_summary(summary_obj, env_steps)
+        self.summary_writer.add_summary(loco_summary_obj, env_steps)
 
         map_for_summary = random.choice(maps)
         random_graph_summary = visualize_graph_tensorboard(map_for_summary.to_nx_graph(), tag='map/random_graph')
@@ -847,6 +856,16 @@ class AgentTMAX(AgentLearner):
 
         max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].to_nx_graph(), tag='map/max_graph')
         self.summary_writer.add_summary(max_graph_summary, env_steps)
+
+        # locomotion summaries
+        achieved_goal = tmax_mgr.locomotion_achieved_goal
+        if len(achieved_goal) >= 100:
+            while len(achieved_goal) > 100:
+                achieved_goal.popleft()
+            locomotion_avg_success = sum(achieved_goal) / len(achieved_goal)
+            loco_summary_obj = tf.Summary()
+            loco_summary_obj.value.add(tag='locomotion/avg_success', simple_value=float(locomotion_avg_success))
+            self.summary_writer.add_summary(loco_summary_obj, env_steps)
 
         self.summary_writer.flush()
 
@@ -1274,7 +1293,7 @@ class AgentTMAX(AgentLearner):
 
             self._maybe_print(step, env_steps, avg_reward, avg_length, fps, timing)
             self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps, bonuses)
-            self._maybe_map_summaries(tmax_mgr.maps, env_steps)
+            self._maybe_tmax_summaries(tmax_mgr, env_steps)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
             self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
 
