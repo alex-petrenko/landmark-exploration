@@ -46,8 +46,8 @@ def doom_env_by_name(name):
     raise Exception('Unknown Doom env')
 
 
-def make_doom_env(doom_cfg, mode='train', human_input=False):
-    env = gym.make(doom_cfg.env_id)
+def make_doom_env(doom_cfg, mode='train', human_input=False, show_automap=False):
+    env = gym.make(doom_cfg.env_id, show_automap=show_automap)
 
     if human_input:
         env = StepHumanInput(env)
