@@ -8,9 +8,9 @@ import tensorflow as tf
 from tensorflow.contrib import slim
 
 from algorithms.agent import AgentLearner, TrainStatus
-from algorithms.algo_utils import calculate_gae, EPS, num_env_steps
-from algorithms.encoders import make_encoder
-from algorithms.env_wrappers import main_observation_space
+from algorithms.algo_utils import calculate_gae, EPS, num_env_steps, main_observation, goal_observation
+from algorithms.encoders import make_encoder, make_encoder_with_goal
+from algorithms.env_wrappers import main_observation_space, is_goal_based_env
 from algorithms.models import make_model
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
@@ -27,10 +27,25 @@ class ActorCritic:
         num_actions = env.action_space.n
         obs_space = env.observation_space
 
+        # Goal observation
+        self.ph_goal_obs = None
+        self.is_goal_env = is_goal_based_env(env)
+        if self.is_goal_env:
+            # goal obs has the same shape as main obs
+            self.ph_goal_obs = placeholder_from_space(main_observation_space(env))
+
+        make_encoder_func = make_encoder_with_goal if self.is_goal_env else make_encoder
+
         regularizer = None  # don't use L2 regularization
 
         # actor computation graph
-        actor_encoder = make_encoder(ph_observations, obs_space, regularizer, params, 'act_enc')
+        # use actor encoder as main observation encoder (including landmarks, etc.)
+        if self.is_goal_env:
+            actor_encoder = make_encoder_func(self.ph_observations, self.ph_goal_obs, obs_space, regularizer,
+                                              params, name='act_enc')
+        else:
+            actor_encoder = make_encoder_func(self.ph_observations, obs_space, regularizer, params, name='act_enc')
+
         actor_model = make_model(actor_encoder.encoded_input, regularizer, params, 'act_mdl')
 
         actions_fc = dense(actor_model.latent, params.model_fc_size // 2, regularizer)
@@ -41,7 +56,11 @@ class ActorCritic:
         self.action_prob = self.actions_distribution.probability(self.act)
 
         # critic computation graph
-        value_encoder = make_encoder(ph_observations, obs_space, regularizer, params, 'val_enc')
+        if self.is_goal_env:
+            value_encoder = make_encoder_func(self.ph_observations, self.ph_goal_obs, obs_space, regularizer,
+                                              params, 'val_enc')
+        else:
+            value_encoder = make_encoder_func(self.ph_observations, obs_space, regularizer, params, 'val_enc')
         value_model = make_model(value_encoder.encoded_input, regularizer, params, 'val_mdl')
 
         value_fc = dense(value_model.latent, params.model_fc_size // 2, regularizer)
@@ -49,20 +68,26 @@ class ActorCritic:
 
         log.info('Total parameters in the model: %d', count_total_parameters())
 
-    def invoke(self, session, observations, deterministic=False):
+    def invoke(self, session, observations, goals=None, deterministic=False):
         # TODO RECURRENT
         ops = [
             self.best_action_deterministic if deterministic else self.act,
             self.action_prob,
             self.value,
         ]
-        actions, action_prob, values = session.run(ops, feed_dict={self.ph_observations: observations})
+        feed_dict = {self.ph_observations: observations}
+        if self.is_goal_env:  # add goal input if it is given
+            feed_dict[self.ph_goal_obs] = goals
+        actions, action_prob, values = session.run(ops, feed_dict=feed_dict)
         return actions, action_prob, values
 
-    def best_action(self, session, observations, deterministic=False):
+    def best_action(self, session, observations, goals=None, deterministic=False):
+        feed_dict = {self.ph_observations: observations}
+        if self.is_goal_env:  # add goal input if it is given
+            feed_dict[self.ph_goal_obs] = goals
         actions = session.run(
             self.best_action_deterministic if deterministic else self.act,
-            feed_dict={self.ph_observations: observations},
+            feed_dict=feed_dict,
         )
         return actions
 
@@ -70,10 +95,11 @@ class ActorCritic:
 class PPOBuffer:
     def __init__(self):
         self.obs = self.actions = self.action_probs = self.rewards = self.dones = self.values = None
-        self.advantages = self.returns = None
+        self.advantages = self.returns = self.goals = None
 
     def reset(self):
         self.obs, self.actions, self.action_probs, self.rewards, self.dones, self.values = [], [], [], [], [], []
+        self.goals = []
         self.advantages = self.returns = None
 
     def _add_args(self, args):
@@ -81,7 +107,7 @@ class PPOBuffer:
             if arg_name in self.__dict__ and arg_value is not None:
                 self.__dict__[arg_name].append(arg_value)
 
-    def add(self, obs, actions, action_probs, rewards, dones, values):
+    def add(self, obs, actions, action_probs, rewards, dones, values, goals=None):
         args = copy.copy(locals())
         self._add_args(args)
 
@@ -212,6 +238,20 @@ class AgentPPO(AgentLearner):
         all_vars = tf.trainable_variables()
         slim.model_analyzer.analyze_vars(all_vars, print_info=True)
 
+    def input_dict(self, buffer, start, end):
+        # Most placeholders are in AgentPPO, so input dict is here
+        feed_dict = {
+            self.ph_observations: buffer.obs[start:end],
+            self.ph_actions: buffer.actions[start:end],
+            self.ph_old_action_probs: buffer.action_probs[start:end],
+            self.ph_advantages: buffer.advantages[start:end],
+            self.ph_returns: buffer.returns[start:end],
+        }
+        if self.actor_critic.is_goal_env:
+            feed_dict[self.actor_critic.ph_goal_obs] = buffer.goals[start:end]  # TODO: move ph_goals_obs to PPO?
+
+        return feed_dict
+
     @staticmethod
     def add_ppo_objectives(actor_critic, actions, old_action_probs, advantages, returns, params, step):
         action_probs = actor_critic.actions_distribution.probability(actions)
@@ -327,10 +367,8 @@ class AgentPPO(AgentLearner):
         self.summary_writer.add_summary(summary, env_steps)
         self.summary_writer.flush()
 
-    def best_action(self, observation, deterministic=False):
-        if observation.shape != self.obs_shape:
-            observation = observation.reshape(self.obs_shape)
-        actions = self.actor_critic.best_action(self.session, observation, deterministic)
+    def best_action(self, observation, goals=None, deterministic=False):
+        actions = self.actor_critic.best_action(self.session, observation, goals=goals, deterministic=deterministic)
         return actions[0]
 
     def _train_actor(self, buffer, env_steps):
@@ -349,17 +387,11 @@ class AgentPPO(AgentLearner):
                 summaries = [self.actor_summaries] if with_summaries else []
 
                 start, end = i, i + self.params.batch_size
+                feed_dict = self.input_dict(buffer, start, end)
 
                 result = self.session.run(
                     [self.objectives.sample_kl, self.train_actor] + summaries,
-                    feed_dict={
-                        self.ph_observations: buffer.obs[start:end],
-                        self.ph_actions: buffer.actions[start:end],
-                        self.ph_old_action_probs: buffer.action_probs[start:end],
-                        self.ph_advantages: buffer.advantages[start:end],
-                        self.ph_returns: buffer.returns[start:end],
-                    }
-                )
+                    feed_dict=feed_dict)
 
                 actor_step += 1
                 self._maybe_save(actor_step, env_steps)
@@ -400,14 +432,11 @@ class AgentPPO(AgentLearner):
                 summaries = [self.critic_summaries] if with_summaries else []
 
                 start, end = i, i + self.params.batch_size
+                feed_dict = self.input_dict(buffer, start, end)
 
                 result = self.session.run(
                     [self.objectives.critic_loss, self.train_critic] + summaries,
-                    feed_dict={
-                        self.ph_observations: buffer.obs[start:end],
-                        self.ph_returns: buffer.returns[start:end],
-                    }
-                )
+                    feed_dict=feed_dict)
 
                 critic_step += 1
                 losses.append(result[0])
@@ -433,7 +462,8 @@ class AgentPPO(AgentLearner):
         """Main training loop."""
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
-        observations = multi_env.reset()
+        env_obs = multi_env.reset()
+        observations, goals = main_observation(env_obs), goal_observation(env_obs)
         buffer = PPOBuffer()
 
         def end_of_training(s, es):
@@ -449,19 +479,21 @@ class AgentPPO(AgentLearner):
             with timing.timeit('experience'):
                 # collecting experience
                 for rollout_step in range(self.params.rollout):
-                    actions, action_probs, values = self.actor_critic.invoke(self.session, observations)
+                    actions, action_probs, values = self.actor_critic.invoke(self.session, observations, goals=goals)
 
                     # wait for all the workers to complete an environment step
-                    new_observation, rewards, dones, infos = multi_env.step(actions)
+                    env_obs, rewards, dones, infos = multi_env.step(actions)
+                    new_observations, new_goals = main_observation(env_obs), goal_observation(env_obs)
 
                     # add experience from all environments to the current buffer
-                    buffer.add(observations, actions, action_probs, rewards, dones, values)
-                    observations = new_observation
+                    buffer.add(observations, actions, action_probs, rewards, dones, values, goals)
+                    observations = new_observations
+                    goals = new_goals
 
                     num_steps += num_env_steps(infos)
 
                 # last step values are required for TD-return calculation
-                _, _, values = self.actor_critic.invoke(self.session, observations)
+                _, _, values = self.actor_critic.invoke(self.session, observations, goals=goals)
                 buffer.values.append(values)
 
             env_steps += num_steps
