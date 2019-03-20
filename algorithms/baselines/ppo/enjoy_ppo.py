@@ -9,7 +9,7 @@ from algorithms.exploit import run_policy_loop
 from utils.utils import log
 
 
-def enjoy(params, env_id, max_num_episodes=1000000, fps=1500):
+def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=1e9, fps=1500):
     def make_env_func():
         e = create_env(env_id, mode='test')
         e.seed(0)
@@ -25,7 +25,7 @@ def enjoy(params, env_id, max_num_episodes=1000000, fps=1500):
         log.info('Press any key to start...')
         cv2.waitKey()
 
-    return run_policy_loop(agent, env, max_num_episodes, fps, max_num_frames=50, deterministic=False)
+    return run_policy_loop(agent, env, max_num_episodes, fps, max_num_frames=max_num_frames, deterministic=False)
 
 
 def main():

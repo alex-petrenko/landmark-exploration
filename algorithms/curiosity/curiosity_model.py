@@ -1,8 +1,8 @@
 import ipdb
 import tensorflow as tf
 
-from algorithms.encoders import make_encoder
-from algorithms.env_wrappers import has_image_observations, get_observation_space
+from algorithms.encoders import make_encoder, make_encoder_with_goal
+from algorithms.env_wrappers import has_image_observations, is_goal_based_env
 from algorithms.tf_utils import dense, count_total_parameters, conv
 from utils.utils import log
 
@@ -10,33 +10,34 @@ from utils.utils import log
 class CuriosityModel:
     """Single class for inverse and forward dynamics model."""
 
-    def __init__(self, env, obs, next_obs, actions, past_frames, forward_fc, params=None):
+    def __init__(self, env, obs, next_obs, actions, past_frames, forward_fc, goals=None, params=None):
         """
         :param obs - placeholder for observations
         :param actions - placeholder for selected actions
         """
+        self.is_goal_env = is_goal_based_env(env)
         with tf.variable_scope('curiosity_model'):
             self.regularizer = tf.contrib.layers.l2_regularizer(scale=1e-10)
 
-            image_obs = has_image_observations(get_observation_space(env))
+            if self.is_goal_env:
+                image_obs = has_image_observations(env.observation_space.spaces['obs'])
+            else:
+                image_obs = has_image_observations(env.observation_space)
             num_actions = env.action_space.n
 
             if image_obs:
-                # convolutions
-                # conv_encoder = tf.make_template(
-                #     'conv_encoder',
-                #     self._convnet_simple,
-                #     create_scope_now_=True,
-                #     convs=[(32, 3, 2)] * 4,
-                # )
-                encoded_obs = make_encoder(obs, env, self.regularizer, params, 'encoded_obs')
-                # encoded_obs = conv_encoder(obs=obs)
-                # encoded_obs = tf.contrib.layers.flatten(encoded_obs)
-                encoded_obs = encoded_obs.encoded_input
+                if self.is_goal_env:  # goal image doesn't change, so CM encoder should learn to ignore it
+                    encoded_obs = make_encoder_with_goal(obs, goals, env.observation_space, self.regularizer,
+                                                         params, name='encoded_obs')
+                    encoded_next_obs = make_encoder_with_goal(next_obs, goals, env.observation_space, self.regularizer,
+                                                              params, name='encoded_next_obs')
+                else:
+                    encoded_obs = make_encoder(obs, env.observation_space, self.regularizer,
+                                               params, name='encoded_obs')
+                    encoded_next_obs = make_encoder(next_obs, env.observation_space, self.regularizer,
+                                                    params, name='encoded_next_obs')
 
-                # encoded_next_obs = conv_encoder(obs=next_obs)
-                # self.encoded_next_obs = tf.contrib.layers.flatten(encoded_next_obs)
-                encoded_next_obs = make_encoder(next_obs, env, self.regularizer, params, 'encoded_next_obs')
+                encoded_obs = encoded_obs.encoded_input
                 self.encoded_next_obs = encoded_next_obs.encoded_input
             else:
                 # low-dimensional input
@@ -50,7 +51,7 @@ class CuriosityModel:
                 self.encoded_next_obs = lowdim_encoder(obs=next_obs)
 
             self.feature_vector_size = encoded_obs.get_shape().as_list()[-1]
-            log.info('Feature vector size in ICM: %d', self.feature_vector_size)
+            log.info('Feature vector size in ICM/RND module: %d', self.feature_vector_size)
 
             actions_one_hot = tf.one_hot(actions, num_actions)
 

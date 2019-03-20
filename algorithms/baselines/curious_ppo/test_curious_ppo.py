@@ -9,10 +9,10 @@ import numpy as np
 import tensorflow as tf
 
 from algorithms.agent import TrainStatus
-from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer, ActorCritic
-from algorithms.baselines.ppo.enjoy_ppo import enjoy
-from algorithms.baselines.ppo.ppo_utils import parse_args_ppo
-from algorithms.baselines.ppo.train_ppo import train
+from algorithms.baselines.curious_ppo.agent_curious_ppo import AgentCuriousPPO, PPOBuffer
+from algorithms.baselines.curious_ppo.enjoy_curious_ppo import enjoy
+from algorithms.baselines.curious_ppo.curious_ppo_utils import parse_args_curious_ppo
+from algorithms.baselines.curious_ppo.train_curious_ppo import train
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tf_utils import placeholder_from_space, placeholders
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
@@ -20,10 +20,10 @@ from utils.utils import log, AttrDict, experiments_dir
 
 
 class TestPPO(TestCase):
-    def ppo_train_run(self, env_name=None):
+    def curious_ppo_train_run(self, env_name=None):
         test_dir_name = self.__class__.__name__
 
-        args, params = parse_args_ppo(AgentPPO.Params)
+        args, params = parse_args_curious_ppo(AgentCuriousPPO.Params)
         if env_name is not None:
             args.env = env_name
         params.experiments_root = test_dir_name
@@ -44,10 +44,10 @@ class TestPPO(TestCase):
         self.assertFalse(os.path.isdir(root_dir))
 
     def test_ppo_train_run(self):
-        self.ppo_train_run()
+        self.curious_ppo_train_run()
 
     def test_ppo_train_run_goal(self):
-        self.ppo_train_run(env_name='doom_maze_goal')
+        self.curious_ppo_train_run(env_name='doom_maze_goal')
 
     def test_buffer_batches(self):
         obs_size, num_envs, rollout, batch_size = 16, 10, 100, 50

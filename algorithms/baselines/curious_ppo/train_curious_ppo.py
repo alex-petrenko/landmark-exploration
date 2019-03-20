@@ -1,7 +1,7 @@
 import sys
 
-from algorithms.baselines.ppo_icm.curious_ppo_utils import parse_args_curious_ppo
-from algorithms.baselines.ppo_icm.agent_curious_ppo import AgentCuriousPPO
+from algorithms.baselines.curious_ppo.curious_ppo_utils import parse_args_curious_ppo
+from algorithms.baselines.curious_ppo.agent_curious_ppo import AgentCuriousPPO
 from utils.envs.envs import create_env
 
 

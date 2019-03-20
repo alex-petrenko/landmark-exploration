@@ -4,10 +4,10 @@ from functools import partial
 
 import tensorflow as tf
 
-from algorithms.algo_utils import num_env_steps, extract_keys, maybe_extract_key
+from algorithms.algo_utils import num_env_steps, maybe_extract_key, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer
 from algorithms.curiosity.curiosity_model import CuriosityModel
-from algorithms.env_wrappers import get_observation_space
+from algorithms.env_wrappers import main_observation_space
 from algorithms.tf_utils import placeholder_from_space, merge_summaries
 from utils.timing import Timing
 from utils.utils import AttrDict
@@ -23,7 +23,7 @@ class CuriousPPOBuffer(PPOBuffer):
         self.next_obs = []
 
     # noinspection PyMethodOverriding
-    def add(self, obs, next_obs, actions, action_probs, rewards, dones, values):
+    def add(self, obs, next_obs, actions, action_probs, rewards, dones, values, goals=None):
         """Append one-step data to the current batch of observations."""
         args = copy.copy(locals())
         super(CuriousPPOBuffer, self)._add_args(args)
@@ -37,12 +37,13 @@ class AgentCuriousPPO(AgentPPO):
             super(AgentCuriousPPO.Params, self).__init__(experiment_name)
 
             # add more params here  #TODO: Aleksei give defaults
-            self.cm_beta = 1
-            self.cm_lr_scale = 1e-3
-            self.clip_bonus = 1
+            self.cm_beta = 0.5
+            self.cm_lr_scale = 10.0
+            self.clip_bonus = 0.1
+            self.prediction_bonus_coeff = 0.05  # scaling factor for prediction bonus vs env rewards
+
             self.stack_past_frames = 3
             self.forward_fc = 512
-            self.prediction_bonus_coeff = 0.05  # scaling factor for prediction bonus vs env rewards
 
         @staticmethod
         def filename_prefix():
@@ -52,13 +53,13 @@ class AgentCuriousPPO(AgentPPO):
         super(AgentCuriousPPO, self).__init__(make_env_func, params)
 
         env = self.make_env_func()  # we need it to query observation shape, number of actions, etc.
-        self.ph_next_observations = placeholder_from_space(get_observation_space(env))
+        self.ph_next_observations = placeholder_from_space(main_observation_space(env))
         self.prediction_curiosity_bonus = None  # updated in self.add_cm_objectives()
 
         # Create graph for curiosity module (ICM)
         self._cm = CuriosityModel(
             env, self.ph_observations, self.ph_next_observations, self.ph_actions, params.stack_past_frames,
-            params.forward_fc, params=params)
+            params.forward_fc, params=params, goals=self.actor_critic.ph_goal_obs)
 
         # add ICM loss keys to objective function
         self.objectives.update(self.add_cm_objectives())  # TODO: will this merging overwrite some keys?
@@ -103,25 +104,32 @@ class AgentCuriousPPO(AgentPPO):
         self._train_curiosity_module(buffer, env_steps)
         return step
 
-    def _prediction_curiosity_bonus(self, observations, actions, next_obs):
+    def _prediction_curiosity_bonus(self, observations, actions, next_obs, goals=None):
         bonuses = self.session.run(
             self.prediction_curiosity_bonus,
             feed_dict={
                 self.ph_actions: actions,
                 self.ph_observations: observations,
                 self.ph_next_observations: next_obs,
+                self.actor_critic.ph_goal_obs: goals,
             }
         )
         return bonuses
+
+    def input_dict(self, buffer, start, end):
+        feed_dict = super(AgentCuriousPPO, self).input_dict(buffer, start, end)
+
+        # add next_obs to feed dict for curiosity module
+        next_obs = buffer.next_obs
+        feed_dict[self.ph_next_observations] = next_obs[start:end]
+
+        return feed_dict
 
     def _train_curiosity_module(self, buffer, env_steps):
         """
         Actually do a single iteration of training. See the computational graph in the ctor to figure out
         the details.
         """
-        observations = buffer.obs
-        actions = buffer.actions
-        next_obs = buffer.next_obs
         step = self.cm_step.eval(session=self.session)
         summary = None
 
@@ -130,15 +138,11 @@ class AgentCuriousPPO(AgentPPO):
             summaries = [self.cm_summaries] if with_summaries else []
 
             start, end = i, i + self.params.batch_size
+            feed_dict = self.input_dict(buffer, start, end)
 
             result = self.session.run(
                 [self.train_cm] + summaries,
-                feed_dict={
-                    self.ph_observations: observations[start:end],
-                    self.ph_next_observations: next_obs[start:end],
-                    self.ph_actions: actions[start:end],
-                },
-            )
+                feed_dict=feed_dict)
 
             if with_summaries:
                 summary = result[1]
@@ -150,8 +154,9 @@ class AgentCuriousPPO(AgentPPO):
         # actor_step used as global step for training
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
-        observations = multi_env.reset()
-        img_obs = maybe_extract_key(observations, 'obs')
+        env_obs = multi_env.reset()
+        img_obs, goals = main_observation(env_obs), goal_observation(env_obs)
+        # img_obs = maybe_extract_key(observations, 'obs')
         buffer = CuriousPPOBuffer()
 
         def end_of_training(s, es):
@@ -167,25 +172,25 @@ class AgentCuriousPPO(AgentPPO):
             with timing.timeit('experience'):
                 # collecting experience
                 for rollout_step in range(self.params.rollout):
-                    actions, action_probs, values = self.actor_critic.invoke(self.session, observations)
+                    actions, action_probs, values = self.actor_critic.invoke(self.session, img_obs, goals=goals)
 
                     # wait for all the workers to complete an environment step
-                    new_observation, rewards, dones, infos = multi_env.step(actions)
+                    env_obs, rewards, dones, infos = multi_env.step(actions)
+                    next_img_obs, new_goals = main_observation(env_obs), goal_observation(env_obs)
 
                     # calculate curiosity bonus
-                    next_img_obs = maybe_extract_key(new_observation, 'obs')  # TODO: use this for goal and current_obs
-                    bonuses = self._prediction_curiosity_bonus(img_obs, actions, next_img_obs)
+                    bonuses = self._prediction_curiosity_bonus(img_obs, actions, next_img_obs, goals=goals)
                     rewards += bonuses
 
                     # add experience from environment to the current buffer
-                    buffer.add(observations, new_observation, actions, action_probs, rewards, dones, values)
-                    observations = new_observation
+                    buffer.add(img_obs, next_img_obs, actions, action_probs, rewards, dones, values, goals=goals)
+                    goals = new_goals
                     img_obs = next_img_obs
 
                     num_steps += num_env_steps(infos)
 
                 # last step values are required for TD-return calculation
-                _, _, values = self.actor_critic.invoke(self.session, observations)
+                _, _, values = self.actor_critic.invoke(self.session, img_obs, goals=goals)
                 buffer.values.append(values)
 
             env_steps += num_steps
