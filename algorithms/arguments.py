@@ -1,11 +1,6 @@
 import argparse
 import sys
 
-from algorithms.agent import AgentRandom
-from algorithms.baselines.a2c.agent_a2c import AgentA2C
-from algorithms.baselines.ppo.agent_ppo import AgentPPO
-from algorithms.baselines.curious_ppo.agent_curious_ppo import AgentCuriousPPO
-from algorithms.baselines.curious_a2c.agent_curious_a2c import AgentCuriousA2C
 from utils.utils import log, get_experiment_name
 
 
@@ -15,7 +10,6 @@ def parse_args(default_env, default_experiment_name, params_cls):
     # common args
     parser.add_argument('--experiment', type=str, default=None)
     parser.add_argument('--env', type=str, default=default_env)
-    parser.add_argument('--model', type=str, default=None)
 
     # params object args
     params_cls.add_cli_args(parser)
@@ -36,27 +30,3 @@ def parse_args(default_env, default_experiment_name, params_cls):
 
     return args, params
 
-
-def parse_model():
-    """Returns the agent class defined by the argument --model"""
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-
-    # common args
-    parser.add_argument('--model', type=str, default=None)
-
-    args, _ = parser.parse_known_args()
-
-    if args.model == 'ppo':
-        agent_cls = AgentPPO
-    elif args.model == 'a2c':
-        agent_cls = AgentA2C
-    elif args.model == 'curious_a2c':
-        agent_cls = AgentCuriousA2C
-    elif args.model == 'random':
-        agent_cls = AgentRandom
-    elif args.model == 'curious_ppo':
-        agent_cls = AgentCuriousPPO
-    else:
-        raise Exception('Unsupported model {0}'.format(args.model))
-
-    return agent_cls
