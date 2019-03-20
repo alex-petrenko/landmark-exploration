@@ -593,6 +593,8 @@ class AgentTMAX(AgentLearner):
             self.gif_save_rate = 100  # number of seconds to wait before saving another gif to tensorboard
             self.gif_summary_num_envs = 2
 
+            self.show_automap = False
+
             # training process
             self.learning_rate = 1e-4
             self.train_for_steps = self.train_for_env_steps = 10 * 1000 * 1000 * 1000
