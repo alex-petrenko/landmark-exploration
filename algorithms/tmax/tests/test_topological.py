@@ -44,6 +44,58 @@ class TestGraph(TestCase):
         path = m.get_path(0, 1)
         self.assertEqual(path, [0, 1])
 
+    def test_shortest(self):
+        m = TopologicalMap(np.array(0), directed_graph=False)
+        for i in range(4):
+            idx = m.add_landmark(np.array(0))
+            m.adjacency[idx] = []
+
+        m.adjacency[0] = []
+
+        m._add_edge(0, 1)
+        m._add_edge(0, 2)
+        m._add_edge(1, 3)
+        m._add_edge(2, 3)
+
+        path = m.get_path(0, 3)
+        log.debug('Path from 0 to 3 is %r', path)
+
+        m.update_edge_traversal(0, 1, 0)
+
+        path = m.get_path(0, 3)
+        log.debug('Path from 0 to 3 is %r', path)
+        self.assertEqual(path, [0, 2, 3])
+
+        m.update_edge_traversal(2, 3, 0)
+        m.update_edge_traversal(2, 3, 0)
+
+        path = m.get_path(0, 3)
+        log.debug('Path from 0 to 3 is %r', path)
+        self.assertEqual(path, [0, 1, 3])
+
+        m.update_edge_traversal(2, 3, 1)
+        m.update_edge_traversal(2, 3, 1)
+        m.update_edge_traversal(0, 2, 1)
+
+        path = m.get_path(0, 3)
+        log.debug('Path from 0 to 3 is %r', path)
+        self.assertEqual(path, [0, 2, 3])
+
+        m.remove_edge(2, 3)
+
+        path = m.get_path(0, 3)
+        log.debug('Path from 0 to 3 is %r', path)
+        self.assertEqual(path, [0, 1, 3])
+
+        for i in range(5):
+            m.update_edge_traversal(0, 1, 0)
+
+        m._prune(threshold=0.05)
+
+        path = m.get_path(0, 3)
+        log.debug('Path from 0 to 3 is %r', path)
+        self.assertIs(path, None)
+
     def test_paths(self):
         m = TopologicalMap(np.array(0), directed_graph=True)
 
@@ -60,7 +112,7 @@ class TestGraph(TestCase):
                 for j in range(random.randint(1, 3)):
                     rand = random.randint(0, len(m.adjacency) - 1)
                     if rand != 0 and rand != i and rand not in adj:
-                        adj.append(rand)
+                        m._add_edge(i, rand)
 
         shortest, _ = m.shortest_paths(0)
         reachable = m.reachable_indices(0)

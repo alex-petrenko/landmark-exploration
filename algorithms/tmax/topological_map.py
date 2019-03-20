@@ -1,3 +1,4 @@
+import math
 from collections import deque
 from hashlib import sha1
 
@@ -18,6 +19,8 @@ class TopologicalMap:
         self.landmarks = self.hashes = self.adjacency = None
         self.curr_landmark_idx = 0
 
+        self.edge_success = {}
+
         # variables needed for online localization
         self.new_landmark_candidate_frames = 0
         self.closest_landmarks = []
@@ -36,6 +39,8 @@ class TopologicalMap:
     def new_episode(self):
         self.new_landmark_candidate_frames = 0
         self.closest_landmarks = []
+
+        self._prune()
 
     def _log_verbose(self, msg, *args):
         if not self._verbose:
@@ -73,12 +78,18 @@ class TopologicalMap:
         return non_neighbors
 
     def _add_directed_edge(self, i1, i2):
-        self.adjacency[i1].append(i2)
+        if i2 not in self.adjacency[i1]:
+            self.adjacency[i1].append(i2)
+            self.edge_success[(i1, i2)] = 0.9
         self._log_verbose('New dir. edge %d-%d', i1, i2)
 
     def _add_undirected_edge(self, i1, i2):
-        self.adjacency[i1].append(i2)
-        self.adjacency[i2].append(i1)
+        if i2 not in self.adjacency[i1]:
+            self.adjacency[i1].append(i2)
+            self.edge_success[(i1, i2)] = 0.9
+        if i1 not in self.adjacency[i2]:
+            self.adjacency[i2].append(i1)
+            self.edge_success[(i2, i1)] = 0.9
         self._log_verbose('New und. edge %d-%d', i1, i2)
 
     def _add_edge(self, i1, i2):
@@ -111,13 +122,34 @@ class TopologicalMap:
         self._log_verbose('Added new landmark %d', new_landmark_idx)
         return new_landmark_idx
 
+    def remove_edge(self, i1, i2):
+        self.adjacency[i1].remove(i2)
+        del self.edge_success[(i1, i2)]
+
     def num_edges(self):
         """Helper function for summaries."""
         num_edges = sum([len(adj) for adj in self.adjacency])
         return num_edges
 
+    def update_edge_traversal(self, i1, i2, success):
+        prev_value = self.edge_success[(i1, i2)]
+        self.edge_success[(i1, i2)] = 0.5 * (prev_value + success)
+
+    def _prune(self, threshold=0.1):
+        """Remove edges with very low weight of traversal success."""
+        for i, adj in enumerate(self.adjacency):
+            remove = []
+            for j in adj:
+                if self.edge_success[(i, j)] <= threshold:
+                    remove.append(j)
+            for j in remove:
+                self.remove_edge(i, j)
+
+    def _edge_weight(self, i1, i2):
+        return -math.log(self.edge_success[(i1, i2)])
+
     def shortest_paths(self, idx):
-        distances = [float('inf')] * len(self.landmarks)
+        distances = [math.inf] * len(self.landmarks)
         distances[idx] = 0
         previous = [None] * len(self.landmarks)
         unvisited = list(range(len(self.landmarks)))
@@ -126,7 +158,7 @@ class TopologicalMap:
             u = min(unvisited, key=lambda node: distances[node])
             unvisited.remove(u)
             for neighbor in self.adjacency[u]:
-                this_distance = distances[u] + 1  # distance between each node is 1
+                this_distance = distances[u] + self._edge_weight(u, neighbor)  # distance between each node is 1
                 if this_distance < distances[neighbor]:
                     distances[neighbor] = this_distance
                     previous[neighbor] = u

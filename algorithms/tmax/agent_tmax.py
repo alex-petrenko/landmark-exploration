@@ -307,11 +307,11 @@ class TmaxManager:
                 # landmark closest to the goal is still too far from the goal, in this case let's pick locomotion goal
                 # randomly
                 locomotion_goal_idx = random.choice(reachable_indices)
-                log.info('Random locomotion goal is %d', locomotion_goal_idx)
+                log.info('Random locomotion goal is %d (min_d is %.3f)', locomotion_goal_idx, min_d)
             else:
                 # landmark closest to the goal is quite close to the goal, let's go there
                 locomotion_goal_idx = reachable_indices[min_d_idx]
-                log.info('Final locomotion goal is %d', locomotion_goal_idx)
+                log.info('Final locomotion goal is %d (min_d is %.3f)', locomotion_goal_idx, min_d)
 
         if locomotion_goal_idx == m.curr_landmark_idx or random.random() < 0.3:
             self.mode[env_i] = TmaxMode.EXPLORATION
@@ -367,16 +367,20 @@ class TmaxManager:
                 # crude localization
                 if all(lm == closest_landmark_idx[env_i] for lm in m.closest_landmarks[-3:]):
                     if closest_landmark_idx[env_i] != m.curr_landmark_idx:
+                        prev_landmark_idx = m.curr_landmark_idx
                         m.set_curr_landmark(closest_landmark_idx[env_i])
 
                         if persistent_map:
+                            achieved_goal = 0
+
                             # only use persistent (not episodic) map for locomotion
                             self.is_landmark[env_i] = True
                             if m.curr_landmark_idx == self.locomotion_targets[env_i]:
                                 self.last_locomotion_success[env_i] = self.episode_frames[env_i]
-                                self.locomotion_achieved_goal.append(1)
-                            else:
-                                self.locomotion_achieved_goal.append(0)
+                                achieved_goal = 1
+
+                            self.locomotion_achieved_goal.append(achieved_goal)
+                            m.update_edge_traversal(prev_landmark_idx, m.curr_landmark_idx, achieved_goal)
 
                             self._select_locomotion_target(env_i)
 
@@ -490,6 +494,7 @@ class TmaxManager:
                         self.mode[env_i] = TmaxMode.EXPLORATION
                         self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
                         self.locomotion_achieved_goal.append(0)
+                        log.info('Locomotion unsuccessful, switch to exploration')
 
         if is_bootstrap:
             # don't bother updating the graph when the reachability net isn't trained yet
