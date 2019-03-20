@@ -1,8 +1,7 @@
-import ipdb
 import tensorflow as tf
 
-from algorithms.encoders import make_encoder, make_encoder_with_goal
-from algorithms.env_wrappers import has_image_observations, is_goal_based_env
+from algorithms.encoders import make_encoder
+from algorithms.env_wrappers import has_image_observations, main_observation_space
 from algorithms.tf_utils import dense, count_total_parameters, conv
 from utils.utils import log
 
@@ -10,33 +9,21 @@ from utils.utils import log
 class CuriosityModel:
     """Single class for inverse and forward dynamics model."""
 
-    def __init__(self, env, obs, next_obs, actions, past_frames, forward_fc, goals=None, params=None):
+    def __init__(self, env, obs, next_obs, actions, past_frames, forward_fc, params=None):
         """
         :param obs - placeholder for observations
         :param actions - placeholder for selected actions
         """
-        self.is_goal_env = is_goal_based_env(env)
         with tf.variable_scope('curiosity_model'):
             self.regularizer = tf.contrib.layers.l2_regularizer(scale=1e-10)
 
-            if self.is_goal_env:
-                image_obs = has_image_observations(env.observation_space.spaces['obs'])
-            else:
-                image_obs = has_image_observations(env.observation_space)
+            obs_space = main_observation_space(env)
+            image_obs = has_image_observations(obs_space)
             num_actions = env.action_space.n
 
             if image_obs:
-                if self.is_goal_env:  # goal image doesn't change, so CM encoder should learn to ignore it
-                    encoded_obs = make_encoder_with_goal(obs, goals, env.observation_space, self.regularizer,
-                                                         params, name='encoded_obs')
-                    encoded_next_obs = make_encoder_with_goal(next_obs, goals, env.observation_space, self.regularizer,
-                                                              params, name='encoded_next_obs')
-                else:
-                    encoded_obs = make_encoder(obs, env.observation_space, self.regularizer,
-                                               params, name='encoded_obs')
-                    encoded_next_obs = make_encoder(next_obs, env.observation_space, self.regularizer,
-                                                    params, name='encoded_next_obs')
-
+                encoded_obs = make_encoder(obs, obs_space, self.regularizer, params, name='encoded_obs')
+                encoded_next_obs = make_encoder(next_obs, obs_space, self.regularizer, params, name='encoded_next_obs')
                 encoded_obs = encoded_obs.encoded_input
                 self.encoded_next_obs = encoded_next_obs.encoded_input
             else:

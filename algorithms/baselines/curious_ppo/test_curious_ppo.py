@@ -9,10 +9,11 @@ import numpy as np
 import tensorflow as tf
 
 from algorithms.agent import TrainStatus
-from algorithms.baselines.curious_ppo.agent_curious_ppo import AgentCuriousPPO, PPOBuffer
+from algorithms.baselines.curious_ppo.agent_curious_ppo import AgentCuriousPPO, CuriousPPOBuffer
 from algorithms.baselines.curious_ppo.enjoy_curious_ppo import enjoy
 from algorithms.baselines.curious_ppo.curious_ppo_utils import parse_args_curious_ppo
 from algorithms.baselines.curious_ppo.train_curious_ppo import train
+from algorithms.baselines.ppo.agent_ppo import ActorCritic
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tf_utils import placeholder_from_space, placeholders
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
@@ -43,16 +44,16 @@ class TestPPO(TestCase):
 
         self.assertFalse(os.path.isdir(root_dir))
 
-    def test_ppo_train_run(self):
+    def test_curious_ppo_train_run(self):
         self.curious_ppo_train_run()
 
-    def test_ppo_train_run_goal(self):
+    def test_curious_ppo_train_run_goal(self):
         self.curious_ppo_train_run(env_name='doom_maze_goal')
 
     def test_buffer_batches(self):
         obs_size, num_envs, rollout, batch_size = 16, 10, 100, 50
 
-        buff = PPOBuffer()
+        buff = CuriousPPOBuffer()
 
         # fill buffer with fake data
         for item in buff.__dict__.keys():
@@ -76,12 +77,14 @@ class TestPPOPerformance(TestCase):
         step = tf.Variable(0, trainable=False, dtype=tf.int64, name='step')
 
         ph_observations = placeholder_from_space(env.observation_space)
+        ph_next_obs = placeholder_from_space(env.observation_space)
         ph_actions = placeholder_from_space(env.action_space)
         ph_old_actions_probs, ph_advantages, ph_returns = placeholders(None, None, None)
 
         if use_dataset:
             dataset = tf.data.Dataset.from_tensor_slices((
                 ph_observations,
+                ph_next_obs,
                 ph_actions,
                 ph_old_actions_probs,
                 ph_advantages,
@@ -90,15 +93,16 @@ class TestPPOPerformance(TestCase):
             dataset = dataset.batch(params.batch_size)
             dataset = dataset.prefetch(10)
             iterator = dataset.make_initializable_iterator()
-            observations, act, old_action_probs, adv, ret = iterator.get_next()
+            observations, next_obs, act, old_action_probs, adv, ret = iterator.get_next()
         else:
-            observations = ph_observations
+            observations, next_obs = ph_observations, ph_next_obs
             act, old_action_probs, adv, ret = ph_actions, ph_old_actions_probs, ph_advantages, ph_returns
 
         actor_critic = ActorCritic(env, observations, params)
         env.close()
 
-        objectives = AgentPPO.add_ppo_objectives(actor_critic, act, old_action_probs, adv, ret, params, step)
+        objectives = AgentCuriousPPO.add_ppo_objectives(actor_critic, act, old_action_probs, adv, ret, params, step)
+        objectives += AgentCuriousPPO.add_cm_objectives()  # TODO: Fix this. Method isn't static
         train_op = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(objectives.actor_loss, global_step=step)
 
         return AttrDict(locals())

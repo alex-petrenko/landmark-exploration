@@ -59,7 +59,7 @@ class AgentCuriousPPO(AgentPPO):
         # Create graph for curiosity module (ICM)
         self._cm = CuriosityModel(
             env, self.ph_observations, self.ph_next_observations, self.ph_actions, params.stack_past_frames,
-            params.forward_fc, params=params, goals=self.actor_critic.ph_goal_obs)
+            params.forward_fc, params=params)
 
         # add ICM loss keys to objective function
         self.objectives.update(self.add_cm_objectives())  # TODO: will this merging overwrite some keys?
