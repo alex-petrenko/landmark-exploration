@@ -80,16 +80,16 @@ class TopologicalMap:
     def _add_directed_edge(self, i1, i2):
         if i2 not in self.adjacency[i1]:
             self.adjacency[i1].append(i2)
-            self.edge_success[(i1, i2)] = 0.9
+            self.edge_success[(i1, i2)] = 0.5
         self._log_verbose('New dir. edge %d-%d', i1, i2)
 
     def _add_undirected_edge(self, i1, i2):
         if i2 not in self.adjacency[i1]:
             self.adjacency[i1].append(i2)
-            self.edge_success[(i1, i2)] = 0.9
+            self.edge_success[(i1, i2)] = 0.5
         if i1 not in self.adjacency[i2]:
             self.adjacency[i2].append(i1)
-            self.edge_success[(i2, i1)] = 0.9
+            self.edge_success[(i2, i1)] = 0.5
         self._log_verbose('New und. edge %d-%d', i1, i2)
 
     def _add_edge(self, i1, i2):
@@ -137,13 +137,16 @@ class TopologicalMap:
 
     def _prune(self, threshold=0.1):
         """Remove edges with very low weight of traversal success."""
+        remove = []
         for i, adj in enumerate(self.adjacency):
-            remove = []
             for j in adj:
                 if self.edge_success[(i, j)] <= threshold:
-                    remove.append(j)
-            for j in remove:
-                self.remove_edge(i, j)
+                    remove.append((i, j))
+
+        if len(remove) > 0:
+            log.info('Prune: removing edges %r', remove)
+            for i1, i2 in remove:
+                self.remove_edge(i1, i2)
 
     def _edge_weight(self, i1, i2):
         return -math.log(self.edge_success[(i1, i2)])

@@ -229,7 +229,7 @@ class TmaxManager:
                 neighbor_distance[neighbor_idx] = '{:.3f}'.format(distance[i])
             self._log_verbose('Env %d distance: %r', env_i, neighbor_distance)
 
-    def _select_locomotion_target(self, env_i):
+    def _select_locomotion_target(self, env_i, verbose=False):
         if self.mode[env_i] != TmaxMode.LOCOMOTION:
             self.locomotion_targets[env_i] = None
             self.locomotion_final_targets[env_i] = None
@@ -240,6 +240,9 @@ class TmaxManager:
 
         m = self.maps[env_i]
         path = m.get_path(m.curr_landmark_idx, final_target)
+
+        if verbose:
+            log.info('Shortest path from %d to %d is %r', m.curr_landmark_idx, final_target, path)
 
         if m.curr_landmark_idx == final_target or path is None or len(path) <= 1:
             # reached the target, switch to exploration policy
@@ -319,7 +322,7 @@ class TmaxManager:
         else:
             self.mode[env_i] = TmaxMode.LOCOMOTION
             self.locomotion_final_targets[env_i] = locomotion_goal_idx
-            self._select_locomotion_target(env_i)
+            self._select_locomotion_target(env_i, verbose=True)
 
         assert self.mode[env_i] is not None
         if self.mode[env_i] == TmaxMode.LOCOMOTION:
