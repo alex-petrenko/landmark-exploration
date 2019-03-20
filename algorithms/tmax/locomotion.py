@@ -66,6 +66,7 @@ class LocomotionBuffer:
 
     def __init__(self, params):
         self.params = params
+        self.batch_num = 0
         self.buffer = Buffer()
         self._vis_dirs = deque([])
 
@@ -118,8 +119,9 @@ class LocomotionBuffer:
                 # no new data
                 return
 
-        with timing.timeit('vis'):
-            self._visualize_data(training_data)
+        if self.batch_num % 10 == 0:
+            with timing.timeit('vis'):
+                self._visualize_data(training_data)
 
         with timing.timeit('finalize'):
             for traj_buffer in training_data:
@@ -128,6 +130,7 @@ class LocomotionBuffer:
             self.shuffle_data()
             self.buffer.trim_at(self.params.locomotion_target_buffer_size)
 
+        self.batch_num += 1
         log.info('Locomotion timing %s', timing)
 
     def has_enough_data(self):

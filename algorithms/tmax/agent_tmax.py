@@ -209,6 +209,8 @@ class TmaxManager:
             TmaxMode.EXPLORATION: 0, TmaxMode.LOCOMOTION: 0, TmaxMode.IDLE_EXPLORATION: 0,
         }
 
+        self.total_episode_bonus = np.zeros(self.num_envs)
+
     def initialize(self, initial_obs):
         self.maps = [TopologicalMap(obs, self.params.directed_edges) for obs in initial_obs]
         self.episodic_maps = [TopologicalMap(obs, self.params.directed_edges) for obs in initial_obs]
@@ -269,6 +271,8 @@ class TmaxManager:
         return targets
 
     def _new_episode(self, env_i, obs, goal):
+        self.total_episode_bonus[env_i] = 0
+
         self.episodic_maps[env_i].reset(obs)
         self.episodic_maps[env_i].new_episode()
 
@@ -303,9 +307,11 @@ class TmaxManager:
                 # landmark closest to the goal is still too far from the goal, in this case let's pick locomotion goal
                 # randomly
                 locomotion_goal_idx = random.choice(reachable_indices)
+                log.info('Random locomotion goal is %d', locomotion_goal_idx)
             else:
                 # landmark closest to the goal is quite close to the goal, let's go there
                 locomotion_goal_idx = reachable_indices[min_d_idx]
+                log.info('Final locomotion goal is %d', locomotion_goal_idx)
 
         if locomotion_goal_idx == m.curr_landmark_idx or random.random() < 0.3:
             self.mode[env_i] = TmaxMode.EXPLORATION
@@ -313,8 +319,7 @@ class TmaxManager:
         else:
             self.mode[env_i] = TmaxMode.LOCOMOTION
             self.locomotion_final_targets[env_i] = locomotion_goal_idx
-
-        self._select_locomotion_target(env_i)
+            self._select_locomotion_target(env_i)
 
         assert self.mode[env_i] is not None
         if self.mode[env_i] == TmaxMode.LOCOMOTION:
@@ -492,6 +497,7 @@ class TmaxManager:
 
         self._localize(obs, self.maps, persistent_map=True)
         bonuses = self._localize(obs, self.episodic_maps, persistent_map=False)
+        self.total_episode_bonus += bonuses
 
         return bonuses
 
@@ -588,10 +594,10 @@ class AgentTMAX(AgentLearner):
             self.directed_edges = False  # whether to add directed on undirected edges on landmark discovery
             self.new_landmark_threshold = 0.95  # condition for considering current observation a "new landmark"
             self.loop_closure_threshold = 0.3  # condition for graph loop closure (finding new edge)
-            self.map_expansion_reward = 0.2  # reward for finding new vertex or new edge in the topological map
+            self.map_expansion_reward = 1.0  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 35  # max trajectory length to be utilized for locomotion training
-            self.locomotion_target_buffer_size = 35000  # target number of (obs, goal, action) tuples to store
+            self.locomotion_target_buffer_size = 40000  # target number of (obs, goal, action) tuples to store
             self.locomotion_train_epochs = 1
             self.locomotion_batch_size = 256
 
@@ -801,7 +807,7 @@ class AgentTMAX(AgentLearner):
             self.params.stats_episodes, avg_rewards, best_avg_reward,
         )
 
-    def _maybe_aux_summaries(self, env_steps, avg_reward, avg_length, fps, bonuses):
+    def _maybe_aux_summaries(self, tmax_mgr, env_steps, avg_reward, avg_length, fps, bonuses):
         self._report_basic_summaries(fps, env_steps)
 
         if math.isnan(avg_reward) or math.isnan(avg_length):
@@ -812,6 +818,7 @@ class AgentTMAX(AgentLearner):
         summary.value.add(tag='0_aux/avg_reward', simple_value=float(avg_reward))
         summary.value.add(tag='0_aux/avg_length', simple_value=float(avg_length))
         summary.value.add(tag='0_aux/avg_bonus_per_frame', simple_value=float(np.mean(bonuses)))
+        summary.value.add(tag='0_aux/avg_bonus_per_episode', simple_value=float(np.mean(tmax_mgr.total_episode_bonus)))
 
         # if it's not "initialized" yet, just don't report anything to tensorboard
         initial_best, best_reward = self.session.run([self.initial_best_avg_reward, self.best_avg_reward])
@@ -832,18 +839,27 @@ class AgentTMAX(AgentLearner):
         avg_num_neighbors = sum(num_neighbors) / len(num_neighbors)
         avg_num_edges = sum(num_edges) / len(num_edges)
 
-        loco_summary_obj = tf.Summary()
+        summary_obj = tf.Summary()
 
-        def summary(tag, value):
-            loco_summary_obj.value.add(tag=f'map/{tag}', simple_value=float(value))
+        def map_summary(tag, value):
+            summary_obj.value.add(tag=f'map/{tag}', simple_value=float(value))
 
-        summary('avg_landmarks', avg_num_landmarks)
-        summary('max_landmarks', max(num_landmarks))
-        summary('avg_neighbors', avg_num_neighbors)
-        summary('max_neighbors', max(num_neighbors))
-        summary('avg_edges', avg_num_edges)
-        summary('max_edges', max(num_edges))
-        self.summary_writer.add_summary(loco_summary_obj, env_steps)
+        map_summary('avg_landmarks', avg_num_landmarks)
+        map_summary('max_landmarks', max(num_landmarks))
+        map_summary('avg_neighbors', avg_num_neighbors)
+        map_summary('max_neighbors', max(num_neighbors))
+        map_summary('avg_edges', avg_num_edges)
+        map_summary('max_edges', max(num_edges))
+
+        # locomotion summaries
+        achieved_goal = tmax_mgr.locomotion_achieved_goal
+        if len(achieved_goal) >= 100:
+            while len(achieved_goal) > 100:
+                achieved_goal.popleft()
+            locomotion_avg_success = sum(achieved_goal) / len(achieved_goal)
+            summary_obj.value.add(tag='locomotion/avg_success', simple_value=float(locomotion_avg_success))
+
+        self.summary_writer.add_summary(summary_obj, env_steps)
 
         map_for_summary = random.choice(maps)
         random_graph_summary = visualize_graph_tensorboard(map_for_summary.to_nx_graph(), tag='map/random_graph')
@@ -856,16 +872,6 @@ class AgentTMAX(AgentLearner):
 
         max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].to_nx_graph(), tag='map/max_graph')
         self.summary_writer.add_summary(max_graph_summary, env_steps)
-
-        # locomotion summaries
-        achieved_goal = tmax_mgr.locomotion_achieved_goal
-        if len(achieved_goal) >= 100:
-            while len(achieved_goal) > 100:
-                achieved_goal.popleft()
-            locomotion_avg_success = sum(achieved_goal) / len(achieved_goal)
-            loco_summary_obj = tf.Summary()
-            loco_summary_obj.value.add(tag='locomotion/avg_success', simple_value=float(locomotion_avg_success))
-            self.summary_writer.add_summary(loco_summary_obj, env_steps)
 
         self.summary_writer.flush()
 
@@ -1292,7 +1298,7 @@ class AgentTMAX(AgentLearner):
             fps = num_steps / (time.time() - batch_start)
 
             self._maybe_print(step, env_steps, avg_reward, avg_length, fps, timing)
-            self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps, bonuses)
+            self._maybe_aux_summaries(tmax_mgr, env_steps, avg_reward, avg_length, fps, bonuses)
             self._maybe_tmax_summaries(tmax_mgr, env_steps)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
             self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
