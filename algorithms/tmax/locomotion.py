@@ -14,6 +14,7 @@ from algorithms.tf_utils import placeholders_from_spaces, placeholder_from_space
 from algorithms.tmax.tmax_utils import TmaxMode
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.gifs import encode_gif
+from utils.timing import Timing
 from utils.utils import log, vis_dir, ensure_dir_exists
 
 
@@ -69,56 +70,61 @@ class LocomotionBuffer:
         self._vis_dirs = deque([])
 
     def extract_data(self, trajectories):
+        timing = Timing()
         training_data = []
 
-        for trajectory in trajectories:
-            landmarks = []  # indices of "key" observations
-            for i in range(len(trajectory)):
-                if trajectory.is_landmark[i]:
-                    landmarks.append(i)
-            assert len(landmarks) > 0
+        with timing.timeit('trajectories'):
+            for trajectory in trajectories:
+                landmarks = []  # indices of "key" observations
+                for i in range(len(trajectory)):
+                    if trajectory.is_landmark[i]:
+                        landmarks.append(i)
+                assert len(landmarks) > 0
 
-            if len(landmarks) <= 1:
-                continue
-
-            for i in range(1, len(landmarks)):
-                l_prev, l_next = landmarks[i - 1], landmarks[i]
-
-                deliberate_actions = sum(trajectory.deliberate_action[l_prev:l_next]) == l_next - l_prev
-                if not deliberate_actions:
-                    # don't train locomotion on "idle" actions
+                if len(landmarks) <= 1:
                     continue
 
-                assert l_next > l_prev
-                traj_len = l_next - l_prev
-                if traj_len > self.params.locomotion_max_trajectory:
-                    # trajectory is too long and probably too noisy
-                    # log.info('Trajectory too long %d', traj_len)
-                    continue
+                for i in range(1, len(landmarks)):
+                    l_prev, l_next = landmarks[i - 1], landmarks[i]
 
-                traj_buffer = Buffer()
+                    deliberate_actions = sum(trajectory.deliberate_action[l_prev:l_next]) == l_next - l_prev
+                    if not deliberate_actions:
+                        # don't train locomotion on "idle" actions
+                        continue
 
-                for j in range(l_prev, l_next):
-                    traj_buffer.add(
-                        obs_curr=trajectory.obs[j],
-                        obs_goal=trajectory.obs[l_next],
-                        actions=trajectory.actions[j],
-                        mode=trajectory.modes[j],
-                    )
+                    assert l_next > l_prev
+                    traj_len = l_next - l_prev
+                    if traj_len > self.params.locomotion_max_trajectory:
+                        # trajectory is too long and probably too noisy
+                        # log.info('Trajectory too long %d', traj_len)
+                        continue
 
-                training_data.append(traj_buffer)
+                    traj_buffer = Buffer()
 
-            if sum((len(buff) for buff in training_data)) > self.params.locomotion_target_buffer_size // 5:
-                break
+                    for j in range(l_prev, l_next):
+                        traj_buffer.add(
+                            obs_curr=trajectory.obs[j],
+                            obs_goal=trajectory.obs[l_next],
+                            actions=trajectory.actions[j],
+                            mode=trajectory.modes[j],
+                        )
 
-        if len(training_data) <= 0:
-            # no new data
-            return
+                    training_data.append(traj_buffer)
 
-        self._visualize_data(training_data)
+                if sum((len(buff) for buff in training_data)) > self.params.locomotion_target_buffer_size // 5:
+                    break
 
-        for traj_buffer in training_data:
-            self.buffer.add_buff(traj_buffer)
+            if len(training_data) <= 0:
+                # no new data
+                return
+
+        with timing.timeit('vis'):
+            self._visualize_data(training_data)
+
+        with timing.timeit('finalize'):
+            for traj_buffer in training_data:
+                self.buffer.add_buff(traj_buffer)
+
             self.shuffle_data()
             self.buffer.trim_at(self.params.locomotion_target_buffer_size)
 
