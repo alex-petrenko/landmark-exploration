@@ -186,8 +186,6 @@ class TopologicalMap:
         import networkx as nx
         graph = nx.DiGraph()
         for i in range(len(self.landmarks)):
-            if i > 5:
-                import pdb; pdb.set_trace()
             pos = self.positions[i]
             graph.add_node(i, pos=(pos[0], pos[1]))
         for u, edges in enumerate(self.adjacency):
