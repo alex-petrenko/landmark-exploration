@@ -451,7 +451,7 @@ class TmaxManager:
                 # vertex is relatively far away from all vertices in the graph, we've found a new landmark!
                 if m.new_landmark_candidate_frames >= 3:
                     agent_pos = None
-                    if info[env_i] is not None:
+                    if 'pos' in info[env_i]:
                         pos_obs = info[env_i]['pos']
                         agent_pos = [pos_obs['agent_x'], pos_obs['agent_y'], pos_obs['agent_a']]
                     new_landmark_idx = m.add_landmark(obs[env_i], pos=agent_pos)
@@ -476,16 +476,13 @@ class TmaxManager:
 
         return bonuses
 
-    def update(self, obs, goals, dones, info=None, is_bootstrap=False, verbose=False):
+    def update(self, obs, goals, dones, infos, is_bootstrap=False, verbose=False):
         """Omnipotent function for the management of topological maps and policy modes, as well as localization."""
         self._verbose = verbose
         self._is_bootstrap = is_bootstrap
 
         assert len(obs) == len(self.maps)
         num_envs = len(self.maps)
-
-        if info is None:
-            info = [None] * len(obs)
 
         for env_i, m in enumerate(self.maps):
             self.samples_per_mode[self.mode[env_i]] += 1
@@ -510,8 +507,8 @@ class TmaxManager:
             # don't bother updating the graph when the reachability net isn't trained yet
             return np.zeros([num_envs])
 
-        self._localize(obs, info, self.maps, persistent_map=True)
-        bonuses = self._localize(obs, info, self.episodic_maps, persistent_map=False)
+        self._localize(obs, infos, self.maps, persistent_map=True)
+        bonuses = self._localize(obs, infos, self.episodic_maps, persistent_map=False)
         self.total_episode_bonus += bonuses
 
         return bonuses
@@ -1269,7 +1266,7 @@ class AgentTMAX(AgentLearner):
                     new_observations, new_goals = main_observation(env_obs), goal_observation(env_obs)
 
                     trajectory_buffer.add(observations, actions, dones, tmax_mgr)
-                    bonuses = tmax_mgr.update(new_observations, new_goals, dones, is_bootstrap=is_bootstrap)
+                    bonuses = tmax_mgr.update(new_observations, new_goals, dones, infos, is_bootstrap=is_bootstrap)
                     rewards = self._combine_rewards(multi_env.num_envs, rewards, bonuses)
 
                     # add experience from all environments to the current buffer(s)

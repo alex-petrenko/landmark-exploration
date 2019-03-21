@@ -25,7 +25,8 @@ class TopologicalMap:
         self.new_landmark_candidate_frames = 0
         self.closest_landmarks = []
 
-        self.reset(initial_obs, pos=initial_pos)
+        agent_pos = [initial_pos['agent_x'], initial_pos['agent_y'], initial_pos['agent_a']]
+        self.reset(initial_obs, pos=agent_pos)
 
     def reset(self, obs, pos=None):
         """Create the graph with only one vertex."""
@@ -185,10 +186,10 @@ class TopologicalMap:
         import networkx as nx
         graph = nx.DiGraph()
         for i in range(len(self.landmarks)):
+            if i > 5:
+                import pdb; pdb.set_trace()
             pos = self.positions[i]
-            x = pos['agent_x']
-            y = -pos['agent_y']
-            graph.add_node(i, pos=(x, y))
+            graph.add_node(i, pos=(pos[0], pos[1]))
         for u, edges in enumerate(self.adjacency):
             for v in edges:
                 graph.add_edge(u, v)
