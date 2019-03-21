@@ -23,7 +23,7 @@ from algorithms.tmax.landmarks_encoder import LandmarksEncoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer
 from algorithms.tmax.reachability import ReachabilityNetwork, ReachabilityBuffer
 from algorithms.tmax.tmax_utils import TmaxMode
-from algorithms.tmax.topological_map import TopologicalMap, get_pos
+from algorithms.tmax.topological_map import TopologicalMap, get_position
 from algorithms.tmax.trajectory import TrajectoryBuffer
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.graph import visualize_graph_tensorboard
@@ -250,9 +250,10 @@ class TmaxManager:
 
         self.maps, self.episodic_maps = [], []
         for i in range(self.num_envs):
-            pos = get_pos(info[i])
-            self.maps.append(TopologicalMap(obs[i], self.params.directed_edges, pos))
-            self.episodic_maps.append(TopologicalMap(obs[i], self.params.directed_edges, pos))
+            self.maps.append(
+                TopologicalMap(obs[i], self.params.directed_edges, info[i]))
+            self.episodic_maps.append(
+                TopologicalMap(obs[i], self.params.directed_edges, info[i]))
 
         self.initialized = True
 
@@ -313,12 +314,12 @@ class TmaxManager:
     def _new_episode(self, env_i, obs, info, goal):
         self.total_episode_bonus[env_i] = 0
 
-        self.episodic_maps[env_i].reset(obs, get_pos(info))
+        self.episodic_maps[env_i].reset(obs, info)
         self.episodic_maps[env_i].new_episode()
 
         m = self.maps[env_i]
         if self.need_reset[env_i]:
-            m.reset(obs, get_pos(info))
+            m.reset(obs, info)
             self.need_reset[env_i] = False
         m.new_episode()
 
@@ -524,9 +525,7 @@ class TmaxManager:
             else:
                 # vertex is relatively far away from all vertices in the graph, we've found a new landmark!
                 if m.new_landmark_candidate_frames >= localize_frames:
-                    agent_pos = get_pos(info[env_i])
-                    assert agent_pos is not None
-                    new_landmark_idx = m.add_landmark(obs[env_i], pos=agent_pos)
+                    new_landmark_idx = m.add_landmark(obs[env_i], info[env_i])
                     m.set_curr_landmark(new_landmark_idx)
                     bonuses[env_i] += self.params.map_expansion_reward  # we found a new vertex! Cool!
 

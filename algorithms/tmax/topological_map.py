@@ -12,7 +12,7 @@ def hash_observation(o):
     return sha1(o).hexdigest()
 
 
-def get_pos(info):
+def get_position(info):
     pos = info.get('pos')
     if pos is not None:
         pos = [pos['agent_x'], pos['agent_y'], pos['agent_a']]
@@ -20,7 +20,8 @@ def get_pos(info):
 
 
 class TopologicalMap:
-    def __init__(self, initial_obs, directed_graph, initial_pos=None, verbose=False):
+    def __init__(self, initial_obs, directed_graph, initial_info=None,
+            verbose=False):
         self._verbose = verbose
         self._directed_graph = directed_graph
 
@@ -33,13 +34,13 @@ class TopologicalMap:
         self.new_landmark_candidate_frames = 0
         self.closest_landmarks = []
 
-        self.reset(initial_obs, pos=initial_pos)
+        self.reset(initial_obs, initial_info)
 
-    def reset(self, obs, pos=None):
+    def reset(self, obs, info=None):
         """Create the graph with only one vertex."""
         self.landmarks = [obs]
         self.hashes = [hash_observation(obs)]
-        self.positions = [pos]
+        self.positions = [get_position(info)]
         self.adjacency = [[]]  # initial vertex has no neighbors
         self.curr_landmark_idx = 0
 
@@ -121,11 +122,15 @@ class TopologicalMap:
         self._log_verbose('Change current landmark to %d', landmark_idx)
         self.curr_landmark_idx = landmark_idx
 
-    def add_landmark(self, obs, pos=None):
+    def add_landmark(self, obs, info=None):
         new_landmark_idx = len(self.landmarks)
         self.landmarks.append(obs)
         self.hashes.append(hash_observation(obs))
-        self.positions.append(pos)
+
+        if info:
+            agent_pos = get_position(info)
+            assert agent_pos is not None
+            self.positions.append(agent_pos)
 
         self.adjacency.append([])
         self._add_edge(self.curr_landmark_idx, new_landmark_idx)
@@ -244,6 +249,7 @@ class TopologicalMap:
         import networkx as nx
         graph = nx.DiGraph()
         for i in range(len(self.landmarks)):
+
             pos = self.positions[i]
             if pos is not None:
                 graph.add_node(i, pos=(pos[0], pos[1]))

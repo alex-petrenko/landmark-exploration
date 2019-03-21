@@ -161,11 +161,11 @@ class TestGraph(TestCase):
         figure.clear()
 
     def test_plot_coordinates(self):
-        m = TopologicalMap(np.array(0), directed_graph=True, initial_pos=[300, 400, 0])
+        m = TopologicalMap(np.array(0), directed_graph=True, initial_info={'pos': [300, 400, 0]})
 
         for i in range(1, 4):
             for j in range(1, 4):
-                m.add_landmark(np.array(0), pos=[300 + i, 400 + j, 10])
+                m.add_landmark(np.array(0), {'pos': [300 + i, 400 + j, 10]})
 
         graph = m.to_nx_graph()
         figure = plot_graph(graph, layout='pos')

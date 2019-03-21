@@ -123,7 +123,7 @@ class _MultiEnvWorker:
             else:
                 assert len(envs) == len(actions)
 
-                # Collect obs, reward, and 'done' for each env (discard info)
+                # Collect obs, reward, done, and info
                 prediction_start = time.time()
                 results = [env.step(action) for env, action in zip(envs, actions)]
 
