@@ -107,8 +107,8 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
             env.render()
             cv2.waitKey(1)  # to prevent window from fading
             if show_automap:
-                map = env.unwrapped.get_automap_buffer() # (600, 800, 3)
-                if map is not None:
+                automap = env.unwrapped.get_automap_buffer() # (600, 800, 3)
+                if automap is not None:
                     cv2.namedWindow('Landmark Map')
                     for landmark_pos in agent.tmax_mgr.episodic_maps[0].positions:
                         print(landmark_pos)
@@ -116,19 +116,15 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
                             x = int(landmark_pos['agent_x'])
                             y = -int(landmark_pos['agent_y'])
                             a = int(landmark_pos['agent_a'])
-                            # import pdb; pdb.set_trace()
-                            map[x-1:x+1, y-1:y+1] = [0,0,255]
-                            # cv2.circle(map, (int(landmark_pos['agent_x']), -int(landmark_pos['agent_y'])), 1, (0,0,0), thickness=-1)
+                            automap = cv2.circle(automap, (y, x), 1, (0,0,0), thickness=-1)
                     for landmark_pos in agent.tmax_mgr.maps[0].positions:
                         print(landmark_pos)
                         if 'agent_x' in landmark_pos:
                             x = int(landmark_pos['agent_x'])
                             y = -int(landmark_pos['agent_y'])
                             a = int(landmark_pos['agent_a'])
-                            # import pdb; pdb.set_trace()
-                            map[x-1:x+1, y-1:y+1] = [255,0,255]
-                            # cv2.circle(map, (int(landmark_pos['agent_x']), -int(landmark_pos['agent_y'])), 1, (0,0,0), thickness=-1)
-                    cv2.imshow('Landmark Map', map)
+                            automap = cv2.circle(automap, (y, x), 1, (0,0,0), thickness=-1)
+                    cv2.imshow('Landmark Map', automap)
                     cv2.waitKey(1)
 
             if pause:

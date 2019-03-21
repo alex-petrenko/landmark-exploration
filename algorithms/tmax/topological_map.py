@@ -185,7 +185,10 @@ class TopologicalMap:
         import networkx as nx
         graph = nx.DiGraph()
         for i in range(len(self.landmarks)):
-            graph.add_node(i)
+            pos = self.positions[i]
+            x = pos['agent_x']
+            y = -pos['agent_y']
+            graph.add_node(i, pos=(x, y))
         for u, edges in enumerate(self.adjacency):
             for v in edges:
                 graph.add_edge(u, v)
