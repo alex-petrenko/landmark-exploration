@@ -12,7 +12,7 @@ def hash_observation(o):
 
 
 class TopologicalMap:
-    def __init__(self, initial_obs, directed_graph, initial_pos=None, verbose=False):
+    def __init__(self, initial_obs, directed_graph, info=None, verbose=False):
         self._verbose = verbose
         self._directed_graph = directed_graph
 
@@ -25,14 +25,17 @@ class TopologicalMap:
         self.new_landmark_candidate_frames = 0
         self.closest_landmarks = []
 
-        agent_pos = [initial_pos['agent_x'], initial_pos['agent_y'], initial_pos['agent_a']]
-        self.reset(initial_obs, pos=agent_pos)
+        self.reset(initial_obs, info)
 
-    def reset(self, obs, pos=None):
+    def reset(self, obs, info=None):
         """Create the graph with only one vertex."""
         self.landmarks = [obs]
         self.hashes = [hash_observation(obs)]
-        self.positions = [pos]
+
+        self.positions = []
+        if info is not None:
+            self.add_position_info(info)
+
         self.adjacency = [[]]  # initial vertex has no neighbors
         self.curr_landmark_idx = 0
 
@@ -113,18 +116,25 @@ class TopologicalMap:
         self._log_verbose('Change current landmark to %d', landmark_idx)
         self.curr_landmark_idx = landmark_idx
 
-    def add_landmark(self, obs, pos=None):
+    def add_landmark(self, obs, info=None):
         new_landmark_idx = len(self.landmarks)
         self.landmarks.append(obs)
         self.hashes.append(hash_observation(obs))
-        self.positions.append(pos)
-
+        if info is not None:
+            self.add_position_info(info)
         self.adjacency.append([])
         self._add_edge(self.curr_landmark_idx, new_landmark_idx)
+
         assert len(self.adjacency) == len(self.landmarks)
         assert len(self.positions) == len(self.landmarks)
         self._log_verbose('Added new landmark %d', new_landmark_idx)
         return new_landmark_idx
+
+    def add_position_info(self, info):
+        agent_pos = info.get('pos')
+        if agent_pos is not None:
+            agent_pos = [agent_pos['agent_x'], agent_pos['agent_y'], agent_pos['agent_a']]
+        self.positions.append(agent_pos)
 
     def remove_edge(self, i1, i2):
         self.adjacency[i1].remove(i2)

@@ -246,11 +246,11 @@ class TmaxManager:
 
     def initialize(self, initial_obs, initial_info):
         self.maps = [
-            TopologicalMap(obs, self.params.directed_edges, info.get('pos'))
+            TopologicalMap(obs, self.params.directed_edges, info)
             for obs, info in zip(initial_obs, initial_info)
         ]
         self.episodic_maps = [
-            TopologicalMap(obs, self.params.directed_edges, info.get('pos'))
+            TopologicalMap(obs, self.params.directed_edges, info)
             for obs, info in zip(initial_obs, initial_info)
         ]
         self.initialized = True
@@ -309,15 +309,15 @@ class TmaxManager:
         assert len(targets) == len(env_indices)
         return targets
 
-    def _new_episode(self, env_i, obs, goal):
+    def _new_episode(self, env_i, obs, info, goal):
         self.total_episode_bonus[env_i] = 0
 
-        self.episodic_maps[env_i].reset(obs)
+        self.episodic_maps[env_i].reset(obs, info)
         self.episodic_maps[env_i].new_episode()
 
         m = self.maps[env_i]
         if self.need_reset[env_i]:
-            m.reset(obs)
+            m.reset(obs, info)
             self.need_reset[env_i] = False
         m.new_episode()
 
@@ -522,12 +522,7 @@ class TmaxManager:
             else:
                 # vertex is relatively far away from all vertices in the graph, we've found a new landmark!
                 if m.new_landmark_candidate_frames >= localize_frames:
-                    agent_pos = None
-                    if 'pos' in info[env_i]:
-                        pos_obs = info[env_i]['pos']
-                        agent_pos = [pos_obs['agent_x'], pos_obs['agent_y'], pos_obs['agent_a']]
-
-                    new_landmark_idx = m.add_landmark(obs[env_i], pos=agent_pos)
+                    new_landmark_idx = m.add_landmark(obs[env_i], info[env_i])
                     m.set_curr_landmark(new_landmark_idx)
                     bonuses[env_i] += self.params.map_expansion_reward  # we found a new vertex! Cool!
 
@@ -567,7 +562,7 @@ class TmaxManager:
 
             if dones[env_i]:
                 env_goal = None if goals is None else goals[env_i]
-                self._new_episode(env_i, obs[env_i], env_goal)
+                self._new_episode(env_i, obs[env_i], infos[env_i], env_goal)
             else:
                 self.episode_frames[env_i] += 1
 
