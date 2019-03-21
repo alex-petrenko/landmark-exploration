@@ -122,6 +122,7 @@ class TopologicalMap:
         self.adjacency.append([])
         self._add_edge(self.curr_landmark_idx, new_landmark_idx)
         assert len(self.adjacency) == len(self.landmarks)
+        assert len(self.positions) == len(self.landmarks)
         self._log_verbose('Added new landmark %d', new_landmark_idx)
         return new_landmark_idx
 
