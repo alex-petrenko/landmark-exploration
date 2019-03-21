@@ -220,6 +220,7 @@ class TmaxManager:
         self.landmarks_encoder = LandmarksEncoder(agent.actor_critic.encode_landmarks)
 
         self.episode_frames = [0] * self.num_envs
+        self.locomotion_prev = [None] * self.num_envs  # starting landmark for locomotion policy
         self.locomotion_targets = [None] * self.num_envs  # immediate goal for locomotion policy
         self.locomotion_final_targets = [None] * self.num_envs  # final target (e.g. goal observation)
         self.last_locomotion_success = [0] * self.num_envs
@@ -227,10 +228,10 @@ class TmaxManager:
 
         self.mode = [TmaxMode.EXPLORATION] * self.num_envs
 
+        self.need_reset = [True] * self.num_envs
+
         self.new_landmark_threshold = self.params.new_landmark_threshold
         self.loop_closure_threshold = self.params.loop_closure_threshold
-
-        self.is_landmark = [True] * self.num_envs
 
         self.idle_frames = [0] * self.num_envs
         self.action_frames = [np.random.randint(1, 3) for _ in range(self.num_envs)]
@@ -263,6 +264,7 @@ class TmaxManager:
 
     def _select_locomotion_target(self, env_i, verbose=False):
         if self.mode[env_i] != TmaxMode.LOCOMOTION:
+            self.locomotion_prev[env_i] = None
             self.locomotion_targets[env_i] = None
             self.locomotion_final_targets[env_i] = None
             return
@@ -279,10 +281,12 @@ class TmaxManager:
         if m.curr_landmark_idx == final_target or path is None or len(path) <= 1:
             # reached the target, switch to exploration policy
             self.mode[env_i] = TmaxMode.EXPLORATION
+            self.locomotion_prev[env_i] = None
             self.locomotion_targets[env_i] = None
             self.locomotion_final_targets[env_i] = None
         else:
             assert len(path) >= 2
+            self.locomotion_prev[env_i] = m.curr_landmark_idx
             self.locomotion_targets[env_i] = path[1]  # next vertex on the path
 
     def get_locomotion_targets(self, env_indices):
@@ -292,12 +296,6 @@ class TmaxManager:
         for env_i in env_indices:
             assert self.mode[env_i] == TmaxMode.LOCOMOTION
             locomotion_target_idx = self.locomotion_targets[env_i]
-
-            if locomotion_target_idx is None:
-                log.error('locomotion target is None!')
-                log.error('Ep frames %d', self.episode_frames[env_i])
-                pass
-
             assert locomotion_target_idx is not None
             target_obs = self.maps[env_i].landmarks[locomotion_target_idx]
             targets.append(target_obs)
@@ -312,9 +310,14 @@ class TmaxManager:
         self.episodic_maps[env_i].new_episode()
 
         m = self.maps[env_i]
+        if self.need_reset[env_i]:
+            m.reset(obs)
+            self.need_reset[env_i] = False
         m.new_episode()
 
         self.mode[env_i] = None
+
+        self.locomotion_prev[env_i] = None
         self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
         self.last_locomotion_success[env_i] = 0
 
@@ -358,8 +361,28 @@ class TmaxManager:
 
         assert self.mode[env_i] is not None
         if self.mode[env_i] == TmaxMode.LOCOMOTION:
+            assert self.locomotion_prev[env_i] is not None
             assert self.locomotion_targets[env_i] is not None
             assert self.locomotion_final_targets[env_i] is not None
+
+    def _distance_to_locomotion_targets(self, obs):
+        loco_env_indices = []
+        loco_curr_obs = []
+        for env_i in range(self.num_envs):
+            if self.mode[env_i] == TmaxMode.LOCOMOTION:
+                loco_env_indices.append(env_i)
+                loco_curr_obs.append(obs[env_i])
+
+        if len(loco_env_indices) == 0:
+            return []
+
+        locomotion_targets = self.get_locomotion_targets(loco_env_indices)
+        distances = self.agent.reachability.distances(self.agent.session, loco_curr_obs, locomotion_targets)
+
+        all_distances = [None] * self.num_envs
+        for i, env_i in enumerate(loco_env_indices):
+            all_distances[env_i] = distances[i]
+        return all_distances
 
     def _localize(self, obs, maps, persistent_map):
         bonuses = np.zeros([self.num_envs])
@@ -381,6 +404,8 @@ class TmaxManager:
         # calculate reachability for all neighborhoods in all envs
         distances = self.agent.reachability.distances(self.agent.session, neighborhood_obs, current_obs)
 
+        dist_to_target = self._distance_to_locomotion_targets(obs)
+
         new_landmark_candidates = []
         closest_landmark_idx = [-1] * self.num_envs
 
@@ -390,12 +415,16 @@ class TmaxManager:
             j_next = j + len(neighbor_indices)
             distance = distances[j:j_next]
 
-            # if persistent_map:
-            #     self._log_distances(env_i, neighbor_indices, distance)
+            if persistent_map:
+                self._log_distances(env_i, neighbor_indices, distance)
 
             # check if we're far enough from all landmarks in the neighborhood
             min_d, min_d_idx = min_with_idx(distance)
             closest_landmark_idx[env_i] = neighbor_indices[min_d_idx]
+
+            if self.locomotion_targets[env_i] is not None and self.mode[env_i] == TmaxMode.LOCOMOTION:
+                assert dist_to_target[env_i] is not None
+                locomotion_reward[env_i] -= dist_to_target[env_i]
 
             if min_d >= self.new_landmark_threshold:
                 # we're far enough from all obs in the neighborhood, might have found something new!
@@ -407,27 +436,22 @@ class TmaxManager:
                 # crude localization
                 if all(lm == closest_landmark_idx[env_i] for lm in m.closest_landmarks[-localize_frames:]):
                     if closest_landmark_idx[env_i] != m.curr_landmark_idx:
-                        prev_landmark_idx = m.curr_landmark_idx
                         m.set_curr_landmark(closest_landmark_idx[env_i])
 
-                        if persistent_map:
-                            achieved_goal = 0
+                if persistent_map and self.mode[env_i] == TmaxMode.LOCOMOTION:
+                    if m.curr_landmark_idx == self.locomotion_targets[env_i] and dist_to_target[env_i] < 0.3:
+                        self.last_locomotion_success[env_i] = self.episode_frames[env_i]
+                        locomotion_reward[env_i] += 1.0
+                        log.info(
+                            'Locomotion net gets reward +1! (%.3f) dist %.3f, prev %d, goal %d',
+                            locomotion_reward[env_i], dist_to_target[env_i], self.locomotion_prev[env_i],
+                            m.curr_landmark_idx,
+                        )
 
-                            # only use persistent (not episodic) map for locomotion
-                            self.is_landmark[env_i] = True
-                            if m.curr_landmark_idx == self.locomotion_targets[env_i]:
-                                self.last_locomotion_success[env_i] = self.episode_frames[env_i]
-                                achieved_goal = 1
-                                log.info('Locomotion net gets reward +1!')
-                                locomotion_reward[env_i] = 1.0
-                                # TODO! Reward only if we're closer than ~0.3 to landmark
-
-                            locomotion_done[env_i] = True
-
-                            self.locomotion_achieved_goal.append(achieved_goal)
-                            m.update_edge_traversal(prev_landmark_idx, m.curr_landmark_idx, achieved_goal)
-
-                            self._select_locomotion_target(env_i)
+                        locomotion_done[env_i] = True
+                        self.locomotion_achieved_goal.append(1)
+                        m.update_edge_traversal(self.locomotion_prev[env_i], m.curr_landmark_idx, 1)
+                        self._select_locomotion_target(env_i)
 
             j = j_next
 
@@ -472,9 +496,6 @@ class TmaxManager:
             if len(distance) > 0:
                 min_d, min_d_idx = min_with_idx(distance)
 
-            # if persistent_map:
-            #     log.info('min_d is %.3f closest: %r cand frames %d', min_d, m.closest_landmarks[-localize_frames:], m.new_landmark_candidate_frames)
-
             if min_d < self.loop_closure_threshold:
                 # current observation is close to some other landmark, "close the loop" by creating a new edge
                 m.new_landmark_candidate_frames = 0
@@ -487,10 +508,9 @@ class TmaxManager:
 
                     bonuses[env_i] += self.params.map_expansion_reward  # we found a new edge! Cool!
 
-                    if persistent_map:
+                    if persistent_map and self.mode[env_i] == TmaxMode.LOCOMOTION:
                         self._log_verbose('Change current landmark to %d (loop closure)', m.curr_landmark_idx)
                         self._select_locomotion_target(env_i)
-                        self.is_landmark[env_i] = True
                         locomotion_done[env_i] = True
 
             else:
@@ -503,9 +523,8 @@ class TmaxManager:
                     closest_landmark_idx[env_i] = new_landmark_idx
                     m.new_landmark_candidate_frames = 0
 
-                    if persistent_map:
+                    if persistent_map and self.mode[env_i] == TmaxMode.LOCOMOTION:
                         self._select_locomotion_target(env_i)
-                        self.is_landmark[env_i] = True
                         locomotion_done[env_i] = True
                 else:
                     m.new_landmark_candidate_frames += 1
@@ -532,20 +551,22 @@ class TmaxManager:
         for env_i, m in enumerate(self.maps):
             self.samples_per_mode[self.mode[env_i]] += 1
 
+            if is_bootstrap:
+                self.need_reset[env_i] = True
+
             if dones[env_i]:
                 env_goal = None if goals is None else goals[env_i]
                 self._new_episode(env_i, obs[env_i], env_goal)
-                self.is_landmark[env_i] = True  # TODO: assuming we always start with landmark
             else:
                 self.episode_frames[env_i] += 1
-                self.is_landmark[env_i] = False
 
-                if self.episode_frames[env_i] - self.last_locomotion_success[env_i] > 200:
-                    if self.mode[env_i] == TmaxMode.LOCOMOTION:
+                if self.mode[env_i] == TmaxMode.LOCOMOTION:
+                    if self.episode_frames[env_i] - self.last_locomotion_success[env_i] > 200:
                         # we're not making progress towards the final goal, let's switch to exploration
                         self.mode[env_i] = TmaxMode.EXPLORATION
-                        self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
                         self.locomotion_achieved_goal.append(0)
+                        m.update_edge_traversal(self.locomotion_prev[env_i], self.locomotion_targets[env_i], 0)
+                        self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
                         done_flags[env_i] = True
                         log.info('Locomotion unsuccessful, switch to exploration')
 
@@ -570,7 +591,7 @@ class TmaxManager:
                 final_dones[env_i] = dones[env_i] or done_flags[env_i]
             elif self.mode[env_i] == TmaxMode.EXPLORATION:
                 final_rewards[env_i] = rewards[env_i] + bonuses[env_i]
-                final_dones[env_i] = dones[env_i]
+                final_dones[env_i] = dones[env_i] or done_flags[env_i]
             else:
                 raise Exception(f'Mode {self.mode[env_i]} not supported')
 
@@ -1120,6 +1141,8 @@ class AgentTMAX(AgentLearner):
         # train actor for multiple epochs on all collected experience
         summary = None
         actor_step = actor_step.eval(session=self.session)
+        if len(buffer) <= 0:
+            return actor_step
 
         kl_running_avg = 0.0
         early_stop = False
@@ -1178,6 +1201,9 @@ class AgentTMAX(AgentLearner):
         # train critic
         summary = None
         critic_step = critic_step.eval(session=self.session)
+
+        if len(buffer) <= 0:
+            return
 
         prev_loss = 1e10
         for epoch in range(self.params.ppo_epochs):
