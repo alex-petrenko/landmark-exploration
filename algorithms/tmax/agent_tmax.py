@@ -348,7 +348,7 @@ class TmaxManager:
                 locomotion_goal_idx = reachable_indices[min_d_idx]
                 log.info('Final locomotion goal is %d (min_d is %.3f)', locomotion_goal_idx, min_d)
 
-        if locomotion_goal_idx == m.curr_landmark_idx or random.random() < 0.3:
+        if locomotion_goal_idx == m.curr_landmark_idx or random.random() < 0.1:
             self.mode[env_i] = TmaxMode.EXPLORATION
             self.locomotion_final_targets[env_i] = None
         else:
@@ -390,8 +390,8 @@ class TmaxManager:
             j_next = j + len(neighbor_indices)
             distance = distances[j:j_next]
 
-            if persistent_map:
-                self._log_distances(env_i, neighbor_indices, distance)
+            # if persistent_map:
+            #     self._log_distances(env_i, neighbor_indices, distance)
 
             # check if we're far enough from all landmarks in the neighborhood
             min_d, min_d_idx = min_with_idx(distance)
@@ -471,6 +471,9 @@ class TmaxManager:
             min_d, min_d_idx = math.inf, math.inf
             if len(distance) > 0:
                 min_d, min_d_idx = min_with_idx(distance)
+
+            # if persistent_map:
+            #     log.info('min_d is %.3f closest: %r cand frames %d', min_d, m.closest_landmarks[-localize_frames:], m.new_landmark_candidate_frames)
 
             if min_d < self.loop_closure_threshold:
                 # current observation is close to some other landmark, "close the loop" by creating a new edge
@@ -657,15 +660,15 @@ class AgentTMAX(AgentLearner):
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 128  # size of GRU layer in RNN neighborhood encoder
 
-            self.reachable_threshold = 10  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 30  # num. of frames between obs, such that one is unreachable from the other
+            self.reachable_threshold = 6  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 20  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 100000  # target number of training examples to store
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 256
 
             self.directed_edges = False  # whether to add directed on undirected edges on landmark discovery
             self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
-            self.loop_closure_threshold = 0.4  # condition for graph loop closure (finding new edge)
+            self.loop_closure_threshold = 0.7  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 1.0  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 35  # max trajectory length to be utilized for locomotion training
