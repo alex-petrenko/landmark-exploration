@@ -130,10 +130,10 @@ def calculate_gae(rewards, dones, values, gamma, gae_lambda):
 def num_env_steps(infos):
     """Calculate number of environment frames in a batch of experience."""
 
-    if infos is not None and 'num_frames' in infos[0]:
-        return sum((info['num_frames'] for info in infos))
-
-    return len(infos)
+    total_num_frames = 0
+    for info in infos:
+        total_num_frames += info.get('num_frames', 1)
+    return total_num_frames
 
 
 def list_to_string(x, limit=6):

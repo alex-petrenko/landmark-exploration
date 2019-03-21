@@ -1,4 +1,5 @@
 import math
+import random
 from collections import deque
 from hashlib import sha1
 
@@ -9,6 +10,13 @@ def hash_observation(o):
     """Not the fastest way to do it, but plenty fast enough for our purposes."""
     o = ensure_contigious(o)
     return sha1(o).hexdigest()
+
+
+def get_pos(info):
+    pos = info.get('pos')
+    if pos is not None:
+        pos = [pos['agent_x'], pos['agent_y'], pos['agent_a']]
+    return pos
 
 
 class TopologicalMap:
@@ -25,8 +33,7 @@ class TopologicalMap:
         self.new_landmark_candidate_frames = 0
         self.closest_landmarks = []
 
-        agent_pos = [initial_pos['agent_x'], initial_pos['agent_y'], initial_pos['agent_a']]
-        self.reset(initial_obs, pos=agent_pos)
+        self.reset(initial_obs, pos=initial_pos)
 
     def reset(self, obs, pos=None):
         """Create the graph with only one vertex."""
@@ -38,11 +45,12 @@ class TopologicalMap:
 
         self.new_episode()
 
-    def new_episode(self):
+    def new_episode(self, prune_edge_threshold=0.2, prune_vertex_chance=0.05):
         self.new_landmark_candidate_frames = 0
         self.closest_landmarks = []
-
-        self._prune()
+        self.curr_landmark_idx = 0
+        self._prune(threshold=prune_edge_threshold)
+        self._prune_vertices(chance=prune_vertex_chance)
 
     def _log_verbose(self, msg, *args):
         if not self._verbose:
@@ -139,8 +147,8 @@ class TopologicalMap:
         prev_value = self.edge_success[(i1, i2)]
         self.edge_success[(i1, i2)] = 0.5 * (prev_value + success)
 
-    def _prune(self, threshold=0.1):
-        """Remove edges with very low weight of traversal success."""
+    def _prune(self, threshold=0.2):
+        """Remove edges with very low chance of traversal success"""
         remove = []
         for i, adj in enumerate(self.adjacency):
             for j in adj:
@@ -151,6 +159,55 @@ class TopologicalMap:
             log.info('Prune: removing edges %r', remove)
             for i1, i2 in remove:
                 self.remove_edge(i1, i2)
+
+    def _prune_vertices(self, chance=0.1):
+        vertices_to_remove = []
+        index_map = [-1] * len(self.landmarks)
+        index_map[0] = 0
+
+        for i in range(1, len(self.landmarks)):
+            if random.random() < chance:
+                vertices_to_remove.append(i)
+            else:
+                index_map[i] = i - len(vertices_to_remove)
+
+        if len(vertices_to_remove) > 0:
+            log.debug('Removing vertices %r', vertices_to_remove)
+
+            edges_to_remove = []
+            for i, adj in enumerate(self.adjacency):
+                for j in adj:
+                    if i in vertices_to_remove or j in vertices_to_remove:
+                        edges_to_remove.append((i, j))
+
+            for i1, i2 in edges_to_remove:
+                self.remove_edge(i1, i2)
+
+            landmarks, hashes, positions, adjacency = [], [], [], []
+            for i in range(len(self.landmarks)):
+                if i not in vertices_to_remove:
+                    landmarks.append(self.landmarks[i])
+                    hashes.append(self.hashes[i])
+                    positions.append(self.positions[i])
+                    adjacency.append(self.adjacency[i])
+
+            for adj in adjacency:
+                for i in range(len(adj)):
+                    adj[i] = index_map[adj[i]]
+
+            edge_success = {}
+            for k, v in self.edge_success.items():
+                i1, i2 = k
+                edge_success[(index_map[i1], index_map[i2])] = v
+            self.edge_success = edge_success
+
+            self.landmarks = landmarks
+            self.hashes = hashes
+            self.positions = positions
+            self.adjacency = adjacency
+
+            assert len(self.landmarks) == len(self.positions)
+            assert len(self.landmarks) == len(self.adjacency)
 
     def _edge_weight(self, i1, i2):
         return -math.log(self.edge_success[(i1, i2)])
@@ -188,8 +245,13 @@ class TopologicalMap:
         graph = nx.DiGraph()
         for i in range(len(self.landmarks)):
             pos = self.positions[i]
-            graph.add_node(i, pos=(pos[0], pos[1]))
+            if pos is not None:
+                graph.add_node(i, pos=(pos[0], pos[1]))
         for u, edges in enumerate(self.adjacency):
             for v in edges:
                 graph.add_edge(u, v)
+
+        # labels = {i: str(i) for i in range(len(self.landmarks))}
+        # graph = nx.relabel_nodes(graph, labels)
+
         return graph

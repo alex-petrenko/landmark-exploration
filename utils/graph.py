@@ -20,8 +20,8 @@ def plot_graph(nx_graph, layout):
     figure = plt.gcf()
     figure.clear()
     nx.draw(
-        nx_graph, pos, node_size=50, node_color=list(nx_graph.nodes), edge_color='#cccccc',
-        cmap=plt.cm.get_cmap('plasma'),
+        nx_graph, pos, node_size=80, node_color=list(range(len(nx_graph.nodes))), edge_color='#cccccc',
+        cmap=plt.cm.get_cmap('plasma'), with_labels=True, font_color='#00ff00', font_size=7,
     )
     return figure
 

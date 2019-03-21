@@ -23,7 +23,7 @@ from algorithms.tmax.landmarks_encoder import LandmarksEncoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer
 from algorithms.tmax.reachability import ReachabilityNetwork, ReachabilityBuffer
 from algorithms.tmax.tmax_utils import TmaxMode
-from algorithms.tmax.topological_map import TopologicalMap
+from algorithms.tmax.topological_map import TopologicalMap, get_pos
 from algorithms.tmax.trajectory import TrajectoryBuffer
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.graph import visualize_graph_tensorboard
@@ -244,13 +244,13 @@ class TmaxManager:
 
         self.total_episode_bonus = np.zeros(self.num_envs)
 
-    def _ensure_initialized(self, obs, info):
+    def initialize(self, obs, info):
         if self.initialized:
             return
 
         self.maps, self.episodic_maps = [], []
         for i in range(self.num_envs):
-            pos = info.get('pos')
+            pos = get_pos(info[i])
             self.maps.append(TopologicalMap(obs[i], self.params.directed_edges, pos))
             self.episodic_maps.append(TopologicalMap(obs[i], self.params.directed_edges, pos))
 
@@ -310,15 +310,15 @@ class TmaxManager:
         assert len(targets) == len(env_indices)
         return targets
 
-    def _new_episode(self, env_i, obs, goal):
+    def _new_episode(self, env_i, obs, info, goal):
         self.total_episode_bonus[env_i] = 0
 
-        self.episodic_maps[env_i].reset(obs)
+        self.episodic_maps[env_i].reset(obs, get_pos(info))
         self.episodic_maps[env_i].new_episode()
 
         m = self.maps[env_i]
         if self.need_reset[env_i]:
-            m.reset(obs)
+            m.reset(obs, get_pos(info))
             self.need_reset[env_i] = False
         m.new_episode()
 
@@ -431,7 +431,7 @@ class TmaxManager:
 
             if self.locomotion_targets[env_i] is not None and self.mode[env_i] == TmaxMode.LOCOMOTION:
                 assert dist_to_target[env_i] is not None
-                locomotion_reward[env_i] -= dist_to_target[env_i]
+                locomotion_reward[env_i] -= dist_to_target[env_i] * 0.1  # scaling factor
 
             if min_d >= self.new_landmark_threshold:
                 # we're far enough from all obs in the neighborhood, might have found something new!
@@ -447,13 +447,14 @@ class TmaxManager:
 
                 if persistent_map and self.mode[env_i] == TmaxMode.LOCOMOTION:
                     if m.curr_landmark_idx == self.locomotion_targets[env_i] and dist_to_target[env_i] < 0.3:
-                        self.last_locomotion_success[env_i] = self.episode_frames[env_i]
                         locomotion_reward[env_i] += 1.0
                         log.info(
-                            'Locomotion net gets reward +1! (%.3f) dist %.3f, prev %d, goal %d',
+                            'Locomotion net gets reward +1! (%.3f) dist %.3f, prev %d, goal %d, frame %d, took %d',
                             locomotion_reward[env_i], dist_to_target[env_i], self.locomotion_prev[env_i],
-                            m.curr_landmark_idx,
+                            m.curr_landmark_idx, self.episode_frames[env_i],
+                            self.episode_frames[env_i] - self.last_locomotion_success[env_i],
                         )
+                        self.last_locomotion_success[env_i] = self.episode_frames[env_i]
 
                         locomotion_done[env_i] = True
                         self.locomotion_achieved_goal.append(1)
@@ -523,11 +524,8 @@ class TmaxManager:
             else:
                 # vertex is relatively far away from all vertices in the graph, we've found a new landmark!
                 if m.new_landmark_candidate_frames >= localize_frames:
-                    agent_pos = None
-                    if 'pos' in info[env_i]:
-                        pos_obs = info[env_i]['pos']
-                        agent_pos = [pos_obs['agent_x'], pos_obs['agent_y'], pos_obs['agent_a']]
-
+                    agent_pos = get_pos(info[env_i])
+                    assert agent_pos is not None
                     new_landmark_idx = m.add_landmark(obs[env_i], pos=agent_pos)
                     m.set_curr_landmark(new_landmark_idx)
                     bonuses[env_i] += self.params.map_expansion_reward  # we found a new vertex! Cool!
@@ -552,8 +550,6 @@ class TmaxManager:
 
     def update(self, obs, goals, dones, infos, is_bootstrap=False, verbose=False):
         """Omnipotent function for the management of topological maps and policy modes, as well as localization."""
-        self._ensure_initialized(obs, infos)
-
         self._verbose = verbose
         self._is_bootstrap = is_bootstrap
 
@@ -569,7 +565,7 @@ class TmaxManager:
                 self.need_reset[env_i] = True
 
             if self.mode[env_i] == TmaxMode.LOCOMOTION:
-                if self.episode_frames[env_i] - self.last_locomotion_success[env_i] > 200 or dones[env_i]:
+                if self.episode_frames[env_i] - self.last_locomotion_success[env_i] > 300 or dones[env_i]:
                     # we're not making progress towards the final goal, let's switch to exploration
                     self.mode[env_i] = TmaxMode.EXPLORATION
                     self.locomotion_achieved_goal.append(0)
@@ -580,7 +576,7 @@ class TmaxManager:
 
             if dones[env_i]:
                 env_goal = None if goals is None else goals[env_i]
-                self._new_episode(env_i, obs[env_i], env_goal)
+                self._new_episode(env_i, obs[env_i], infos[env_i], env_goal)
             else:
                 self.episode_frames[env_i] += 1
 
@@ -1004,11 +1000,13 @@ class AgentTMAX(AgentLearner):
 
         # locomotion summaries
         achieved_goal = tmax_mgr.locomotion_achieved_goal
-        if len(achieved_goal) >= 100:
-            while len(achieved_goal) > 100:
+        if len(achieved_goal) >= 300:
+            while len(achieved_goal) > 300:
                 achieved_goal.popleft()
             locomotion_avg_success = sum(achieved_goal) / len(achieved_goal)
             summary_obj.value.add(tag='locomotion/avg_success', simple_value=float(locomotion_avg_success))
+        else:
+            log.info('Len achieved_goal is %d', len(achieved_goal))
 
         self.summary_writer.add_summary(summary_obj, env_steps)
 
@@ -1369,6 +1367,7 @@ class AgentTMAX(AgentLearner):
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
         env_obs = multi_env.reset()
+        infos = multi_env.info()
         observations, goals = main_observation(env_obs), goal_observation(env_obs)
 
         buffer = TmaxPPOBuffer()
@@ -1378,6 +1377,7 @@ class AgentTMAX(AgentLearner):
         locomotion_buffer = LocomotionBuffer(self.params)
 
         tmax_mgr = self.tmax_mgr
+        tmax_mgr.initialize(observations, infos)
         bonuses = [0] * multi_env.num_envs
 
         def end_of_training(s, es):

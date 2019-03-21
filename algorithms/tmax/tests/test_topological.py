@@ -5,7 +5,6 @@ from unittest import TestCase
 
 import numpy as np
 import networkx as nx
-from matplotlib import pyplot as plt
 
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tmax.topological_map import TopologicalMap
@@ -98,6 +97,14 @@ class TestGraph(TestCase):
         log.debug('Path from 0 to 3 is %r', path)
         self.assertIs(path, None)
 
+        m._prune_vertices(chance=0.1)
+        m._prune_vertices(chance=0.2)
+        m._prune_vertices(chance=0.3)
+        m._prune_vertices(chance=0.4)
+
+        m._prune_vertices(chance=1.0)
+        self.assertEqual(len(m.landmarks), 1)
+
     def test_paths(self):
         m = TopologicalMap(np.array(0), directed_graph=True)
 
@@ -117,6 +124,7 @@ class TestGraph(TestCase):
                         m._add_edge(i, rand)
 
         shortest, _ = m.shortest_paths(0)
+        m._prune_vertices(chance=0.1)
         reachable = m.reachable_indices(0)
         self.assertGreaterEqual(len(reachable), 1)
         log.debug('Reachable vertices: %r', reachable)
@@ -148,11 +156,12 @@ class TestGraph(TestCase):
         new_graph = nx.relabel_nodes(graph, relabeling)
 
         figure = plot_graph(new_graph, layout='kamada_kawai')
+        # from matplotlib import pyplot as plt
+        # plt.show()
         figure.clear()
 
     def test_plot_coordinates(self):
-        initial_pos = {'agent_x': 300, 'agent_y': 400, 'agent_a': 0}
-        m = TopologicalMap(np.array(0), directed_graph=True, initial_pos=initial_pos)
+        m = TopologicalMap(np.array(0), directed_graph=True, initial_pos=[300, 400, 0])
 
         for i in range(1, 4):
             for j in range(1, 4):
@@ -160,4 +169,6 @@ class TestGraph(TestCase):
 
         graph = m.to_nx_graph()
         figure = plot_graph(graph, layout='pos')
+        # from matplotlib import pyplot as plt
+        # plt.show()
         figure.clear()
