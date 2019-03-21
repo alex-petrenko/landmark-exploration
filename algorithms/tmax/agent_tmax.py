@@ -244,15 +244,16 @@ class TmaxManager:
 
         self.total_episode_bonus = np.zeros(self.num_envs)
 
-    def initialize(self, initial_obs, initial_info):
-        self.maps = [
-            TopologicalMap(obs, self.params.directed_edges, info.get('pos'))
-            for obs, info in zip(initial_obs, initial_info)
-        ]
-        self.episodic_maps = [
-            TopologicalMap(obs, self.params.directed_edges, info.get('pos'))
-            for obs, info in zip(initial_obs, initial_info)
-        ]
+    def _ensure_initialized(self, obs, info):
+        if self.initialized:
+            return
+
+        self.maps, self.episodic_maps = [], []
+        for i in range(self.num_envs):
+            pos = info.get('pos')
+            self.maps.append(TopologicalMap(obs[i], self.params.directed_edges, pos))
+            self.episodic_maps.append(TopologicalMap(obs[i], self.params.directed_edges, pos))
+
         self.initialized = True
 
     def _log_verbose(self, s, *args):
@@ -551,6 +552,8 @@ class TmaxManager:
 
     def update(self, obs, goals, dones, infos, is_bootstrap=False, verbose=False):
         """Omnipotent function for the management of topological maps and policy modes, as well as localization."""
+        self._ensure_initialized(obs, infos)
+
         self._verbose = verbose
         self._is_bootstrap = is_bootstrap
 
@@ -565,21 +568,21 @@ class TmaxManager:
             if is_bootstrap:
                 self.need_reset[env_i] = True
 
+            if self.mode[env_i] == TmaxMode.LOCOMOTION:
+                if self.episode_frames[env_i] - self.last_locomotion_success[env_i] > 200 or dones[env_i]:
+                    # we're not making progress towards the final goal, let's switch to exploration
+                    self.mode[env_i] = TmaxMode.EXPLORATION
+                    self.locomotion_achieved_goal.append(0)
+                    m.update_edge_traversal(self.locomotion_prev[env_i], self.locomotion_targets[env_i], 0)
+                    self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
+                    done_flags[env_i] = True
+                    log.info('Locomotion unsuccessful, switch to exploration')
+
             if dones[env_i]:
                 env_goal = None if goals is None else goals[env_i]
                 self._new_episode(env_i, obs[env_i], env_goal)
             else:
                 self.episode_frames[env_i] += 1
-
-                if self.mode[env_i] == TmaxMode.LOCOMOTION:
-                    if self.episode_frames[env_i] - self.last_locomotion_success[env_i] > 200:
-                        # we're not making progress towards the final goal, let's switch to exploration
-                        self.mode[env_i] = TmaxMode.EXPLORATION
-                        self.locomotion_achieved_goal.append(0)
-                        m.update_edge_traversal(self.locomotion_prev[env_i], self.locomotion_targets[env_i], 0)
-                        self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
-                        done_flags[env_i] = True
-                        log.info('Locomotion unsuccessful, switch to exploration')
 
         if is_bootstrap:
             # don't bother updating the graph when the reachability net isn't trained yet
@@ -1367,7 +1370,6 @@ class AgentTMAX(AgentLearner):
 
         env_obs = multi_env.reset()
         observations, goals = main_observation(env_obs), goal_observation(env_obs)
-        infos = multi_env.info()
 
         buffer = TmaxPPOBuffer()
 
@@ -1376,7 +1378,6 @@ class AgentTMAX(AgentLearner):
         locomotion_buffer = LocomotionBuffer(self.params)
 
         tmax_mgr = self.tmax_mgr
-        tmax_mgr.initialize(observations, infos)
         bonuses = [0] * multi_env.num_envs
 
         def end_of_training(s, es):

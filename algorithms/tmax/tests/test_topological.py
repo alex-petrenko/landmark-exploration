@@ -3,12 +3,14 @@ import random
 from string import ascii_lowercase
 from unittest import TestCase
 
-import networkx as nx
 import numpy as np
+import networkx as nx
+from matplotlib import pyplot as plt
 
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tmax.topological_map import TopologicalMap
 from utils.envs.doom.doom_utils import doom_env_by_name, make_doom_env
+from utils.graph import plot_graph
 from utils.utils import log
 
 
@@ -145,15 +147,17 @@ class TestGraph(TestCase):
         graph = m.to_nx_graph()
         new_graph = nx.relabel_nodes(graph, relabeling)
 
-        from matplotlib import pyplot as plt
-        figure = plt.gcf()
+        figure = plot_graph(new_graph, layout='kamada_kawai')
         figure.clear()
 
-        nx.draw(
-            new_graph, nx.kamada_kawai_layout(new_graph),
-            node_size=100, node_color=list(graph.nodes), edge_color='#cccccc', cmap=plt.cm.get_cmap('plasma'),
-            with_labels=True, font_color='#ffffff', font_size=7,
-        )
-        plt.show()
-        figure = plt.gcf()
+    def test_plot_coordinates(self):
+        initial_pos = {'agent_x': 300, 'agent_y': 400, 'agent_a': 0}
+        m = TopologicalMap(np.array(0), directed_graph=True, initial_pos=initial_pos)
+
+        for i in range(1, 4):
+            for j in range(1, 4):
+                m.add_landmark(np.array(0), pos=[300 + i, 400 + j, 10])
+
+        graph = m.to_nx_graph()
+        figure = plot_graph(graph, layout='pos')
         figure.clear()
