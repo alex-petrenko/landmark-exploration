@@ -32,91 +32,92 @@ from utils.utils import log, AttrDict, numpy_all_the_way, min_with_idx
 
 
 class ActorCritic:
-    def __init__(self, env, ph_observations, params):
-        obs_space = env.observation_space
+    def __init__(self, env, ph_observations, params, name):
+        with tf.variable_scope(name):
+            obs_space = env.observation_space
 
-        self.ph_observations = ph_observations
+            self.ph_observations = ph_observations
 
-        # placeholder for the goal observation (if available)
-        self.ph_goal_obs = None
-        self.is_goal_env = is_goal_based_env(env)
-        if self.is_goal_env:
-            # goal obs has the same shape as main obs
-            self.ph_goal_obs = placeholder_from_space(main_observation_space(env))
+            # placeholder for the goal observation (if available)
+            self.ph_goal_obs = None
+            self.is_goal_env = is_goal_based_env(env)
+            if self.is_goal_env:
+                # goal obs has the same shape as main obs
+                self.ph_goal_obs = placeholder_from_space(main_observation_space(env))
 
-        make_encoder_func = make_encoder_with_goal if self.is_goal_env else make_encoder
+            make_encoder_func = make_encoder_with_goal if self.is_goal_env else make_encoder
 
-        # placeholders for the topological map
-        self.ph_neighbors, self.ph_num_neighbors = None, None
-        if params.use_neighborhood_encoder:
-            self.ph_num_neighbors = tf.placeholder(tf.int32, shape=[None])
+            # placeholders for the topological map
+            self.ph_neighbors, self.ph_num_neighbors = None, None
+            if params.use_neighborhood_encoder:
+                self.ph_num_neighbors = tf.placeholder(tf.int32, shape=[None])
 
-        self.num_actions = env.action_space.n
+            self.num_actions = env.action_space.n
 
-        reg = None  # don't use L2 regularization
+            reg = None  # don't use L2 regularization
 
-        # actor computation graph
-        act_encoder = tf.make_template(
-            'act_obs_enc', make_encoder_func, create_scope_now_=True,
-            obs_space=obs_space, regularizer=reg, params=params,
-        )
-
-        # use actor encoder as main observation encoder (including landmarks, etc.)
-        if self.is_goal_env:
-            act_goal_encoder = act_encoder(self.ph_observations, self.ph_goal_obs)
-            act_encoded_obs = act_goal_encoder.encoded_input
-            self.encode_single_obs = act_goal_encoder.encoder_obs.encoded_input
-        else:
-            act_encoded_obs = act_encoder(self.ph_observations).encoded_input
-            self.encode_single_obs = act_encoded_obs
-
-        self.encoded_obs_size = tf_shape(self.encode_single_obs)[-1]
-
-        if params.use_neighborhood_encoder:
-            self.ph_neighbors = placeholder([params.max_neighborhood_size, self.encoded_obs_size])
-            act_neighborhood_encoder = make_graph_encoder(
-                self.ph_neighbors, self.ph_num_neighbors, params, 'act_graph_enc',
+            # actor computation graph
+            act_encoder = tf.make_template(
+                'act_obs_enc', make_encoder_func, create_scope_now_=True,
+                obs_space=obs_space, regularizer=reg, params=params,
             )
-            encoded_neighborhoods = act_neighborhood_encoder.encoded_neighborhoods
-            act_obs_and_neighborhoods = tf.concat([act_encoded_obs, encoded_neighborhoods], axis=1)
-        else:
-            self.ph_neighbors = None
-            act_obs_and_neighborhoods = act_encoded_obs
 
-        actor_model = make_model(act_obs_and_neighborhoods, reg, params, 'act_mdl')
+            # use actor encoder as main observation encoder (including landmarks, etc.)
+            if self.is_goal_env:
+                act_goal_encoder = act_encoder(self.ph_observations, self.ph_goal_obs)
+                act_encoded_obs = act_goal_encoder.encoded_input
+                self.encode_single_obs = act_goal_encoder.encoder_obs.encoded_input
+            else:
+                act_encoded_obs = act_encoder(self.ph_observations).encoded_input
+                self.encode_single_obs = act_encoded_obs
 
-        actions_fc = dense(actor_model.latent, params.model_fc_size // 2, reg)
-        action_logits = tf.contrib.layers.fully_connected(actions_fc, self.num_actions, activation_fn=None)
-        self.best_action_deterministic = tf.argmax(action_logits, axis=1)
-        self.actions_distribution = CategoricalProbabilityDistribution(action_logits)
-        self.act = self.actions_distribution.sample()
-        self.action_prob = self.actions_distribution.probability(self.act)
+            self.encoded_obs_size = tf_shape(self.encode_single_obs)[-1]
 
-        # critic computation graph
-        value_encoder = tf.make_template(
-            'val_obs_enc', make_encoder_func, create_scope_now_=True,
-            obs_space=obs_space, regularizer=reg, params=params,
-        )
-        if self.is_goal_env:
-            value_encoded_obs = value_encoder(self.ph_observations, self.ph_goal_obs).encoded_input
-        else:
-            value_encoded_obs = value_encoder(self.ph_observations).encoded_input
+            if params.use_neighborhood_encoder:
+                self.ph_neighbors = placeholder([params.max_neighborhood_size, self.encoded_obs_size])
+                act_neighborhood_encoder = make_graph_encoder(
+                    self.ph_neighbors, self.ph_num_neighbors, params, 'act_graph_enc',
+                )
+                encoded_neighborhoods = act_neighborhood_encoder.encoded_neighborhoods
+                act_obs_and_neighborhoods = tf.concat([act_encoded_obs, encoded_neighborhoods], axis=1)
+            else:
+                self.ph_neighbors = None
+                act_obs_and_neighborhoods = act_encoded_obs
 
-        if params.use_neighborhood_encoder:
-            value_neighborhood_encoder = make_graph_encoder(
-                self.ph_neighbors, self.ph_num_neighbors, params, 'value_graph_enc',
+            actor_model = make_model(act_obs_and_neighborhoods, reg, params, 'act_mdl')
+
+            actions_fc = dense(actor_model.latent, params.model_fc_size // 2, reg)
+            action_logits = tf.contrib.layers.fully_connected(actions_fc, self.num_actions, activation_fn=None)
+            self.best_action_deterministic = tf.argmax(action_logits, axis=1)
+            self.actions_distribution = CategoricalProbabilityDistribution(action_logits)
+            self.act = self.actions_distribution.sample()
+            self.action_prob = self.actions_distribution.probability(self.act)
+
+            # critic computation graph
+            value_encoder = tf.make_template(
+                'val_obs_enc', make_encoder_func, create_scope_now_=True,
+                obs_space=obs_space, regularizer=reg, params=params,
             )
-            encoded_neighborhoods = value_neighborhood_encoder.encoded_neighborhoods
-            value_obs_and_neighborhoods = tf.concat([value_encoded_obs, encoded_neighborhoods], axis=1)
-        else:
-            value_obs_and_neighborhoods = value_encoded_obs
+            if self.is_goal_env:
+                value_encoded_obs = value_encoder(self.ph_observations, self.ph_goal_obs).encoded_input
+            else:
+                value_encoded_obs = value_encoder(self.ph_observations).encoded_input
 
-        value_model = make_model(value_obs_and_neighborhoods, reg, params, 'val_mdl')
+            if params.use_neighborhood_encoder:
+                value_neighborhood_encoder = make_graph_encoder(
+                    self.ph_neighbors, self.ph_num_neighbors, params, 'value_graph_enc',
+                )
+                encoded_neighborhoods = value_neighborhood_encoder.encoded_neighborhoods
+                value_obs_and_neighborhoods = tf.concat([value_encoded_obs, encoded_neighborhoods], axis=1)
+            else:
+                value_obs_and_neighborhoods = value_encoded_obs
 
-        value_fc = dense(value_model.latent, params.model_fc_size // 2, reg)
-        self.value = tf.squeeze(tf.contrib.layers.fully_connected(value_fc, 1, activation_fn=None), axis=[1])
+            value_model = make_model(value_obs_and_neighborhoods, reg, params, 'val_mdl')
 
-        log.info('Total parameters so far: %d', count_total_parameters())
+            value_fc = dense(value_model.latent, params.model_fc_size // 2, reg)
+            self.value = tf.squeeze(tf.contrib.layers.fully_connected(value_fc, 1, activation_fn=None), axis=[1])
+
+            log.info('Total parameters so far: %d', count_total_parameters())
 
     def input_dict(self, observations, goals, neighbors_encoded, num_neighbors):
         feed_dict = {self.ph_observations: observations}
@@ -163,6 +164,37 @@ class TmaxPPOBuffer(PPOBuffer):
         """Append one-step data to the current batch of observations."""
         args = copy.copy(locals())
         super(TmaxPPOBuffer, self)._add_args(args)
+
+    def split_by_mask(self):
+        buffers = [TmaxPPOBuffer(), TmaxPPOBuffer()]
+        for buffer in buffers:
+            buffer.reset()
+
+            for key in buffer.__dict__.keys():
+                x = self.__dict__[key]
+                if x is None or x.size == 0:
+                    continue
+
+                buffer.__dict__[key] = []
+
+        for i in range(len(self)):
+            for key, x in self.__dict__.items():
+                if x is None or x.size == 0:
+                    continue
+
+                mask = self.masks[i]
+                buffers[mask].__dict__[key].append(x[i])
+
+        for buffer in buffers:
+            for item, x in buffer.__dict__.items():
+                if x is None:
+                    continue
+                buffer.__dict__[item] = np.asarray(x)
+
+            for i in range(len(buffer)):
+                buffer.masks[i] = 1
+
+        return buffers
 
 
 class TmaxManager:
@@ -331,6 +363,11 @@ class TmaxManager:
 
     def _localize(self, obs, maps, persistent_map):
         bonuses = np.zeros([self.num_envs])
+        locomotion_reward = np.zeros([self.num_envs])
+        locomotion_done = np.zeros([self.num_envs], dtype=bool)
+
+        # noise-filtering parameter, how many frames we need to wait before we change localization
+        localize_frames = 4
 
         # create a batch of all neighborhood observations from all envs for fast processing on GPU
         neighborhood_obs, current_obs = [], []
@@ -368,7 +405,7 @@ class TmaxManager:
                 m.new_landmark_candidate_frames = 0
 
                 # crude localization
-                if all(lm == closest_landmark_idx[env_i] for lm in m.closest_landmarks[-3:]):
+                if all(lm == closest_landmark_idx[env_i] for lm in m.closest_landmarks[-localize_frames:]):
                     if closest_landmark_idx[env_i] != m.curr_landmark_idx:
                         prev_landmark_idx = m.curr_landmark_idx
                         m.set_curr_landmark(closest_landmark_idx[env_i])
@@ -381,6 +418,11 @@ class TmaxManager:
                             if m.curr_landmark_idx == self.locomotion_targets[env_i]:
                                 self.last_locomotion_success[env_i] = self.episode_frames[env_i]
                                 achieved_goal = 1
+                                log.info('Locomotion net gets reward +1!')
+                                locomotion_reward[env_i] = 1.0
+                                # TODO! Reward only if we're closer than ~0.3 to landmark
+
+                            locomotion_done[env_i] = True
 
                             self.locomotion_achieved_goal.append(achieved_goal)
                             m.update_edge_traversal(prev_landmark_idx, m.curr_landmark_idx, achieved_goal)
@@ -437,7 +479,7 @@ class TmaxManager:
                 closest_landmark_idx[env_i] = non_neighbor_indices[min_d_idx]
 
                 # crude localization
-                if all(lm == closest_landmark_idx[env_i] for lm in m.closest_landmarks[-3:]):
+                if all(lm == closest_landmark_idx[env_i] for lm in m.closest_landmarks[-localize_frames:]):
                     m.set_curr_landmark(closest_landmark_idx[env_i])
 
                     bonuses[env_i] += self.params.map_expansion_reward  # we found a new edge! Cool!
@@ -446,10 +488,11 @@ class TmaxManager:
                         self._log_verbose('Change current landmark to %d (loop closure)', m.curr_landmark_idx)
                         self._select_locomotion_target(env_i)
                         self.is_landmark[env_i] = True
+                        locomotion_done[env_i] = True
 
-            else:  # TODO: add a threshold
+            else:
                 # vertex is relatively far away from all vertices in the graph, we've found a new landmark!
-                if m.new_landmark_candidate_frames >= 3:
+                if m.new_landmark_candidate_frames >= localize_frames:
                     new_landmark_idx = m.add_landmark(obs[env_i])
                     m.set_curr_landmark(new_landmark_idx)
                     bonuses[env_i] += self.params.map_expansion_reward  # we found a new vertex! Cool!
@@ -460,6 +503,7 @@ class TmaxManager:
                     if persistent_map:
                         self._select_locomotion_target(env_i)
                         self.is_landmark[env_i] = True
+                        locomotion_done[env_i] = True
                 else:
                     m.new_landmark_candidate_frames += 1
 
@@ -470,12 +514,14 @@ class TmaxManager:
             assert closest_landmark_idx[env_i] >= 0
             maps[env_i].closest_landmarks.append(closest_landmark_idx[env_i])
 
-        return bonuses
+        return bonuses, locomotion_reward, locomotion_done
 
     def update(self, obs, goals, dones, is_bootstrap=False, verbose=False):
         """Omnipotent function for the management of topological maps and policy modes, as well as localization."""
         self._verbose = verbose
         self._is_bootstrap = is_bootstrap
+
+        done_flags = np.zeros([self.num_envs], dtype=bool)
 
         assert len(obs) == len(self.maps)
         num_envs = len(self.maps)
@@ -497,17 +543,35 @@ class TmaxManager:
                         self.mode[env_i] = TmaxMode.EXPLORATION
                         self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
                         self.locomotion_achieved_goal.append(0)
+                        done_flags[env_i] = True
                         log.info('Locomotion unsuccessful, switch to exploration')
 
         if is_bootstrap:
             # don't bother updating the graph when the reachability net isn't trained yet
-            return np.zeros([num_envs])
+            return np.zeros([num_envs]), np.zeros([num_envs]), done_flags
 
-        self._localize(obs, self.maps, persistent_map=True)
-        bonuses = self._localize(obs, self.episodic_maps, persistent_map=False)
+        _, locomotion_rewards, locomotion_done = self._localize(obs, self.maps, persistent_map=True)
+        bonuses, _, _ = self._localize(obs, self.episodic_maps, persistent_map=False)
         self.total_episode_bonus += bonuses
 
-        return bonuses
+        done_flags = np.logical_or(done_flags, locomotion_done)
+        return bonuses, locomotion_rewards, done_flags
+
+    def combine_rewards_and_dones(self, rewards, dones, bonuses, loco_rewards, done_flags):
+        final_rewards = [0] * self.num_envs
+        final_dones = [False] * self.num_envs
+
+        for env_i in range(self.num_envs):
+            if self.mode[env_i] == TmaxMode.LOCOMOTION:
+                final_rewards[env_i] = loco_rewards[env_i]
+                final_dones[env_i] = dones[env_i] or done_flags[env_i]
+            elif self.mode[env_i] == TmaxMode.EXPLORATION:
+                final_rewards[env_i] = rewards[env_i] + bonuses[env_i]
+                final_dones[env_i] = dones[env_i]
+            else:
+                raise Exception(f'Mode {self.mode[env_i]} not supported')
+
+        return final_rewards, final_dones
 
     def get_neighbors(self):
         if not self.params.use_neighborhood_encoder:
@@ -595,19 +659,20 @@ class AgentTMAX(AgentLearner):
 
             self.reachable_threshold = 10  # num. of frames between obs, such that one is reachable from the other
             self.unreachable_threshold = 30  # num. of frames between obs, such that one is unreachable from the other
-            self.reachability_target_buffer_size = 90000  # target number of training examples to store
+            self.reachability_target_buffer_size = 100000  # target number of training examples to store
             self.reachability_train_epochs = 1
             self.reachability_batch_size = 256
 
             self.directed_edges = False  # whether to add directed on undirected edges on landmark discovery
-            self.new_landmark_threshold = 0.95  # condition for considering current observation a "new landmark"
-            self.loop_closure_threshold = 0.3  # condition for graph loop closure (finding new edge)
+            self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
+            self.loop_closure_threshold = 0.4  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 1.0  # reward for finding new vertex or new edge in the topological map
 
             self.locomotion_max_trajectory = 35  # max trajectory length to be utilized for locomotion training
-            self.locomotion_target_buffer_size = 40000  # target number of (obs, goal, action) tuples to store
+            self.locomotion_target_buffer_size = 100000  # target number of (obs, goal, action) tuples to store
             self.locomotion_train_epochs = 1
             self.locomotion_batch_size = 256
+            self.rl_locomotion = True
 
             self.bootstrap_env_steps = 1000 * 1000
 
@@ -632,7 +697,12 @@ class AgentTMAX(AgentLearner):
         self.actor_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='actor_step')
         self.critic_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='critic_step')
         self.reach_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='reach_step')
-        self.locomotion_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='locomotion_step')
+
+        if self.params.rl_locomotion:
+            self.loco_actor_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_actor_step')
+            self.loco_critic_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_critic_step')
+        else:
+            self.locomotion_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='locomotion_step')
 
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
@@ -645,10 +715,14 @@ class AgentTMAX(AgentLearner):
         self.ph_advantages, self.ph_returns, self.ph_old_action_probs = placeholders(None, None, None)
         self.ph_masks = placeholder(None, tf.int32)  # to mask experience that does not come from RL policy
 
-        self.actor_critic = ActorCritic(env, self.ph_observations, self.params)
+        self.actor_critic = ActorCritic(env, self.ph_observations, self.params, 'main')
+
+        if self.params.rl_locomotion:
+            self.loco_actor_critic = ActorCritic(env, self.ph_observations, self.params, 'loco')
+        else:
+            self.locomotion = LocomotionNetwork(env, params)
 
         self.reachability = ReachabilityNetwork(env, params)
-        self.locomotion = LocomotionNetwork(env, params)
 
         if self.params.use_neighborhood_encoder is None:
             self.encoded_landmark_size = 1
@@ -660,9 +734,15 @@ class AgentTMAX(AgentLearner):
         self.objectives = self.add_ppo_objectives(
             self.actor_critic,
             self.ph_actions, self.ph_old_action_probs, self.ph_advantages, self.ph_returns, self.ph_masks,
-            self.params,
-            self.actor_step,
+            self.params, self.actor_step,
         )
+
+        if self.params.rl_locomotion:
+            self.loco_objectives = self.add_ppo_objectives(
+                self.loco_actor_critic,
+                self.ph_actions, self.ph_old_action_probs, self.ph_advantages, self.ph_returns, self.ph_masks,
+                self.params, self.loco_actor_step,
+            )
 
         # optimizers
         actor_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='actor_opt')
@@ -674,8 +754,19 @@ class AgentTMAX(AgentLearner):
         reach_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='reach_opt')
         self.train_reachability = reach_opt.minimize(self.reachability.loss, global_step=self.reach_step)
 
-        locomotion_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='locomotion_opt')
-        self.train_locomotion = locomotion_opt.minimize(self.locomotion.loss, global_step=self.locomotion_step)
+        if self.params.rl_locomotion:
+            loco_actor_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='loco_actor_opt')
+            self.train_loco_actor = loco_actor_opt.minimize(
+                self.loco_objectives.actor_loss, global_step=self.loco_actor_step,
+            )
+
+            loco_critic_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='loco_critic_opt')
+            self.train_loco_critic = loco_critic_opt.minimize(
+                self.loco_objectives.critic_loss, global_step=self.loco_critic_step,
+            )
+        else:
+            locomotion_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='locomotion_opt')
+            self.train_locomotion = locomotion_opt.minimize(self.locomotion.loss, global_step=self.locomotion_step)
 
         # summaries
         self.add_summaries()
@@ -683,7 +774,12 @@ class AgentTMAX(AgentLearner):
         self.actor_summaries = merge_summaries(collections=['actor'])
         self.critic_summaries = merge_summaries(collections=['critic'])
         self.reach_summaries = merge_summaries(collections=['reachability'])
-        self.locomotion_summaries = merge_summaries(collections=['locomotion'])
+
+        if self.params.rl_locomotion:
+            self.loco_actor_summaries = merge_summaries(collections=['loco_actor'])
+            self.loco_critic_summaries = merge_summaries(collections=['loco_critic'])
+        else:
+            self.locomotion_summaries = merge_summaries(collections=['locomotion'])
 
         self.saver = tf.train.Saver(max_to_keep=3)
 
@@ -750,26 +846,45 @@ class AgentTMAX(AgentLearner):
         return AttrDict(locals())
 
     def add_summaries(self):
-        obj = self.objectives
-
         # summaries for the agent and the training process
         with tf.name_scope('obs_summaries'):
             image_summaries_rgb(self.ph_observations, collections=['actor'])
             if self.is_goal_env:
                 image_summaries_rgb(self.actor_critic.ph_goal_obs, collections=['actor'])
 
-        with tf.name_scope('actor'):
-            summary_avg_min_max('returns', self.ph_returns, collections=['actor'])
-            summary_avg_min_max('adv', self.ph_advantages, collections=['actor'])
+        self.add_ppo_summaries(self.actor_critic, self.objectives, self.actor_step, self.critic_step)
 
-            actor_scalar = partial(tf.summary.scalar, collections=['actor'])
-            actor_scalar('action_avg', tf.reduce_mean(tf.to_float(self.actor_critic.act)))
+        with tf.name_scope('reachability'):
+            reachability_scalar = partial(tf.summary.scalar, collections=['reachability'])
+            reachability_scalar('reach_loss', self.reachability.reach_loss)
+            reachability_scalar('reach_correct', self.reachability.correct)
+            reachability_scalar('reg_loss', self.reachability.reg_loss)
+
+        if self.params.rl_locomotion:
+            self.add_ppo_summaries(
+                self.loco_actor_critic, self.loco_objectives, self.loco_actor_step, self.loco_critic_step,
+                'loco_actor', 'loco_critic',
+            )
+        else:
+            with tf.name_scope('locomotion'):
+                locomotion_scalar = partial(tf.summary.scalar, collections=['locomotion'])
+                locomotion_scalar('actions_loss', self.locomotion.actions_loss)
+                locomotion_scalar('loss', self.locomotion.loss)
+                locomotion_scalar('entropy', tf.reduce_mean(self.locomotion.actions_distribution.entropy()))
+
+    def add_ppo_summaries(self, actor_critic, obj, actor_step, critic_step, actor_scope='actor', critic_scope='critic'):
+        with tf.name_scope(actor_scope):
+            summary_avg_min_max('returns', self.ph_returns, collections=[actor_scope])
+            summary_avg_min_max('adv', self.ph_advantages, collections=[actor_scope])
+
+            actor_scalar = partial(tf.summary.scalar, collections=[actor_scope])
+            actor_scalar('action_avg', tf.reduce_mean(tf.to_float(actor_critic.act)))
             actor_scalar('selected_action_avg', tf.reduce_mean(tf.to_float(self.ph_actions)))
 
-            actor_scalar('entropy', tf.reduce_mean(self.actor_critic.actions_distribution.entropy()))
+            actor_scalar('entropy', tf.reduce_mean(actor_critic.actions_distribution.entropy()))
             actor_scalar('entropy_coeff', obj.entropy_loss_coeff)
 
-            actor_scalar('actor_training_steps', self.actor_step)
+            actor_scalar('actor_training_steps', actor_step)
 
             with tf.name_scope('ppo'):
                 actor_scalar('sample_kl', obj.sample_kl)
@@ -781,23 +896,11 @@ class AgentTMAX(AgentLearner):
                 actor_scalar('entropy_loss', obj.entropy_loss)
                 actor_scalar('actor_loss', obj.actor_loss)
 
-        with tf.name_scope('critic'):
-            critic_scalar = partial(tf.summary.scalar, collections=['critic'])
-            critic_scalar('value', tf.reduce_mean(self.actor_critic.value))
+        with tf.name_scope(critic_scope):
+            critic_scalar = partial(tf.summary.scalar, collections=[critic_scope])
+            critic_scalar('value', tf.reduce_mean(actor_critic.value))
             critic_scalar('value_loss', obj.value_loss)
-            critic_scalar('critic_training_steps', self.critic_step)
-
-        with tf.name_scope('reachability'):
-            reachability_scalar = partial(tf.summary.scalar, collections=['reachability'])
-            reachability_scalar('reach_loss', self.reachability.reach_loss)
-            reachability_scalar('reach_correct', self.reachability.correct)
-            reachability_scalar('reg_loss', self.reachability.reg_loss)
-
-        with tf.name_scope('locomotion'):
-            locomotion_scalar = partial(tf.summary.scalar, collections=['locomotion'])
-            locomotion_scalar('actions_loss', self.locomotion.actions_loss)
-            locomotion_scalar('loss', self.locomotion.loss)
-            locomotion_scalar('entropy', tf.reduce_mean(self.locomotion.actions_distribution.entropy()))
+            critic_scalar('critic_training_steps', critic_step)
 
     def _maybe_print(self, step, env_step, avg_rewards, avg_length, fps, t):
         log.info('<====== Step %d, env step %.2fM ======>', step, env_step / 1e6)
@@ -977,12 +1080,20 @@ class AgentTMAX(AgentLearner):
 
         env_i = env_indices[TmaxMode.LOCOMOTION]
         if len(env_i) > 0:
+            masks[env_i] = 0
             goal_obs = tmax_mgr.get_locomotion_targets(env_i)
             assert len(goal_obs) == len(env_i)
-            actions[env_i] = self.locomotion.navigate(self.session, observations[env_i], goal_obs, deterministic=False)
-            masks[env_i] = 0  # don't train with ppo, because these actions are not coming from RL policy!
             for env_index in env_i:
                 tmax_mgr.deliberate_action[env_index] = True
+
+            if self.params.rl_locomotion:
+                actions[env_i], action_probs[env_i], values[env_i] = self.loco_actor_critic.invoke(
+                    self.session, observations[env_i], goal_obs, None, None,
+                )
+            else:
+                actions[env_i] = self.locomotion.navigate(
+                    self.session, observations[env_i], goal_obs, deterministic=False,
+                )
 
         env_i = env_indices[TmaxMode.EXPLORATION]
         if len(env_i) > 0:
@@ -1000,10 +1111,10 @@ class AgentTMAX(AgentLearner):
 
         return actions, action_probs, values, masks
 
-    def _train_actor(self, buffer, env_steps):
+    def _train_actor(self, buffer, env_steps, objectives, actor_critic, train_actor, actor_step, actor_summaries):
         # train actor for multiple epochs on all collected experience
         summary = None
-        actor_step = self.actor_step.eval(session=self.session)
+        actor_step = actor_step.eval(session=self.session)
 
         kl_running_avg = 0.0
         early_stop = False
@@ -1013,17 +1124,17 @@ class AgentTMAX(AgentLearner):
 
             for i in range(0, len(buffer), self.params.batch_size):
                 with_summaries = self._should_write_summaries(actor_step) and summary is None
-                summaries = [self.actor_summaries] if with_summaries else []
+                summaries = [actor_summaries] if with_summaries else []
 
                 start, end = i, i + self.params.batch_size
 
-                policy_input = self.actor_critic.input_dict(
+                policy_input = actor_critic.input_dict(
                     buffer.obs[start:end], buffer.goals[start:end],
                     buffer.neighbors[start:end], buffer.num_neighbors[start:end],
                 )
 
                 result = self.session.run(
-                    [self.objectives.sample_kl, self.train_actor] + summaries,
+                    [objectives.sample_kl, train_actor] + summaries,
                     feed_dict={
                         self.ph_actions: buffer.actions[start:end],
                         self.ph_old_action_probs: buffer.action_probs[start:end],
@@ -1058,10 +1169,10 @@ class AgentTMAX(AgentLearner):
 
         return actor_step
 
-    def _train_critic(self, buffer, env_steps):
+    def _train_critic(self, buffer, env_steps, objectives, actor_critic, train_critic, critic_step, critic_summaries):
         # train critic
         summary = None
-        critic_step = self.critic_step.eval(session=self.session)
+        critic_step = critic_step.eval(session=self.session)
 
         prev_loss = 1e10
         for epoch in range(self.params.ppo_epochs):
@@ -1070,17 +1181,17 @@ class AgentTMAX(AgentLearner):
 
             for i in range(0, len(buffer), self.params.batch_size):
                 with_summaries = self._should_write_summaries(critic_step) and summary is None
-                summaries = [self.critic_summaries] if with_summaries else []
+                summaries = [critic_summaries] if with_summaries else []
 
                 start, end = i, i + self.params.batch_size
 
-                policy_input = self.actor_critic.input_dict(
+                policy_input = actor_critic.input_dict(
                     buffer.obs[start:end], buffer.goals[start:end],
                     buffer.neighbors[start:end], buffer.num_neighbors[start:end],
                 )
 
                 result = self.session.run(
-                    [self.objectives.critic_loss, self.train_critic] + summaries,
+                    [objectives.critic_loss, train_critic] + summaries,
                     feed_dict={
                         self.ph_returns: buffer.returns[start:end],
                         self.ph_masks: buffer.masks[start:end],
@@ -1102,11 +1213,6 @@ class AgentTMAX(AgentLearner):
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
             prev_loss = avg_loss
-
-    def _train_actor_critic(self, buffer, env_steps):
-        step = self._train_actor(buffer, env_steps)
-        self._train_critic(buffer, env_steps)
-        return step
 
     def _is_bootstrap(self, env_steps):
         """Check whether we're still in the initial bootstrapping stage."""
@@ -1213,13 +1319,6 @@ class AgentTMAX(AgentLearner):
                 break
             prev_loss = avg_loss
 
-    @staticmethod
-    def _combine_rewards(num_envs, extrinsic, intrinsic):
-        rewards = [0] * num_envs
-        for env_idx in range(num_envs):
-            rewards[env_idx] += extrinsic[env_idx] + intrinsic[env_idx]
-        return rewards
-
     def _learn_loop(self, multi_env):
         """Main training loop."""
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
@@ -1259,15 +1358,18 @@ class AgentTMAX(AgentLearner):
                     new_observations, new_goals = main_observation(env_obs), goal_observation(env_obs)
 
                     trajectory_buffer.add(observations, actions, dones, tmax_mgr)
-                    bonuses = tmax_mgr.update(new_observations, new_goals, dones, is_bootstrap)
-                    rewards = self._combine_rewards(multi_env.num_envs, rewards, bonuses)
+                    bonuses, loco_rewards, done_flags = tmax_mgr.update(
+                        new_observations, new_goals, dones, is_bootstrap,
+                    )
+                    rewards, dones = tmax_mgr.combine_rewards_and_dones(
+                        rewards, dones, bonuses, loco_rewards, done_flags,
+                    )
 
                     # add experience from all environments to the current buffer(s)
                     buffer.add(
                         observations, goals, actions, action_probs,
                         rewards, dones, values,
-                        neighbors, num_neigh,
-                        masks,
+                        neighbors, num_neigh, masks,
                     )
                     observations, goals = new_observations, new_goals
 
@@ -1282,6 +1384,7 @@ class AgentTMAX(AgentLearner):
 
             # calculate discounted returns and GAE
             buffer.finalize_batch(self.params.gamma, self.params.gae_lambda)
+            loco_buffer, buffer = buffer.split_by_mask()
 
             traj_len, traj_nbytes = trajectory_buffer.obs_size()
             log.info('Len trajectories %d size %.1fM', traj_len, traj_nbytes / 1e6)
@@ -1289,7 +1392,14 @@ class AgentTMAX(AgentLearner):
             # update actor and critic
             with timing.timeit('train'):
                 if not is_bootstrap:
-                    step = self._train_actor_critic(buffer, env_steps)
+                    step = self._train_actor(
+                        buffer, env_steps,
+                        self.objectives, self.actor_critic, self.train_actor, self.actor_step, self.actor_summaries,
+                    )
+                    self._train_critic(
+                        buffer, env_steps,
+                        self.objectives, self.actor_critic, self.train_critic, self.critic_step, self.critic_summaries,
+                    )
 
             # update reachability net
             with timing.timeit('reach'):
@@ -1298,8 +1408,21 @@ class AgentTMAX(AgentLearner):
 
             # update locomotion net
             with timing.timeit('locomotion'):
-                locomotion_buffer.extract_data(trajectory_buffer.complete_trajectories)
-                self._maybe_train_locomotion(locomotion_buffer, env_steps)
+                if self.params.rl_locomotion:
+                    if not is_bootstrap:
+                        self._train_actor(
+                            loco_buffer, env_steps,
+                            self.loco_objectives, self.loco_actor_critic, self.train_loco_actor,
+                            self.loco_actor_step, self.loco_actor_summaries,
+                        )
+                        self._train_critic(
+                            loco_buffer, env_steps,
+                            self.loco_objectives, self.loco_actor_critic, self.train_loco_critic,
+                            self.loco_critic_step, self.loco_critic_summaries,
+                        )
+                else:
+                    locomotion_buffer.extract_data(trajectory_buffer.complete_trajectories)
+                    self._maybe_train_locomotion(locomotion_buffer, env_steps)
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)
