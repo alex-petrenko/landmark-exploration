@@ -65,9 +65,9 @@ def on_release(key):
             current_actions.remove(action)
 
 
-def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None):
+def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_automap=False):
     def make_env_func():
-        e = create_env(env_id, mode='test')
+        e = create_env(env_id, mode='test', show_automap=show_automap)
         e.seed(0)
         return e
 
@@ -104,6 +104,11 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None):
         while not done and not terminate and not max_frames_reached(num_frames):
             env.render()
             cv2.waitKey(1)  # to prevent window from fading
+            if show_automap:
+                map = env.unwrapped.get_automap_buffer()
+                if map is not None:
+                    cv2.imshow('ViZDoom Automap Buffer', map)
+                    cv2.waitKey(1)
 
             if pause:
                 time.sleep(0.01)
@@ -181,6 +186,11 @@ def main():
     else:
         raise Exception('Unknown env')
 
+    try:
+        show_map = args.show_automap
+    except AttributeError:
+        show_map = False
+
     # start keypress listener (to pause/resume execution or exit)
     def start_listener():
         with Listener(on_press=on_press, on_release=on_release) as listener:
@@ -189,7 +199,7 @@ def main():
     listener_thread = Thread(target=start_listener)
     listener_thread.start()
 
-    status = enjoy(params, args.env)
+    status = enjoy(params, args.env, show_automap=show_map)
 
     log.debug('Press ESC to exit...')
     listener_thread.join()
