@@ -12,11 +12,11 @@ def hash_observation(o):
 
 
 class TopologicalMap:
-    def __init__(self, initial_obs, directed_graph, verbose=False):
+    def __init__(self, initial_obs, directed_graph, initial_pos=None, verbose=False):
         self._verbose = verbose
         self._directed_graph = directed_graph
 
-        self.landmarks = self.hashes = self.adjacency = None
+        self.landmarks = self.hashes = self.adjacency = self.positions = None
         self.curr_landmark_idx = 0
 
         self.edge_success = {}
@@ -25,12 +25,13 @@ class TopologicalMap:
         self.new_landmark_candidate_frames = 0
         self.closest_landmarks = []
 
-        self.reset(initial_obs)
+        self.reset(initial_obs, pos=initial_pos)
 
-    def reset(self, obs):
+    def reset(self, obs, pos=None):
         """Create the graph with only one vertex."""
         self.landmarks = [obs]
         self.hashes = [hash_observation(obs)]
+        self.positions = [pos]
         self.adjacency = [[]]  # initial vertex has no neighbors
         self.curr_landmark_idx = 0
 
@@ -111,10 +112,11 @@ class TopologicalMap:
         self._log_verbose('Change current landmark to %d', landmark_idx)
         self.curr_landmark_idx = landmark_idx
 
-    def add_landmark(self, obs):
+    def add_landmark(self, obs, pos=None):
         new_landmark_idx = len(self.landmarks)
         self.landmarks.append(obs)
         self.hashes.append(hash_observation(obs))
+        self.positions.append(pos)
 
         self.adjacency.append([])
         self._add_edge(self.curr_landmark_idx, new_landmark_idx)

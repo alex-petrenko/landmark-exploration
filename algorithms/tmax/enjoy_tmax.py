@@ -86,6 +86,8 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
 
     for _ in range(max_num_episodes):
         env_obs, done = env.reset(), False
+        info = env.unwrapped.get_info()
+
         current_landmark = env_obs
         obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
         if goal_obs is not None:
@@ -96,18 +98,37 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
         episode_reward, episode_frames = 0, 0
 
         if agent.tmax_mgr.initialized:
-            agent.tmax_mgr.update([obs], [goal_obs], [True], verbose=True)
+            agent.tmax_mgr.update([obs], [goal_obs], [True], [info], verbose=True)
         else:
-            agent.tmax_mgr.initialize([obs])
+            agent.tmax_mgr.initialize([obs], [info])
 
         start_episode = time.time()
         while not done and not terminate and not max_frames_reached(num_frames):
             env.render()
             cv2.waitKey(1)  # to prevent window from fading
             if show_automap:
-                map = env.unwrapped.get_automap_buffer()
+                map = env.unwrapped.get_automap_buffer() # (600, 800, 3)
                 if map is not None:
-                    cv2.imshow('ViZDoom Automap Buffer', map)
+                    cv2.namedWindow('Landmark Map')
+                    for landmark_pos in agent.tmax_mgr.episodic_maps[0].positions:
+                        print(landmark_pos)
+                        if 'agent_x' in landmark_pos:
+                            x = int(landmark_pos['agent_x'])
+                            y = -int(landmark_pos['agent_y'])
+                            a = int(landmark_pos['agent_a'])
+                            # import pdb; pdb.set_trace()
+                            map[x-1:x+1, y-1:y+1] = [0,0,255]
+                            # cv2.circle(map, (int(landmark_pos['agent_x']), -int(landmark_pos['agent_y'])), 1, (0,0,0), thickness=-1)
+                    for landmark_pos in agent.tmax_mgr.maps[0].positions:
+                        print(landmark_pos)
+                        if 'agent_x' in landmark_pos:
+                            x = int(landmark_pos['agent_x'])
+                            y = -int(landmark_pos['agent_y'])
+                            a = int(landmark_pos['agent_a'])
+                            # import pdb; pdb.set_trace()
+                            map[x-1:x+1, y-1:y+1] = [255,0,255]
+                            # cv2.circle(map, (int(landmark_pos['agent_x']), -int(landmark_pos['agent_y'])), 1, (0,0,0), thickness=-1)
+                    cv2.imshow('Landmark Map', map)
                     cv2.waitKey(1)
 
             if pause:
@@ -128,11 +149,11 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
                 action = agent.locomotion.navigate(agent.session, [obs], [current_landmark], deterministic=False)[0]
                 log.info('Locomotion action %d', action)
 
-            env_obs, rew, done, _ = env.step(action)
+            env_obs, rew, done, info = env.step(action)
             obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
 
             if not done:
-                bonus = agent.tmax_mgr.update([obs], [goal_obs], [done], verbose=True)
+                bonus = agent.tmax_mgr.update([obs], [goal_obs], [done], [info], verbose=True)
                 bonus = bonus[0]
                 if bonus > 0:
                     log.info('Bonus %.3f received', bonus)
