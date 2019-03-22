@@ -151,7 +151,7 @@ class TestGraph(TestCase):
             else:
                 relabeling[i] = s
 
-        graph = m.get_nx_graph()
+        graph = m.labeled_graph
         new_graph = nx.relabel_nodes(graph, relabeling)
 
         figure = plot_graph(new_graph, layout='kamada_kawai', node_size=400)
@@ -166,7 +166,7 @@ class TestGraph(TestCase):
             for j in range(1, 4):
                 m.add_landmark(np.array(0), {'pos': {'agent_x': 300 + i, 'agent_y': 400 + j, 'agent_a': 10}})
 
-        graph = m.get_nx_graph()
+        graph = m.labeled_graph
         figure = plot_graph(graph, layout='pos')
         from matplotlib import pyplot as plt
         plt.show()

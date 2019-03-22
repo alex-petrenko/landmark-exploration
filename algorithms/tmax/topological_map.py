@@ -159,8 +159,8 @@ class TopologicalMap:
         except nx.exception.NetworkXNoPath:
             return None
 
-    def get_nx_graph(self):
-
+    @property
+    def labeled_graph(self):
         g = self.graph.copy()
         labels = {i: str(i) for i in g.nodes}
         g = nx.relabel_nodes(g, labels)

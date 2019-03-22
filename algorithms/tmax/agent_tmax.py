@@ -1022,7 +1022,7 @@ class AgentTMAX(AgentLearner):
         self.summary_writer.add_summary(summary_obj, env_steps)
 
         map_for_summary = random.choice(maps)
-        random_graph_summary = visualize_graph_tensorboard(map_for_summary.get_nx_graph(), tag='map/random_graph')
+        random_graph_summary = visualize_graph_tensorboard(map_for_summary.labeled_graph, tag='map/random_graph')
         self.summary_writer.add_summary(random_graph_summary, env_steps)
 
         max_graph_idx = 0
@@ -1030,7 +1030,7 @@ class AgentTMAX(AgentLearner):
             if m.num_landmarks() > maps[max_graph_idx].num_landmarks():
                 max_graph_idx = i
 
-        max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].get_nx_graph(), tag='map/max_graph')
+        max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].labeled_graph, tag='map/max_graph')
         self.summary_writer.add_summary(max_graph_summary, env_steps)
 
         self.summary_writer.flush()
