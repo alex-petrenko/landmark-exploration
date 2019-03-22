@@ -102,16 +102,21 @@ class ReachabilityCuriosityModule(CuriosityModule):
         if self.episodic_maps is None:
             self.episodic_maps = []
             for i in range(self.params.num_envs):
-                self.episodic_maps.append(TopologicalMap(obs[i], True, infos[i]))
+                self.episodic_maps.append(TopologicalMap(obs[i], directed_graph=False, initial_info=infos[i]))
 
         for i in range(self.params.num_envs):
             if dones[i]:
                 self.episodic_maps[i].reset(obs[i], infos[i])
 
+        bonuses = np.zeros(self.params.num_envs)
+
         if self.initialized:
-            bonuses = self.localizer.localize(session, obs, infos, self.episodic_maps, self.reachability)
-        else:
-            bonuses = np.zeros(self.params.num_envs)
+            def on_new_landmark(env_i):
+                bonuses[env_i] += self.params.map_expansion_reward
+
+            self.localizer.localize(
+                session, obs, infos, self.episodic_maps, self.reachability, on_new_landmark=on_new_landmark,
+            )
 
         return bonuses
 

@@ -35,11 +35,9 @@ class Localizer:
                 neighbor_distance[neighbor_idx] = '{:.3f}'.format(distance[i])
             self._log_verbose('Env %d distance: %r', env_i, neighbor_distance)
 
-    def localize(self, session, obs, info, maps, reachability, timing=None):
+    def localize(self, session, obs, info, maps, reachability, on_new_landmark=None, on_new_edge=None, timing=None):
         if timing is None:
             timing = Timing()
-
-        bonuses = np.zeros([self.num_envs])
 
         with timing.add_time('encode_obs'):
             obs_hashes = [hash_observation(o) for o in obs]
@@ -149,9 +147,10 @@ class Localizer:
 
                 # crude localization
                 if all(lm == closest_landmark_idx[env_i] for lm in m.closest_landmarks[-self.localize_frames:]):
+                    # we found a new edge! Cool!
                     m.set_curr_landmark(closest_landmark_idx[env_i])
-
-                    bonuses[env_i] += self.params.map_expansion_reward  # we found a new edge! Cool!
+                    if on_new_edge is not None:
+                        on_new_edge(env_i)
             else:
                 # vertex is relatively far away from all vertices in the graph, we've found a new landmark!
                 if m.new_landmark_candidate_frames >= self.localize_frames:
@@ -160,6 +159,9 @@ class Localizer:
 
                     closest_landmark_idx[env_i] = new_landmark_idx
                     m.new_landmark_candidate_frames = 0
+
+                    if on_new_landmark is not None:
+                        on_new_landmark(env_i)
                 else:
                     m.new_landmark_candidate_frames += 1
 
@@ -169,5 +171,3 @@ class Localizer:
         for env_i in range(self.num_envs):
             assert closest_landmark_idx[env_i] >= 0
             maps[env_i].closest_landmarks.append(closest_landmark_idx[env_i])
-
-        return bonuses
