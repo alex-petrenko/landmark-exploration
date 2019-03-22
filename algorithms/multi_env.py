@@ -139,7 +139,10 @@ class _MultiEnvWorker:
                         obs, reward, done, info = result[0]
                         if done:
                             obs = real_envs[i].reset()
-                            info = real_envs[i].unwrapped.get_info()  # info for the new episode
+                            info = {}
+                            if hasattr(real_envs[i].unwrapped, 'get_info'):
+                                info = real_envs[i].unwrapped.get_info()  # info for the new episode
+
                         results[i] = (obs, reward, done, info)  # collapse dimension of size 1
 
             self.result_queue.put(results)

@@ -232,12 +232,6 @@ class AgentPPO(AgentLearner):
         self.actor_summaries = merge_summaries(collections=['actor'])
         self.critic_summaries = merge_summaries(collections=['critic'])
 
-        self.saver = tf.train.Saver(max_to_keep=3)
-
-        log.debug('ppo variables:')
-        all_vars = tf.trainable_variables()
-        slim.model_analyzer.analyze_vars(all_vars, print_info=True)
-
     def input_dict(self, buffer, start, end):
         # Most placeholders are in AgentPPO, so input dict is here
         feed_dict = {

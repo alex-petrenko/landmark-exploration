@@ -98,6 +98,7 @@ class AgentLearner(Agent):
         """Start the session."""
         self.saver = tf.train.Saver(max_to_keep=3)
         all_vars = tf.trainable_variables()
+        log.debug('Variables:')
         slim.model_analyzer.analyze_vars(all_vars, print_info=True)
 
         gpu_options = tf.GPUOptions()

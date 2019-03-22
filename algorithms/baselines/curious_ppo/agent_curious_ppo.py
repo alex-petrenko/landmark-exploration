@@ -1,16 +1,12 @@
 import copy
 import time
-from functools import partial
 
-import tensorflow as tf
-
-from algorithms.algo_utils import num_env_steps, maybe_extract_key, main_observation, goal_observation
+from algorithms.algo_utils import num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer
-from algorithms.curiosity.curiosity_model import CuriosityModel
+from algorithms.curiosity.icm.icm import IntrinsicCuriosityModule
 from algorithms.env_wrappers import main_observation_space
-from algorithms.tf_utils import placeholder_from_space, merge_summaries
+from algorithms.tf_utils import placeholder_from_space
 from utils.timing import Timing
-from utils.utils import AttrDict
 
 
 class CuriousPPOBuffer(PPOBuffer):
@@ -36,14 +32,14 @@ class AgentCuriousPPO(AgentPPO):
         def __init__(self, experiment_name):
             super(AgentCuriousPPO.Params, self).__init__(experiment_name)
 
-            # add more params here  #TODO: Aleksei give defaults
+            self.curiosity_type = 'icm'
+
+            # icm parameters
             self.cm_beta = 0.5
             self.cm_lr_scale = 10.0
             self.clip_bonus = 0.1
             self.prediction_bonus_coeff = 0.05  # scaling factor for prediction bonus vs env rewards
-
-            self.stack_past_frames = 3
-            self.forward_fc = 512
+            self.forward_fc = 256
 
         @staticmethod
         def filename_prefix():
@@ -57,96 +53,18 @@ class AgentCuriousPPO(AgentPPO):
         self.prediction_curiosity_bonus = None  # updated in self.add_cm_objectives()
 
         # Create graph for curiosity module (ICM)
-        self._cm = CuriosityModel(
-            env, self.ph_observations, self.ph_next_observations, self.ph_actions, params.stack_past_frames,
-            params.forward_fc, params=params)
-
-        # add ICM loss keys to objective function
-        self.objectives.update(self.add_cm_objectives())  # TODO: will this merging overwrite some keys?
-
-        self.add_curiosity_summaries()
-
-        self.cm_summaries = merge_summaries(collections=['cm'])
-        self.cm_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='cm_step')
-
-        cm_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='cm_opt')
-        self.train_cm = cm_opt.minimize(self.objectives.model_loss, global_step=self.cm_step)
-
-    def add_cm_objectives(self):
-        # model losses
-        forward_loss_batch = 0.5 * tf.square(self._cm.encoded_next_obs - self._cm.predicted_obs)
-        forward_loss_batch = tf.reduce_mean(forward_loss_batch, axis=1) * self._cm.feature_vector_size
-        forward_loss = tf.reduce_mean(forward_loss_batch)
-
-        bonus = self.params.prediction_bonus_coeff * forward_loss_batch
-        self.prediction_curiosity_bonus = tf.clip_by_value(bonus, -self.params.clip_bonus, self.params.clip_bonus)
-
-        inverse_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
-            logits=self._cm.predicted_actions, labels=self.ph_actions,
-        ))
-
-        cm_beta = self.params.cm_beta
-        model_loss = forward_loss * cm_beta + inverse_loss * (1.0 - cm_beta)
-        model_loss = self.params.cm_lr_scale * model_loss
-        return AttrDict(locals())
-
-    def add_curiosity_summaries(self):
-        obj = self.objectives
-        with tf.name_scope('losses'):
-            cm_scalar = partial(tf.summary.scalar, collections=['cm'])
-            cm_scalar('curiosity_forward_loss', obj.forward_loss)
-            cm_scalar('curiosity_inverse_loss', obj.inverse_loss)
-            cm_scalar('curiosity_module_loss', obj.model_loss)
+        if self.params.curiosity_type == 'icm':
+            self.curiosity = IntrinsicCuriosityModule(
+                env, self.ph_observations, self.ph_next_observations, self.ph_actions, params.forward_fc, params=params,
+            )
+        else:
+            raise Exception(f'Curiosity type {self.params.curiosity_type} not supported')
 
     def _train(self, buffer, env_steps):
         step = self._train_actor(buffer, env_steps)
         self._train_critic(buffer, env_steps)
-        self._train_curiosity_module(buffer, env_steps)
+        self.curiosity.train(buffer, env_steps, agent=self)
         return step
-
-    def _prediction_curiosity_bonus(self, observations, actions, next_obs, goals=None):
-        bonuses = self.session.run(
-            self.prediction_curiosity_bonus,
-            feed_dict={
-                self.ph_actions: actions,
-                self.ph_observations: observations,
-                self.ph_next_observations: next_obs,
-                self.actor_critic.ph_goal_obs: goals,
-            }
-        )
-        return bonuses
-
-    def input_dict(self, buffer, start, end):
-        feed_dict = super(AgentCuriousPPO, self).input_dict(buffer, start, end)
-
-        # add next_obs to feed dict for curiosity module
-        next_obs = buffer.next_obs
-        feed_dict[self.ph_next_observations] = next_obs[start:end]
-
-        return feed_dict
-
-    def _train_curiosity_module(self, buffer, env_steps):
-        """
-        Actually do a single iteration of training. See the computational graph in the ctor to figure out
-        the details.
-        """
-        step = self.cm_step.eval(session=self.session)
-        summary = None
-
-        for i in range(0, len(buffer), self.params.batch_size):
-            with_summaries = self._should_write_summaries(step) and summary is None
-            summaries = [self.cm_summaries] if with_summaries else []
-
-            start, end = i, i + self.params.batch_size
-            feed_dict = self.input_dict(buffer, start, end)
-
-            result = self.session.run(
-                [self.train_cm] + summaries,
-                feed_dict=feed_dict)
-
-            if with_summaries:
-                summary = result[1]
-                self.summary_writer.add_summary(summary, global_step=env_steps)
 
     def _learn_loop(self, multi_env):
         """Main training loop."""
@@ -172,25 +90,27 @@ class AgentCuriousPPO(AgentPPO):
             with timing.timeit('experience'):
                 # collecting experience
                 for rollout_step in range(self.params.rollout):
-                    actions, action_probs, values = self.actor_critic.invoke(self.session, img_obs, goals=goals)
+                    actions, action_probs, values = self.actor_critic.invoke(self.session, img_obs, goals)
 
                     # wait for all the workers to complete an environment step
                     env_obs, rewards, dones, infos = multi_env.step(actions)
                     next_img_obs, new_goals = main_observation(env_obs), goal_observation(env_obs)
 
                     # calculate curiosity bonus
-                    bonuses = self._prediction_curiosity_bonus(img_obs, actions, next_img_obs, goals=goals)
+                    bonuses = self.curiosity.generate_bonus_rewards(
+                        self.session, img_obs, next_img_obs, actions, dones,
+                    )
                     rewards += bonuses
 
                     # add experience from environment to the current buffer
-                    buffer.add(img_obs, next_img_obs, actions, action_probs, rewards, dones, values, goals=goals)
+                    buffer.add(img_obs, next_img_obs, actions, action_probs, rewards, dones, values, goals)
                     goals = new_goals
                     img_obs = next_img_obs
 
                     num_steps += num_env_steps(infos)
 
                 # last step values are required for TD-return calculation
-                _, _, values = self.actor_critic.invoke(self.session, img_obs, goals=goals)
+                _, _, values = self.actor_critic.invoke(self.session, img_obs, goals)
                 buffer.values.append(values)
 
             env_steps += num_steps
