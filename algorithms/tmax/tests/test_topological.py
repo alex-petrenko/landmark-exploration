@@ -7,7 +7,7 @@ import numpy as np
 import networkx as nx
 
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
-from algorithms.tmax.topological_map import TopologicalMap
+from algorithms.topological_maps.topological_map import TopologicalMap
 from utils.envs.doom.doom_utils import doom_env_by_name, make_doom_env
 from utils.graph import plot_graph
 from utils.utils import log

@@ -79,7 +79,7 @@ class TopologicalMap:
         return self.graph.node[landmark_idx]['obs']
 
     # noinspection PyUnresolvedReferences
-    def get_hashes(self, landmark_idx):
+    def get_hash(self, landmark_idx):
         return self.graph.node[landmark_idx]['hash']
 
     def neighbors(self, landmark_idx):

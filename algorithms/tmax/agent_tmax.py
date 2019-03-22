@@ -19,12 +19,11 @@ from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     image_summaries_rgb, summary_avg_min_max, merge_summaries, tf_shape, placeholder
 from algorithms.tmax.graph_encoders import make_graph_encoder
-from algorithms.tmax.landmarks_encoder import LandmarksEncoder
+from algorithms.curiosity.reachability_curiosity.landmarks_encoder import LandmarksEncoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer
-from algorithms.tmax.reachability import ReachabilityNetwork, ReachabilityBuffer
 from algorithms.tmax.tmax_utils import TmaxMode
-from algorithms.tmax.topological_map import TopologicalMap
-from algorithms.tmax.trajectory import TrajectoryBuffer
+from algorithms.topological_maps.topological_map import TopologicalMap
+from algorithms.trajectory import TrajectoryBuffer
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.graph import visualize_graph_tensorboard
 from utils.timing import Timing
@@ -230,9 +229,6 @@ class TmaxManager:
 
         self.need_reset = [True] * self.num_envs
 
-        self.new_landmark_threshold = self.params.new_landmark_threshold
-        self.loop_closure_threshold = self.params.loop_closure_threshold
-
         self.idle_frames = [0] * self.num_envs
         self.action_frames = [np.random.randint(1, 3) for _ in range(self.num_envs)]
 
@@ -260,15 +256,6 @@ class TmaxManager:
     def _log_verbose(self, s, *args):
         if self._verbose:
             log.debug(s, *args)
-
-    def _log_distances(self, env_i, neighbor_indices, distance):
-        """Optional diagnostic logging."""
-        log_reachability = True
-        if self._verbose and log_reachability:
-            neighbor_distance = {}
-            for i, neighbor_idx in enumerate(neighbor_indices):
-                neighbor_distance[neighbor_idx] = '{:.3f}'.format(distance[i])
-            self._log_verbose('Env %d distance: %r', env_i, neighbor_distance)
 
     def _select_locomotion_target(self, env_i, verbose=False):
         if self.mode[env_i] != TmaxMode.LOCOMOTION:
@@ -650,7 +637,7 @@ class TmaxManager:
                     break
 
                 neighbor_landmarks.append(m.get_observation(n_idx))
-                neighbor_hashes.append(m.get_hashes(n_idx))
+                neighbor_hashes.append(m.get_hash(n_idx))
                 landmark_env_idx.append((env_idx, i))
             num_neighbors[env_idx] = min(len(n_indices), self.params.max_neighborhood_size)
 
@@ -745,7 +732,6 @@ class AgentTMAX(AgentLearner):
         # separate global_steps
         self.actor_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='actor_step')
         self.critic_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='critic_step')
-        self.reach_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='reach_step')
 
         if self.params.rl_locomotion:
             self.loco_actor_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_actor_step')
@@ -770,8 +756,6 @@ class AgentTMAX(AgentLearner):
             self.loco_actor_critic = ActorCritic(env, self.ph_observations, self.params, 'loco')
         else:
             self.locomotion = LocomotionNetwork(env, params)
-
-        self.reachability = ReachabilityNetwork(env, params)
 
         if self.params.use_neighborhood_encoder is None:
             self.encoded_landmark_size = 1
@@ -800,9 +784,6 @@ class AgentTMAX(AgentLearner):
         critic_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='critic_opt')
         self.train_critic = critic_opt.minimize(self.objectives.critic_loss, global_step=self.critic_step)
 
-        reach_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='reach_opt')
-        self.train_reachability = reach_opt.minimize(self.reachability.loss, global_step=self.reach_step)
-
         if self.params.rl_locomotion:
             loco_actor_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='loco_actor_opt')
             self.train_loco_actor = loco_actor_opt.minimize(
@@ -822,7 +803,6 @@ class AgentTMAX(AgentLearner):
 
         self.actor_summaries = merge_summaries(collections=['actor'])
         self.critic_summaries = merge_summaries(collections=['critic'])
-        self.reach_summaries = merge_summaries(collections=['reachability'])
 
         if self.params.rl_locomotion:
             self.loco_actor_summaries = merge_summaries(collections=['loco_actor'])
@@ -902,12 +882,6 @@ class AgentTMAX(AgentLearner):
                 image_summaries_rgb(self.actor_critic.ph_goal_obs, collections=['actor'])
 
         self.add_ppo_summaries(self.actor_critic, self.objectives, self.actor_step, self.critic_step)
-
-        with tf.name_scope('reachability'):
-            reachability_scalar = partial(tf.summary.scalar, collections=['reachability'])
-            reachability_scalar('reach_loss', self.reachability.reach_loss)
-            reachability_scalar('reach_correct', self.reachability.correct)
-            reachability_scalar('reg_loss', self.reachability.reg_loss)
 
         if self.params.rl_locomotion:
             self.add_ppo_summaries(
@@ -1272,59 +1246,6 @@ class AgentTMAX(AgentLearner):
         """Check whether we're still in the initial bootstrapping stage."""
         return env_steps < self.params.bootstrap_env_steps
 
-    def _maybe_train_reachability(self, data, env_steps):
-        if not data.has_enough_data():
-            return
-
-        buffer = data.buffer
-
-        batch_size = self.params.reachability_batch_size
-        summary = None
-        reach_step = self.reach_step.eval(session=self.session)
-
-        prev_loss = 1e10
-        num_epochs = self.params.reachability_train_epochs
-        if self._is_bootstrap(env_steps):
-            num_epochs = max(5, num_epochs * 2)  # during bootstrap do more epochs to train faster!
-
-        log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
-
-        for epoch in range(num_epochs):
-            losses = []
-            buffer.shuffle_data()
-            obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
-
-            for i in range(0, len(obs_first) - 1, batch_size):
-                with_summaries = self._should_write_summaries(reach_step) and summary is None
-                summaries = [self.reach_summaries] if with_summaries else []
-
-                start, end = i, i + batch_size
-
-                result = self.session.run(
-                    [self.reachability.loss, self.train_reachability] + summaries,
-                    feed_dict={
-                        self.reachability.ph_obs_first: obs_first[start:end],
-                        self.reachability.ph_obs_second: obs_second[start:end],
-                        self.reachability.ph_labels: labels[start:end],
-                    }
-                )
-
-                reach_step += 1
-                self._maybe_save(reach_step, env_steps)
-                losses.append(result[0])
-
-                if with_summaries:
-                    summary = result[-1]
-                    self.summary_writer.add_summary(summary, global_step=env_steps)
-
-            # check loss improvement at the end of each epoch, early stop if necessary
-            avg_loss = np.mean(losses)
-            if avg_loss >= prev_loss:
-                log.info('Early stopping after %d epochs because reachability did not improve', epoch + 1)
-                log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
-                break
-            prev_loss = avg_loss
-
     def _maybe_train_locomotion(self, data, env_steps):
         if not data.has_enough_data():
             return
@@ -1384,7 +1305,6 @@ class AgentTMAX(AgentLearner):
         buffer = TmaxPPOBuffer()
 
         trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)  # separate buffer for complete episode trajectories
-        reachability_buffer = ReachabilityBuffer(self.params)
         locomotion_buffer = LocomotionBuffer(self.params)
 
         tmax_mgr = self.tmax_mgr

@@ -5,7 +5,7 @@ import numpy as np
 
 from algorithms.agent import AgentRandom
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
-from algorithms.tmax.topological_map import hash_observation
+from algorithms.topological_maps.topological_map import hash_observation
 from utils.envs.doom.doom_utils import doom_env_by_name, make_doom_env
 from utils.utils import log
 

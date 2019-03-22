@@ -329,8 +329,8 @@ class AgentPPO(AgentLearner):
             critic_scalar('value_loss', obj.value_loss)
             critic_scalar('critic_training_steps', self.critic_step)
 
-    def _maybe_print(self, step, avg_rewards, avg_length, fps, t):
-        log.info('<====== Step %d ======>', step)
+    def _maybe_print(self, step, env_step, avg_rewards, avg_length, fps, t):
+        log.info('<====== Step %d, env step %.2fM ======>', step, env_step / 1e6)
         log.info('Avg FPS: %.1f', fps)
         log.info('Timing: %s', t)
 
@@ -503,7 +503,7 @@ class AgentPPO(AgentLearner):
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)
             fps = num_steps / (time.time() - batch_start)
 
-            self._maybe_print(step, avg_reward, avg_length, fps, timing)
+            self._maybe_print(step, env_steps, avg_reward, avg_length, fps, timing)
             self._maybe_aux_summaries(env_steps, avg_reward, avg_length)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
 

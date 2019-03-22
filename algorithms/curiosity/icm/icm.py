@@ -2,13 +2,14 @@ from functools import partial
 
 import tensorflow as tf
 
+from algorithms.curiosity.curiosity_module import CuriosityModule
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import main_observation_space
 from algorithms.tf_utils import dense, merge_summaries
 from utils.utils import log, AttrDict
 
 
-class IntrinsicCuriosityModule:
+class IntrinsicCuriosityModule(CuriosityModule):
     """Prediction-based intrinsic curiosity."""
 
     def __init__(self, env, ph_obs, ph_next_obs, ph_actions, forward_fc=256, params=None):
@@ -97,7 +98,7 @@ class IntrinsicCuriosityModule:
             cm_scalar('curiosity_inverse_loss', obj.inverse_loss)
             cm_scalar('curiosity_module_loss', obj.loss)
 
-    def generate_bonus_rewards(self, session, observations, next_obs, actions, dones):
+    def generate_bonus_rewards(self, session, observations, next_obs, actions, dones, infos):
         bonuses = session.run(
             self.prediction_curiosity_bonus,
             feed_dict={
@@ -139,3 +140,10 @@ class IntrinsicCuriosityModule:
             if with_summaries:
                 summary = result[1]
                 agent.summary_writer.add_summary(summary, global_step=env_steps)
+
+    def set_trajectory_buffer(self, trajectory_buffer):
+        """Don't need full trajectories in ICM."""
+        pass
+
+    def is_initialized(self):
+        return True

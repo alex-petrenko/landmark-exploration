@@ -20,7 +20,7 @@ class ReachabilityNetwork:
     def __init__(self, env, params):
         obs_space = main_observation_space(env)
         self.ph_obs_first, self.ph_obs_second = placeholders_from_spaces(obs_space, obs_space)
-        self.ph_labels = tf.placeholder(dtype=tf.int32, shape=(None, ))
+        self.ph_labels = tf.placeholder(dtype=tf.int32, shape=(None,))
 
         with tf.variable_scope('reach') as scope:
             reg = tf.contrib.layers.l2_regularizer(scale=1e-5)
@@ -32,7 +32,11 @@ class ReachabilityNetwork:
 
             obs_first_enc = encoder(self.ph_obs_first)
             obs_second_enc = encoder(self.ph_obs_second)
-            observations_encoded = tf.concat([obs_first_enc.encoded_input, obs_second_enc.encoded_input], axis=1)
+
+            self.first_encoded = obs_first_enc.encoded_input
+            self.second_encoded = obs_second_enc.encoded_input
+
+            observations_encoded = tf.concat([self.first_encoded, self.second_encoded], axis=1)
 
             fc_layers = [256, 256]
             x = observations_encoded
@@ -53,16 +57,24 @@ class ReachabilityNetwork:
 
             self.loss = self.reach_loss + self.reg_loss
 
-    def get_probabilities(self, session, obs_first, obs_second):
+            # helpers to encode observations (saves time)
+            # does not matter if we use first vs second here
+            self.ph_obs = self.ph_obs_first
+            self.encoded_observation = self.first_encoded
+
+    def get_probabilities(self, session, obs_first_encoded, obs_second_encoded):
         probabilities = session.run(
             self.probabilities,
-            feed_dict={self.ph_obs_first: obs_first, self.ph_obs_second: obs_second},
+            feed_dict={self.first_encoded: obs_first_encoded, self.second_encoded: obs_second_encoded},
         )
         return probabilities
 
-    def distances(self, session, obs_first, obs_second):
-        probs = self.get_probabilities(session, obs_first, obs_second)
+    def distances(self, session, obs_first_encoded, obs_second_encoded):
+        probs = self.get_probabilities(session, obs_first_encoded, obs_second_encoded)
         return [p[1] for p in probs]
+
+    def encode_observation(self, session, obs):
+        return session.run(self.encoded_observation, feed_dict={self.ph_obs: obs})
 
 
 class ReachabilityBuffer:
@@ -82,6 +94,8 @@ class ReachabilityBuffer:
 
         close, far = self.params.reachable_threshold, self.params.unreachable_threshold
 
+        num_close, num_far = 0, 0
+
         with timing.timeit('trajectories'):
             data = Buffer()
             for trajectory in trajectories:
@@ -100,11 +114,13 @@ class ReachabilityBuffer:
                     # sample close observation pair
                     second_idx = np.random.randint(i, close_i)
                     data.add(obs_first=obs[i], obs_second=obs[second_idx], labels=0)
+                    num_close += 1
 
                     # sample far observation pair
                     if far_i < len(trajectory):
                         second_idx = np.random.randint(far_i, len(trajectory))
                         data.add(obs_first=obs[i], obs_second=obs[second_idx], labels=1)
+                        num_far += 1
 
         with timing.timeit('add_and_shuffle'):
             if len(data) > 0:
@@ -117,7 +133,7 @@ class ReachabilityBuffer:
                 self._visualize_data()
 
         self.batch_num += 1
-        log.info('Reachability timing %s', timing)
+        log.info('num close %d, num far %d, reachability timing %s', num_close, num_far, timing)
 
     def has_enough_data(self):
         len_data, min_data = len(self.buffer), self.params.reachability_target_buffer_size // 40

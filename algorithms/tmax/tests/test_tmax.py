@@ -10,10 +10,10 @@ from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.enjoy_tmax import enjoy
 from algorithms.tmax.locomotion import LocomotionNetwork
-from algorithms.tmax.reachability import ReachabilityNetwork
+from algorithms.curiosity.reachability_curiosity.reachability import ReachabilityNetwork
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.tmax.train_tmax import train
-from algorithms.tmax.trajectory import TrajectoryBuffer
+from algorithms.trajectory import TrajectoryBuffer
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
 from utils.utils import experiments_dir, ensure_dir_exists
 
