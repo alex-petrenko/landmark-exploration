@@ -34,7 +34,7 @@ class AgentCuriousPPO(AgentPPO):
         def __init__(self, experiment_name):
             super(AgentCuriousPPO.Params, self).__init__(experiment_name)
 
-            self.curiosity_type = 'icm'
+            self.curiosity_type = 'icm'  # icm or reachability
 
             # icm parameters
             self.cm_beta = 0.5
@@ -47,7 +47,7 @@ class AgentCuriousPPO(AgentPPO):
             self.reachable_threshold = 8  # num. of frames between obs, such that one is reachable from the other
             self.unreachable_threshold = 24  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 100000  # target number of training examples to store
-            self.reachability_train_epochs = 8
+            self.reachability_train_epochs = 10
             self.reachability_batch_size = 128
             self.reachability_bootstrap = 1000000
             self.reachability_train_interval = 500000
@@ -155,3 +155,5 @@ class AgentCuriousPPO(AgentPPO):
             self._maybe_print(step, env_steps, avg_reward, avg_length, fps, timing)
             self._maybe_aux_summaries(env_steps, avg_reward, avg_length)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
+
+            trajectory_buffer.reset_trajectories()
