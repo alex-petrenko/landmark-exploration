@@ -338,7 +338,7 @@ class TmaxManager:
 
         locomotion_goal_idx = m.curr_landmark_idx
 
-        if goal is not None:
+        if goal is not None and self.params.use_locomotion:
             # find reachable landmark that is closest to goal image according to distance metric
             reachable_indices = m.reachable_indices(m.curr_landmark_idx)
             reachable_landmarks, goal_obs = [], []
@@ -369,6 +369,7 @@ class TmaxManager:
 
         assert self.mode[env_i] is not None
         if self.mode[env_i] == TmaxMode.LOCOMOTION:
+            assert not self.params.use_locomotion
             assert self.locomotion_prev[env_i] is not None
             assert self.locomotion_targets[env_i] is not None
             assert self.locomotion_final_targets[env_i] is not None
@@ -706,6 +707,7 @@ class AgentTMAX(AgentLearner):
             self.locomotion_train_epochs = 1
             self.locomotion_batch_size = 256
             self.rl_locomotion = True
+            self.use_locomotion = False
 
             self.bootstrap_env_steps = 1000 * 1000
 
@@ -1004,8 +1006,6 @@ class AgentTMAX(AgentLearner):
                 achieved_goal.popleft()
             locomotion_avg_success = sum(achieved_goal) / len(achieved_goal)
             summary_obj.value.add(tag='locomotion/avg_success', simple_value=float(locomotion_avg_success))
-        else:
-            log.info('Len achieved_goal is %d', len(achieved_goal))
 
         self.summary_writer.add_summary(summary_obj, env_steps)
 
@@ -1426,7 +1426,9 @@ class AgentTMAX(AgentLearner):
 
             # calculate discounted returns and GAE
             buffer.finalize_batch(self.params.gamma, self.params.gae_lambda)
-            loco_buffer, buffer = buffer.split_by_mask()
+
+            if self.params.use_locomotion:
+                loco_buffer, buffer = buffer.split_by_mask()
 
             traj_len, traj_nbytes = trajectory_buffer.obs_size()
             log.info('Len trajectories %d size %.1fM', traj_len, traj_nbytes / 1e6)
@@ -1449,22 +1451,23 @@ class AgentTMAX(AgentLearner):
                 self._maybe_train_reachability(reachability_buffer, env_steps)
 
             # update locomotion net
-            with timing.timeit('locomotion'):
-                if self.params.rl_locomotion:
-                    if not is_bootstrap:
-                        self._train_actor(
-                            loco_buffer, env_steps,
-                            self.loco_objectives, self.loco_actor_critic, self.train_loco_actor,
-                            self.loco_actor_step, self.loco_actor_summaries,
-                        )
-                        self._train_critic(
-                            loco_buffer, env_steps,
-                            self.loco_objectives, self.loco_actor_critic, self.train_loco_critic,
-                            self.loco_critic_step, self.loco_critic_summaries,
-                        )
-                else:
-                    locomotion_buffer.extract_data(trajectory_buffer.complete_trajectories)
-                    self._maybe_train_locomotion(locomotion_buffer, env_steps)
+            if self.params.use_locomotion:
+                with timing.timeit('locomotion'):
+                    if self.params.rl_locomotion:
+                        if not is_bootstrap:
+                            self._train_actor(
+                                loco_buffer, env_steps,
+                                self.loco_objectives, self.loco_actor_critic, self.train_loco_actor,
+                                self.loco_actor_step, self.loco_actor_summaries,
+                            )
+                            self._train_critic(
+                                loco_buffer, env_steps,
+                                self.loco_objectives, self.loco_actor_critic, self.train_loco_critic,
+                                self.loco_critic_step, self.loco_critic_summaries,
+                            )
+                    else:
+                        locomotion_buffer.extract_data(trajectory_buffer.complete_trajectories)
+                        self._maybe_train_locomotion(locomotion_buffer, env_steps)
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)

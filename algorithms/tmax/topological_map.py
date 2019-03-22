@@ -158,7 +158,6 @@ class TopologicalMap:
                     remove.append((i, j))
 
         if len(remove) > 0:
-            log.info('Prune: removing edges %r', remove)
             for i1, i2 in remove:
                 self.remove_edge(i1, i2)
 
@@ -174,8 +173,6 @@ class TopologicalMap:
                 index_map[i] = i - len(vertices_to_remove)
 
         if len(vertices_to_remove) > 0:
-            log.debug('Removing vertices %r', vertices_to_remove)
-
             edges_to_remove = []
             for i, adj in enumerate(self.adjacency):
                 for j in adj:
@@ -249,14 +246,12 @@ class TopologicalMap:
 
             pos = self.positions[i]
             if pos is not None:
-                graph.add_node(i, pos=(pos[0], pos[1]))
+                graph.add_node(i, pos=(pos['agent_x'], pos['agent_y']))
         for u, edges in enumerate(self.adjacency):
             for v in edges:
                 graph.add_edge(u, v)
 
-        graph.nodes(data=True)
-
-        # labels = {i: str(i) for i in range(len(self.landmarks))}
-        # graph = nx.relabel_nodes(graph, labels)
+        labels = {i: str(i) for i in range(len(self.landmarks))}
+        graph = nx.relabel_nodes(graph, labels)
 
         return graph
