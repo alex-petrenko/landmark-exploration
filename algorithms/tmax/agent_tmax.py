@@ -548,44 +548,49 @@ class TmaxManager:
 
         return bonuses, locomotion_reward, locomotion_done
 
-    def update(self, obs, goals, dones, infos, is_bootstrap=False, verbose=False):
+    def update(self, obs, goals, dones, infos, is_bootstrap=False, timing=None, verbose=False):
         """Omnipotent function for the management of topological maps and policy modes, as well as localization."""
         self._verbose = verbose
         self._is_bootstrap = is_bootstrap
+        if timing is None:
+            timing = Timing()
 
         done_flags = np.zeros([self.num_envs], dtype=bool)
 
         assert len(obs) == len(self.maps)
         num_envs = len(self.maps)
 
-        for env_i, m in enumerate(self.maps):
-            self.samples_per_mode[self.mode[env_i]] += 1
+        with timing.add_time('tmax_step'):
+            for env_i, m in enumerate(self.maps):
+                self.samples_per_mode[self.mode[env_i]] += 1
 
-            if is_bootstrap:
-                self.need_reset[env_i] = True
+                if is_bootstrap:
+                    self.need_reset[env_i] = True
 
-            if self.mode[env_i] == TmaxMode.LOCOMOTION:
-                if self.episode_frames[env_i] - self.last_locomotion_success[env_i] > 300 or dones[env_i]:
-                    # we're not making progress towards the final goal, let's switch to exploration
-                    self.mode[env_i] = TmaxMode.EXPLORATION
-                    self.locomotion_achieved_goal.append(0)
-                    m.update_edge_traversal(self.locomotion_prev[env_i], self.locomotion_targets[env_i], 0)
-                    self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
-                    done_flags[env_i] = True
-                    log.info('Locomotion unsuccessful, switch to exploration')
+                if self.mode[env_i] == TmaxMode.LOCOMOTION:
+                    if self.episode_frames[env_i] - self.last_locomotion_success[env_i] > 300 or dones[env_i]:
+                        # we're not making progress towards the final goal, let's switch to exploration
+                        self.mode[env_i] = TmaxMode.EXPLORATION
+                        self.locomotion_achieved_goal.append(0)
+                        m.update_edge_traversal(self.locomotion_prev[env_i], self.locomotion_targets[env_i], 0)
+                        self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
+                        done_flags[env_i] = True
+                        log.info('Locomotion unsuccessful, switch to exploration')
 
-            if dones[env_i]:
-                env_goal = None if goals is None else goals[env_i]
-                self._new_episode(env_i, obs[env_i], infos[env_i], env_goal)
-            else:
-                self.episode_frames[env_i] += 1
+                if dones[env_i]:
+                    env_goal = None if goals is None else goals[env_i]
+                    self._new_episode(env_i, obs[env_i], infos[env_i], env_goal)
+                else:
+                    self.episode_frames[env_i] += 1
 
         if is_bootstrap:
             # don't bother updating the graph when the reachability net isn't trained yet
             return np.zeros([num_envs]), np.zeros([num_envs]), done_flags
 
-        _, locomotion_rewards, locomotion_done = self._localize(obs, infos, self.maps, persistent_map=True)
-        bonuses, _, _ = self._localize(obs, infos, self.episodic_maps, persistent_map=False)
+        with timing.add_time('tmax_persist'):
+            _, locomotion_rewards, locomotion_done = self._localize(obs, infos, self.maps, persistent_map=True)
+        with timing.add_time('tmax_episodic'):
+            bonuses, _, _ = self._localize(obs, infos, self.episodic_maps, persistent_map=False)
         self.total_episode_bonus += bonuses
 
         done_flags = np.logical_or(done_flags, locomotion_done)
@@ -1392,18 +1397,24 @@ class AgentTMAX(AgentLearner):
                 is_bootstrap = self._is_bootstrap(env_steps)
                 for rollout_step in range(self.params.rollout):
                     neighbors, num_neigh = self.tmax_mgr.get_neighbors()
-                    actions, action_probs, values, masks = self.policy_step(
-                        observations, goals, neighbors, num_neigh, is_bootstrap,
-                    )
+
+                    with timing.add_time('policy'):
+                        actions, action_probs, values, masks = self.policy_step(
+                            observations, goals, neighbors, num_neigh, is_bootstrap,
+                        )
 
                     # wait for all the workers to complete an environment step
-                    env_obs, rewards, dones, infos = multi_env.step(actions)
+                    with timing.add_time('env_step'):
+                        env_obs, rewards, dones, infos = multi_env.step(actions)
+
                     new_observations, new_goals = main_observation(env_obs), goal_observation(env_obs)
 
                     trajectory_buffer.add(observations, actions, dones, tmax_mgr)
-                    bonuses, loco_rewards, done_flags = tmax_mgr.update(
-                        new_observations, new_goals, dones, infos, is_bootstrap,
-                    )
+
+                    with timing.add_time('tmax'):
+                        bonuses, loco_rewards, done_flags = tmax_mgr.update(
+                            new_observations, new_goals, dones, infos, is_bootstrap, timing,
+                        )
                     rewards, dones = tmax_mgr.combine_rewards_and_dones(
                         rewards, dones, bonuses, loco_rewards, done_flags,
                     )
