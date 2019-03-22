@@ -393,7 +393,10 @@ class TmaxManager:
             all_distances[env_i] = distances[i]
         return all_distances
 
-    def _localize(self, obs, info, maps, persistent_map):
+    def _localize(self, obs, info, maps, persistent_map, timing=None):
+        if timing is None:
+            timing = Timing()
+
         bonuses = np.zeros([self.num_envs])
         locomotion_reward = np.zeros([self.num_envs])
         locomotion_done = np.zeros([self.num_envs], dtype=bool)
@@ -410,8 +413,9 @@ class TmaxManager:
 
         assert len(neighborhood_obs) == len(current_obs)
 
-        # calculate reachability for all neighborhoods in all envs
-        distances = self.agent.reachability.distances(self.agent.session, neighborhood_obs, current_obs)
+        with timing.add_time('tmax_neighbor_dist'):
+            # calculate reachability for all neighborhoods in all envs
+            distances = self.agent.reachability.distances(self.agent.session, neighborhood_obs, current_obs)
 
         dist_to_target = self._distance_to_locomotion_targets(obs)
 
@@ -485,15 +489,16 @@ class TmaxManager:
 
         assert len(non_neighborhood_obs) == len(current_obs)
 
-        # calculate reachability for all non-neighbors
-        distances = []
-        batch_size = 1024
-        for i in range(0, len(non_neighborhood_obs), batch_size):
-            start, end = i, i + batch_size
-            distances_batch = self.agent.reachability.distances(
-                self.agent.session, non_neighborhood_obs[start:end], current_obs[start:end],
-            )
-            distances.extend(distances_batch)
+        with timing.add_time('tmax_non_neigh'):
+            # calculate reachability for all non-neighbors
+            distances = []
+            batch_size = 1024
+            for i in range(0, len(non_neighborhood_obs), batch_size):
+                start, end = i, i + batch_size
+                distances_batch = self.agent.reachability.distances(
+                    self.agent.session, non_neighborhood_obs[start:end], current_obs[start:end],
+                )
+                distances.extend(distances_batch)
 
         j = 0
         for env_i in new_landmark_candidates:
@@ -588,7 +593,9 @@ class TmaxManager:
             return np.zeros([num_envs]), np.zeros([num_envs]), done_flags
 
         with timing.add_time('tmax_persist'):
-            _, locomotion_rewards, locomotion_done = self._localize(obs, infos, self.maps, persistent_map=True)
+            _, locomotion_rewards, locomotion_done = self._localize(
+                obs, infos, self.maps, persistent_map=True, timing=timing,
+            )
         with timing.add_time('tmax_episodic'):
             bonuses, _, _ = self._localize(obs, infos, self.episodic_maps, persistent_map=False)
         self.total_episode_bonus += bonuses
