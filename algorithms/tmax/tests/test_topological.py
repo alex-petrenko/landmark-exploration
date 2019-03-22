@@ -111,14 +111,14 @@ class TestGraph(TestCase):
         for v in m.neighbors(0):
             m.graph.remove_edge(0, v)
 
-        for i, adj in m.graph.edges():
-            if i > m.num_edges() - 3:
+        for i in range(m.num_landmarks()):
+            if i > m.num_landmarks() - 3:
                 continue
 
             if random.random() < 0.9:
                 for j in range(random.randint(1, 3)):
-                    rand = random.randint(0, m.num_edges() - 1)
-                    if rand != 0 and rand != i and rand not in adj:
+                    rand = random.randint(0, m.num_landmarks())
+                    if rand != 0 and rand != i:
                         m._add_edge(i, rand)
 
         shortest = nx.shortest_path(m.graph, 0)
@@ -155,12 +155,18 @@ class TestGraph(TestCase):
         new_graph = nx.relabel_nodes(graph, relabeling)
 
         figure = plot_graph(new_graph, layout='kamada_kawai', node_size=400)
-        from matplotlib import pyplot as plt
-        plt.show()
+
+        show = False
+        if show:
+            from matplotlib import pyplot as plt
+            plt.show()
+
         figure.clear()
 
     def test_plot_coordinates(self):
-        m = TopologicalMap(np.array(0), directed_graph=True, initial_info={'pos': {'agent_x': 300, 'agent_y': 400, 'agent_a': 0}})
+        m = TopologicalMap(
+            np.array(0), directed_graph=True, initial_info={'pos': {'agent_x': 300, 'agent_y': 400, 'agent_a': 0}},
+        )
 
         for i in range(1, 4):
             for j in range(1, 4):
@@ -168,6 +174,10 @@ class TestGraph(TestCase):
 
         graph = m.labeled_graph
         figure = plot_graph(graph, layout='pos')
-        from matplotlib import pyplot as plt
-        plt.show()
+
+        show = False
+        if show:
+            from matplotlib import pyplot as plt
+            plt.show()
+
         figure.clear()

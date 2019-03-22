@@ -63,6 +63,13 @@ class _MultiEnvWorker:
 
         log.info('Worker %s terminated!', list_to_string(self.env_indices))
 
+    @staticmethod
+    def _get_info(env):
+        info = {}
+        if hasattr(env.unwrapped, 'get_info'):
+            info = env.unwrapped.get_info()  # info for the new episode
+        return info
+
     def start(self):
         real_envs = []
         imagined_envs = None
@@ -119,7 +126,7 @@ class _MultiEnvWorker:
             if msg_type == MsgType.RESET:
                 results = [env.reset() for env in envs]
             elif msg_type == MsgType.INFO:
-                results = [env.unwrapped.get_info() for env in envs]
+                results = [self._get_info(env) for env in envs]
             else:
                 assert len(envs) == len(actions)
 
@@ -139,9 +146,7 @@ class _MultiEnvWorker:
                         obs, reward, done, info = result[0]
                         if done:
                             obs = real_envs[i].reset()
-                            info = {}
-                            if hasattr(real_envs[i].unwrapped, 'get_info'):
-                                info = real_envs[i].unwrapped.get_info()  # info for the new episode
+                            info = self._get_info(real_envs[i])  # info for the new episode
 
                         results[i] = (obs, reward, done, info)  # collapse dimension of size 1
 

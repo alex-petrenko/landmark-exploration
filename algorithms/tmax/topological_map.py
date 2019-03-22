@@ -17,14 +17,17 @@ def get_position(info):
     pos = None
     if info is not None:
         pos = info.get('pos')
-        pos = (pos['agent_x'], pos['agent_y'])
+        if pos is not None:
+            pos = (pos['agent_x'], pos['agent_y'])
     return pos
 
 
 def get_angle(info):
     angle = None
     if info is not None:
-        angle = info.get('pos')['agent_a']
+        pos = info.get('pos')
+        if pos is not None:
+            angle = pos['agent_a']
     return angle
 
 
@@ -71,11 +74,13 @@ class TopologicalMap:
     def curr_landmark_obs(self):
         return self.get_observation(self.curr_landmark_idx)
 
+    # noinspection PyUnresolvedReferences
     def get_observation(self, landmark_idx):
-        return nx.get_node_attributes(self.graph, 'obs')[landmark_idx]
+        return self.graph.node[landmark_idx]['obs']
 
+    # noinspection PyUnresolvedReferences
     def get_hashes(self, landmark_idx):
-        return nx.get_node_attributes(self.graph, 'hash')[landmark_idx]
+        return self.graph.node[landmark_idx]['hash']
 
     def neighbors(self, landmark_idx):
         return list(nx.neighbors(self.graph, landmark_idx))
@@ -109,7 +114,9 @@ class TopologicalMap:
 
     def add_landmark(self, obs, info=None):
         new_landmark_idx = self.graph.number_of_nodes()
-        self.graph.add_node(new_landmark_idx, obs=obs, hash=hash_observation(obs), pos=get_position(info), angle=get_angle(info))
+        self.graph.add_node(
+            new_landmark_idx, obs=obs, hash=hash_observation(obs), pos=get_position(info), angle=get_angle(info),
+        )
 
         self._add_edge(self.curr_landmark_idx, new_landmark_idx)
         self._log_verbose('Added new landmark %d', new_landmark_idx)
@@ -151,6 +158,7 @@ class TopologicalMap:
         self.graph.remove_nodes_from(remove_list)
 
     def get_path(self, from_idx, to_idx):
+        # noinspection PyUnusedLocal
         def edge_weight(i1, i2, d):
             return -math.log(d['success'])
 

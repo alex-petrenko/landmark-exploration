@@ -6,6 +6,7 @@ import cv2
 from pynput.keyboard import Key, Listener, KeyCode
 
 from algorithms.algo_utils import main_observation, goal_observation
+from algorithms.env_wrappers import reset_with_info
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from utils.envs.atari import atari_utils
@@ -85,8 +86,8 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
         return max_num_frames is not None and frames > max_num_frames
 
     for _ in range(max_num_episodes):
-        env_obs, done = env.reset(), False
-        info = env.unwrapped.get_info()
+        env_obs, info = reset_with_info(env)
+        done = False
 
         current_landmark = env_obs
         obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)

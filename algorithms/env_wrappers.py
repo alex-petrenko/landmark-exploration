@@ -14,6 +14,15 @@ from gym import spaces, RewardWrapper, ObservationWrapper
 from utils.utils import numpy_all_the_way
 
 
+def reset_with_info(env):
+    """Sometimes we want to get info with the very first frame."""
+    obs = env.reset()
+    info = {}
+    if hasattr(env.unwrapped, 'get_info'):
+        info = env.unwrapped.get_info()  # info for the new episode
+    return obs, info
+
+
 def unwrap_env(wrapped_env):
     return wrapped_env.unwrapped
 

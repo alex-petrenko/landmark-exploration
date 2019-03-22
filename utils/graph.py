@@ -21,6 +21,13 @@ def parse_layout(nx_graph, layout):
 
 
 def plot_graph(nx_graph, layout, node_size=80):
+    if layout == 'pos':
+        for node_name in nx_graph.nodes:
+            pos = nx_graph.node[node_name].get('pos')
+            if pos is None:
+                layout = 'kamada_kawai'
+                break
+
     pos = parse_layout(nx_graph, layout)
 
     figure = plt.gcf()

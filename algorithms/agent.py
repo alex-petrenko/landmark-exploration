@@ -77,7 +77,7 @@ class AgentLearner(Agent):
 
         tf.reset_default_graph()
 
-        self.summary_rate_decay = LinearDecay([(0, 100), (1000000, 500), (10000000, 2000)], staircase=100)
+        self.summary_rate_decay = LinearDecay([(0, 100), (1000000, 2000), (10000000, 10000)], staircase=100)
         self.save_rate_decay = LinearDecay([(0, self.params.initial_save_rate), (1000000, 2000)], staircase=100)
 
         self.initial_best_avg_reward = tf.constant(-1e3)
