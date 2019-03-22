@@ -8,14 +8,20 @@ from matplotlib import pyplot as plt
 from utils.utils import ensure_dir_exists
 
 
-def plot_graph(nx_graph, layout, node_size=80):
-    pos = None
+def parse_layout(nx_graph, layout):
     if layout == 'pos':
         pos = nx.get_node_attributes(nx_graph, 'pos')
     elif layout == 'fruchterman_reingold':
         pos = nx.fruchterman_reingold_layout(nx_graph)
     elif layout == 'kamada_kawai':
         pos = nx.kamada_kawai_layout(nx_graph)
+    else:
+        raise Exception('Unknown graph layout: ' + layout)
+    return pos
+
+
+def plot_graph(nx_graph, layout, node_size=80):
+    pos = parse_layout(nx_graph, layout)
 
     figure = plt.gcf()
     figure.clear()
@@ -40,11 +46,11 @@ def visualize_graph_tensorboard(nx_graph, tag, layout='pos'):
     return summary
 
 
-def visualize_graph_html(graph, output_dir=None, title_text='', layout='kamada_kawai', should_show=False):
+def visualize_graph_html(nx_graph, output_dir=None, title_text='', layout='kamada_kawai', should_show=False):
     """
     This method visualizes a NetworkX graph using Bokeh.
 
-    :param graph: NetworkX graph with node attributes containing image filenames.
+    :param nx_graph: NetworkX graph with node attributes containing image filenames.
     :param output_dir: Optional output directory for saving html.
     :param title_text: String to be displayed above the visualization.
     :param layout: Which layout function to use.
@@ -56,12 +62,7 @@ def visualize_graph_html(graph, output_dir=None, title_text='', layout='kamada_k
     # noinspection PyProtectedMember
     from bokeh.models.graphs import from_networkx, NodesAndLinkedEdges, NodesOnly
 
-    if layout == 'pos':
-        pos = nx.get_node_attributes(graph, 'pos')
-    elif layout == 'fruchterman_reingold':
-        pos = nx.fruchterman_reingold_layout(graph)
-    elif layout == 'kamada_kawai':
-        pos = nx.kamada_kawai_layout(graph)
+    pos = parse_layout(nx_graph, layout)
 
     hover_tool = HoverTool(tooltips='<img src="@imgs" height="200" alt="@imgs" width="200"></img>', show_arrow=False)
 
@@ -76,9 +77,9 @@ def visualize_graph_html(graph, output_dir=None, title_text='', layout='kamada_k
     plot.toolbar.logo = None
     plot.toolbar_location = None
 
-    graph_renderer = from_networkx(graph, pos)
+    graph_renderer = from_networkx(nx_graph, pos)
 
-    graph_renderer.node_renderer.data_source.data['imgs'] = [n[1]['img'] for n in graph.nodes(data=True)]
+    graph_renderer.node_renderer.data_source.data['imgs'] = [n[1]['img'] for n in nx_graph.nodes(data=True)]
 
     graph_renderer.node_renderer.glyph = Circle(size=10, fill_color=palettes.Spectral4[0], line_color=None)
     graph_renderer.node_renderer.selection_glyph = Circle(size=10, fill_color=palettes.Spectral4[2], line_color=None)
