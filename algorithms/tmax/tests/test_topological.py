@@ -145,7 +145,7 @@ class TestGraph(TestCase):
         for i, s in enumerate(shortest):
             if i != 0:
                 for c in ascii_lowercase:
-                    new_s = str(s) + c
+                    new_s = f'{s:.2f}' + c
                     if new_s not in relabeling.values():
                         relabeling[i] = new_s
                         break
@@ -155,9 +155,9 @@ class TestGraph(TestCase):
         graph = m.to_nx_graph()
         new_graph = nx.relabel_nodes(graph, relabeling)
 
-        figure = plot_graph(new_graph, layout='kamada_kawai')
-        # from matplotlib import pyplot as plt
-        # plt.show()
+        figure = plot_graph(new_graph, layout='kamada_kawai', node_size=400)
+        from matplotlib import pyplot as plt
+        plt.show()
         figure.clear()
 
     def test_plot_coordinates(self):
@@ -169,6 +169,6 @@ class TestGraph(TestCase):
 
         graph = m.to_nx_graph()
         figure = plot_graph(graph, layout='pos')
-        # from matplotlib import pyplot as plt
-        # plt.show()
+        from matplotlib import pyplot as plt
+        plt.show()
         figure.clear()

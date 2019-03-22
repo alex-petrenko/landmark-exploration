@@ -147,11 +147,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
             obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
 
             if not done:
-<<<<<<< HEAD
-                bonus = agent.tmax_mgr.update([obs], [goal_obs], [done], [info], verbose=True)
-=======
-                bonus, _, _ = agent.tmax_mgr.update([obs], [goal_obs], [done], verbose=True)
->>>>>>> master
+                bonus, _, _ = agent.tmax_mgr.update([obs], [goal_obs], [done], [info], verbose=True)
                 bonus = bonus[0]
                 if bonus > 0:
                     log.info('Bonus %.3f received', bonus)

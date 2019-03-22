@@ -8,7 +8,7 @@ from matplotlib import pyplot as plt
 from utils.utils import ensure_dir_exists
 
 
-def plot_graph(nx_graph, layout):
+def plot_graph(nx_graph, layout, node_size=80):
     pos = None
     if layout == 'pos':
         pos = nx.get_node_attributes(nx_graph, 'pos')
@@ -20,7 +20,7 @@ def plot_graph(nx_graph, layout):
     figure = plt.gcf()
     figure.clear()
     nx.draw(
-        nx_graph, pos, node_size=80, node_color=list(range(len(nx_graph.nodes))), edge_color='#cccccc',
+        nx_graph, pos, node_size=node_size, node_color=list(range(len(nx_graph.nodes))), edge_color='#cccccc',
         cmap=plt.cm.get_cmap('plasma'), with_labels=True, font_color='#00ff00', font_size=7,
     )
     return figure

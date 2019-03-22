@@ -13,15 +13,14 @@ def hash_observation(o):
 
 
 def get_position(info):
-    pos = info.get('pos')
-    if pos is not None:
-        pos = [pos['agent_x'], pos['agent_y'], pos['agent_a']]
+    pos = None
+    if info is not None:
+        pos = info.get('pos')
     return pos
 
 
 class TopologicalMap:
-    def __init__(self, initial_obs, directed_graph, initial_info=None,
-            verbose=False):
+    def __init__(self, initial_obs, directed_graph, initial_info=None, verbose=False):
         self._verbose = verbose
         self._directed_graph = directed_graph
 
@@ -127,10 +126,8 @@ class TopologicalMap:
         self.landmarks.append(obs)
         self.hashes.append(hash_observation(obs))
 
-        if info:
-            agent_pos = get_position(info)
-            assert agent_pos is not None
-            self.positions.append(agent_pos)
+        agent_pos = get_position(info)
+        self.positions.append(agent_pos)
 
         self.adjacency.append([])
         self._add_edge(self.curr_landmark_idx, new_landmark_idx)
@@ -256,6 +253,8 @@ class TopologicalMap:
         for u, edges in enumerate(self.adjacency):
             for v in edges:
                 graph.add_edge(u, v)
+
+        graph.nodes(data=True)
 
         # labels = {i: str(i) for i in range(len(self.landmarks))}
         # graph = nx.relabel_nodes(graph, labels)
