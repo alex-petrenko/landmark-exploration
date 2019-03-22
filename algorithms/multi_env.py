@@ -21,7 +21,7 @@ def safe_get(q, timeout=1e6, msg='Queue timeout'):
 
 
 class MsgType(Enum):
-    INIT, TERMINATE, RESET, STEP_REAL, STEP_IMAGINED = range(5)
+    INIT, TERMINATE, RESET, STEP_REAL, STEP_IMAGINED, INFO = range(6)
 
 
 class _MultiEnvWorker:
@@ -89,6 +89,8 @@ class _MultiEnvWorker:
                     for imagined_env in imagined_envs:
                         imagined_env.close()
                 imagined_envs = None
+            elif msg_type == MsgType.INFO:
+                pass
             else:
 
                 if imagined_envs is None:
@@ -116,10 +118,12 @@ class _MultiEnvWorker:
 
             if msg_type == MsgType.RESET:
                 results = [env.reset() for env in envs]
+            elif msg_type == MsgType.INFO:
+                results = [env.unwrapped.get_info() for env in envs]
             else:
                 assert len(envs) == len(actions)
 
-                # Collect obs, reward, and 'done' for each env (discard info)
+                # Collect obs, reward, done, and info
                 prediction_start = time.time()
                 results = [env.step(action) for env, action in zip(envs, actions)]
 
@@ -135,6 +139,7 @@ class _MultiEnvWorker:
                         obs, reward, done, info = result[0]
                         if done:
                             obs = real_envs[i].reset()
+                            info = real_envs[i].unwrapped.get_info()  # info for the new episode
                         results[i] = (obs, reward, done, info)  # collapse dimension of size 1
 
             self.result_queue.put(results)
@@ -211,6 +216,10 @@ class MultiEnv:
             worker.result_queue.task_done()
 
         return results
+
+    def info(self):
+        infos = self.await_tasks(None, MsgType.INFO)
+        return infos
 
     def reset(self):
         observations = self.await_tasks(None, MsgType.RESET)

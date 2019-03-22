@@ -8,14 +8,26 @@ from matplotlib import pyplot as plt
 from utils.utils import ensure_dir_exists
 
 
-def visualize_graph_tensorboard(nx_graph, tag):
+def plot_graph(nx_graph, layout, node_size=80):
+    pos = None
+    if layout == 'pos':
+        pos = nx.get_node_attributes(nx_graph, 'pos')
+    elif layout == 'fruchterman_reingold':
+        pos = nx.fruchterman_reingold_layout(nx_graph)
+    elif layout == 'kamada_kawai':
+        pos = nx.kamada_kawai_layout(nx_graph)
+
     figure = plt.gcf()
     figure.clear()
     nx.draw(
-        nx_graph, nx.kamada_kawai_layout(nx_graph),
-        node_size=50, node_color=list(nx_graph.nodes), edge_color='#cccccc', cmap=plt.cm.get_cmap('plasma'),
+        nx_graph, pos, node_size=node_size, node_color=list(range(len(nx_graph.nodes))), edge_color='#cccccc',
+        cmap=plt.cm.get_cmap('plasma'), with_labels=True, font_color='#00ff00', font_size=7,
     )
+    return figure
 
+
+def visualize_graph_tensorboard(nx_graph, tag, layout='pos'):
+    figure = plot_graph(nx_graph, layout)
     w, h = figure.canvas.get_width_height()
 
     buffer = io.BytesIO()

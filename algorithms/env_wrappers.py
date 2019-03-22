@@ -110,7 +110,7 @@ class SkipFramesWrapper(gym.core.Wrapper):
 
     def step(self, action):
         done = False
-        info = {}
+        info = None
         new_observation = None
 
         total_reward, num_frames = 0, 0

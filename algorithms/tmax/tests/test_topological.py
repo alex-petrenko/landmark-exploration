@@ -3,12 +3,13 @@ import random
 from string import ascii_lowercase
 from unittest import TestCase
 
-import networkx as nx
 import numpy as np
+import networkx as nx
 
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tmax.topological_map import TopologicalMap
 from utils.envs.doom.doom_utils import doom_env_by_name, make_doom_env
+from utils.graph import plot_graph
 from utils.utils import log
 
 
@@ -96,6 +97,14 @@ class TestGraph(TestCase):
         log.debug('Path from 0 to 3 is %r', path)
         self.assertIs(path, None)
 
+        m._prune_vertices(chance=0.1)
+        m._prune_vertices(chance=0.2)
+        m._prune_vertices(chance=0.3)
+        m._prune_vertices(chance=0.4)
+
+        m._prune_vertices(chance=1.0)
+        self.assertEqual(len(m.landmarks), 1)
+
     def test_paths(self):
         m = TopologicalMap(np.array(0), directed_graph=True)
 
@@ -115,6 +124,7 @@ class TestGraph(TestCase):
                         m._add_edge(i, rand)
 
         shortest, _ = m.shortest_paths(0)
+        m._prune_vertices(chance=0.1)
         reachable = m.reachable_indices(0)
         self.assertGreaterEqual(len(reachable), 1)
         log.debug('Reachable vertices: %r', reachable)
@@ -135,7 +145,7 @@ class TestGraph(TestCase):
         for i, s in enumerate(shortest):
             if i != 0:
                 for c in ascii_lowercase:
-                    new_s = str(s) + c
+                    new_s = f'{s:.2f}' + c
                     if new_s not in relabeling.values():
                         relabeling[i] = new_s
                         break
@@ -145,15 +155,20 @@ class TestGraph(TestCase):
         graph = m.to_nx_graph()
         new_graph = nx.relabel_nodes(graph, relabeling)
 
+        figure = plot_graph(new_graph, layout='kamada_kawai', node_size=400)
         from matplotlib import pyplot as plt
-        figure = plt.gcf()
+        plt.show()
         figure.clear()
 
-        nx.draw(
-            new_graph, nx.kamada_kawai_layout(new_graph),
-            node_size=100, node_color=list(graph.nodes), edge_color='#cccccc', cmap=plt.cm.get_cmap('plasma'),
-            with_labels=True, font_color='#ffffff', font_size=7,
-        )
+    def test_plot_coordinates(self):
+        m = TopologicalMap(np.array(0), directed_graph=True, initial_info={'pos': [300, 400, 0]})
+
+        for i in range(1, 4):
+            for j in range(1, 4):
+                m.add_landmark(np.array(0), {'pos': [300 + i, 400 + j, 10]})
+
+        graph = m.to_nx_graph()
+        figure = plot_graph(graph, layout='pos')
+        from matplotlib import pyplot as plt
         plt.show()
-        figure = plt.gcf()
         figure.clear()
