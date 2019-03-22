@@ -18,11 +18,10 @@ class TestGraph(TestCase):
         env = make_doom_env(doom_env_by_name(TEST_ENV_NAME))
         initial_obs = env.reset()
 
-        m = TopologicalMap(initial_obs, directed_graph=True)
-        self.assertEqual(len(m.landmarks), 1)
-        self.assertEqual(len(m.adjacency), 1)
-        self.assertEqual(len(m.adjacency[m.curr_landmark_idx]), 0)
-        self.assertTrue(np.array_equal(initial_obs, m.curr_landmark))
+        m = TopologicalMap(initial_obs, True)
+        self.assertEqual(m.num_landmarks(), 1)
+        self.assertEqual(len(m.neighborhood()), 1)
+        self.assertTrue(np.array_equal(initial_obs, m.curr_landmark_obs))
 
         obs, _, _, _ = env.step(0)
         new_landmark_idx = m.add_landmark(obs)
@@ -30,14 +29,13 @@ class TestGraph(TestCase):
 
         m.set_curr_landmark(new_landmark_idx)
 
-        self.assertEqual(len(m.landmarks), 2)
-        self.assertEqual(len(m.adjacency), 2)
-        self.assertEqual(len(m.adjacency[m.curr_landmark_idx]), 0)  # directed edge
-        self.assertIn(1, m.adjacency[0])
-        self.assertTrue(np.array_equal(obs, m.curr_landmark))
+        self.assertEqual(m.num_landmarks(), 2)
+        self.assertEqual(m.num_edges(), 1)
+        self.assertTrue(m.graph.has_edge(0, 1))
+        self.assertTrue(np.array_equal(obs, m.curr_landmark_obs))
 
-        self.assertEqual(len(m.neighbor_indices()), 1)
-        self.assertEqual(len(m.non_neighbor_indices()), 1)
+        self.assertEqual(len(m.neighborhood()), 1)
+        self.assertEqual(len(m.curr_non_neighbors()), 1)
 
         self.assertEqual(sorted(m.reachable_indices(1)), [1])
         self.assertEqual(sorted(m.reachable_indices(0)), [0, 1])
@@ -49,9 +47,8 @@ class TestGraph(TestCase):
         m = TopologicalMap(np.array(0), directed_graph=False)
         for i in range(4):
             idx = m.add_landmark(np.array(0))
-            m.adjacency[idx] = []
 
-        m.adjacency[0] = []
+        m.graph.remove_edges_from(list(m.graph.edges))
 
         m._add_edge(0, 1)
         m._add_edge(0, 2)
@@ -82,7 +79,7 @@ class TestGraph(TestCase):
         log.debug('Path from 0 to 3 is %r', path)
         self.assertEqual(path, [0, 2, 3])
 
-        m.remove_edge(2, 3)
+        m._remove_edge(2, 3)
 
         path = m.get_path(0, 3)
         log.debug('Path from 0 to 3 is %r', path)
@@ -91,19 +88,19 @@ class TestGraph(TestCase):
         for i in range(5):
             m.update_edge_traversal(0, 1, 0)
 
-        m._prune(threshold=0.05)
+        m._prune_edges(threshold=0.05)
 
         path = m.get_path(0, 3)
         log.debug('Path from 0 to 3 is %r', path)
         self.assertIs(path, None)
 
-        m._prune_vertices(chance=0.1)
-        m._prune_vertices(chance=0.2)
-        m._prune_vertices(chance=0.3)
-        m._prune_vertices(chance=0.4)
+        m._prune_nodes(chance=0.1)
+        m._prune_nodes(chance=0.2)
+        m._prune_nodes(chance=0.3)
+        m._prune_nodes(chance=0.4)
 
-        m._prune_vertices(chance=1.0)
-        self.assertEqual(len(m.landmarks), 1)
+        m._prune_nodes(chance=1.0)
+        self.assertEqual(m.num_landmarks(), 1)
 
     def test_paths(self):
         m = TopologicalMap(np.array(0), directed_graph=True)
@@ -111,20 +108,22 @@ class TestGraph(TestCase):
         for i in range(20):
             m.add_landmark(np.array(0))
 
-        m.adjacency[0] = []
+        for v in m.neighbors(0):
+            m.graph.remove_edge(0, v)
 
-        for i, adj in enumerate(m.adjacency):
-            if i > len(m.adjacency) - 3:
+        for i, adj in m.graph.edges():
+            if i > m.num_edges() - 3:
                 continue
 
             if random.random() < 0.9:
                 for j in range(random.randint(1, 3)):
-                    rand = random.randint(0, len(m.adjacency) - 1)
+                    rand = random.randint(0, m.num_edges() - 1)
                     if rand != 0 and rand != i and rand not in adj:
                         m._add_edge(i, rand)
 
-        shortest, _ = m.shortest_paths(0)
-        m._prune_vertices(chance=0.1)
+        shortest = nx.shortest_path(m.graph, 0)
+        shortest = [len(path) for path in shortest.values()]
+        m._prune_nodes(chance=0.1)
         reachable = m.reachable_indices(0)
         self.assertGreaterEqual(len(reachable), 1)
         log.debug('Reachable vertices: %r', reachable)
@@ -152,7 +151,7 @@ class TestGraph(TestCase):
             else:
                 relabeling[i] = s
 
-        graph = m.to_nx_graph()
+        graph = m.get_nx_graph()
         new_graph = nx.relabel_nodes(graph, relabeling)
 
         figure = plot_graph(new_graph, layout='kamada_kawai', node_size=400)
@@ -161,13 +160,13 @@ class TestGraph(TestCase):
         figure.clear()
 
     def test_plot_coordinates(self):
-        m = TopologicalMap(np.array(0), directed_graph=True, initial_info={'pos': [300, 400, 0]})
+        m = TopologicalMap(np.array(0), directed_graph=True, initial_info={'pos': {'agent_x': 300, 'agent_y': 400, 'agent_a': 0}})
 
         for i in range(1, 4):
             for j in range(1, 4):
-                m.add_landmark(np.array(0), {'pos': [300 + i, 400 + j, 10]})
+                m.add_landmark(np.array(0), {'pos': {'agent_x': 300 + i, 'agent_y': 400 + j, 'agent_a': 10}})
 
-        graph = m.to_nx_graph()
+        graph = m.get_nx_graph()
         figure = plot_graph(graph, layout='pos')
         from matplotlib import pyplot as plt
         plt.show()

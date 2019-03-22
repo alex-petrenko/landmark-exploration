@@ -23,7 +23,7 @@ from algorithms.tmax.landmarks_encoder import LandmarksEncoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer
 from algorithms.tmax.reachability import ReachabilityNetwork, ReachabilityBuffer
 from algorithms.tmax.tmax_utils import TmaxMode
-from algorithms.tmax.topological_map import TopologicalMap, get_position
+from algorithms.tmax.topological_map import TopologicalMap
 from algorithms.tmax.trajectory import TrajectoryBuffer
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.graph import visualize_graph_tensorboard
@@ -305,7 +305,7 @@ class TmaxManager:
             assert self.mode[env_i] == TmaxMode.LOCOMOTION
             locomotion_target_idx = self.locomotion_targets[env_i]
             assert locomotion_target_idx is not None
-            target_obs = self.maps[env_i].landmarks[locomotion_target_idx]
+            target_obs = self.maps[env_i].get_observation(locomotion_target_idx)
             targets.append(target_obs)
 
         assert len(targets) == len(env_indices)
@@ -341,12 +341,12 @@ class TmaxManager:
         if goal is not None and self.params.use_locomotion:
             # find reachable landmark that is closest to goal image according to distance metric
             reachable_indices = m.reachable_indices(m.curr_landmark_idx)
-            reachable_landmarks, goal_obs = [], []
+            reachable_obs, goal_obs = [], []
             for reachable_idx in reachable_indices:
-                reachable_landmarks.append(m.landmarks[reachable_idx])
+                reachable_obs.append(m.get_observation(reachable_idx))
                 goal_obs.append(goal)
 
-            distances = self.agent.reachability.distances(self.agent.session, reachable_landmarks, goal_obs)
+            distances = self.agent.reachability.distances(self.agent.session, reachable_obs, goal_obs)
             min_d, min_d_idx = min_with_idx(distances)
 
             if min_d > self.params.new_landmark_threshold:
@@ -407,8 +407,8 @@ class TmaxManager:
         # create a batch of all neighborhood observations from all envs for fast processing on GPU
         neighborhood_obs, current_obs = [], []
         for env_i, m in enumerate(maps):
-            neighbor_indices = m.neighbor_indices()
-            neighborhood_obs.extend([m.landmarks[i] for i in neighbor_indices])
+            neighbor_indices = m.neighborhood()
+            neighborhood_obs.extend([m.get_observation(i) for i in neighbor_indices])
             current_obs.extend([obs[env_i]] * len(neighbor_indices))
 
         assert len(neighborhood_obs) == len(current_obs)
@@ -424,7 +424,7 @@ class TmaxManager:
 
         j = 0
         for env_i, m in enumerate(maps):
-            neighbor_indices = m.neighbor_indices()
+            neighbor_indices = m.neighborhood()
             j_next = j + len(neighbor_indices)
             distance = distances[j:j_next]
 
@@ -482,9 +482,9 @@ class TmaxManager:
         current_obs = []
         for env_i in new_landmark_candidates:
             m = maps[env_i]
-            non_neighbor_indices = m.non_neighbor_indices()
+            non_neighbor_indices = m.curr_non_neighbors()
             non_neighborhoods[env_i] = non_neighbor_indices
-            non_neighborhood_obs.extend([m.landmarks[i] for i in non_neighbor_indices])
+            non_neighborhood_obs.extend([m.get_observation(i) for i in non_neighbor_indices])
             current_obs.extend([obs[env_i]] * len(non_neighbor_indices))
 
         assert len(non_neighborhood_obs) == len(current_obs)
@@ -633,7 +633,7 @@ class TmaxManager:
         neighbor_landmarks, neighbor_hashes = [], []
 
         for env_idx, m in enumerate(maps):
-            n_indices = m.neighbor_indices()
+            n_indices = m.neighborhood()
             current_landmark_idx = n_indices[0]  # always keep the "current landmark"
             n_indices = n_indices[1:]
 
@@ -649,8 +649,8 @@ class TmaxManager:
                     )
                     break
 
-                neighbor_landmarks.append(m.landmarks[n_idx])
-                neighbor_hashes.append(m.hashes[n_idx])
+                neighbor_landmarks.append(m.get_observation(n_idx))
+                neighbor_hashes.append(m.get_hashes(n_idx))
                 landmark_env_idx.append((env_idx, i))
             num_neighbors[env_idx] = min(len(n_indices), self.params.max_neighborhood_size)
 
@@ -991,8 +991,8 @@ class AgentTMAX(AgentLearner):
     def _maybe_tmax_summaries(self, tmax_mgr, env_steps):
         maps = tmax_mgr.maps
 
-        num_landmarks = [len(m.landmarks) for m in maps]
-        num_neighbors = [len(m.neighbor_indices()) for m in maps]
+        num_landmarks = [m.num_landmarks() for m in maps]
+        num_neighbors = [len(m.neighborhood()) for m in maps]
         num_edges = [m.num_edges() for m in maps]
 
         avg_num_landmarks = sum(num_landmarks) / len(num_landmarks)
@@ -1022,15 +1022,15 @@ class AgentTMAX(AgentLearner):
         self.summary_writer.add_summary(summary_obj, env_steps)
 
         map_for_summary = random.choice(maps)
-        random_graph_summary = visualize_graph_tensorboard(map_for_summary.to_nx_graph(), tag='map/random_graph')
+        random_graph_summary = visualize_graph_tensorboard(map_for_summary.get_nx_graph(), tag='map/random_graph')
         self.summary_writer.add_summary(random_graph_summary, env_steps)
 
         max_graph_idx = 0
         for i, m in enumerate(maps):
-            if len(m.landmarks) > len(maps[max_graph_idx].landmarks):
+            if m.num_landmarks() > maps[max_graph_idx].num_landmarks():
                 max_graph_idx = i
 
-        max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].to_nx_graph(), tag='map/max_graph')
+        max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].get_nx_graph(), tag='map/max_graph')
         self.summary_writer.add_summary(max_graph_summary, env_steps)
 
         self.summary_writer.flush()
