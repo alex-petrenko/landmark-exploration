@@ -18,6 +18,20 @@ from utils.utils import log
 
 
 class ReachabilityCuriosityModule(CuriosityModule):
+    class Params:
+        def __init__(self):
+            self.reachable_threshold = 8  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 24  # num. of frames between obs, such that one is unreachable from the other
+            self.reachability_target_buffer_size = 100000  # target number of training examples to store
+            self.reachability_train_epochs = 10
+            self.reachability_batch_size = 128
+            self.reachability_bootstrap = 1000000
+            self.reachability_train_interval = 500000
+
+            self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
+            self.loop_closure_threshold = 0.7  # condition for graph loop closure (finding new edge)
+            self.map_expansion_reward = 0.2  # reward for finding new vertex
+
     def __init__(self, env, params):
         self.params = params
 
@@ -141,6 +155,7 @@ class ReachabilityCuriosityModule(CuriosityModule):
         if env_steps - self.last_trained > self.params.reachability_train_interval:
             if self.reachability_buffer.has_enough_data():
                 self._train_reachability(self.reachability_buffer, env_steps, agent)
+                self.reachability_buffer.reset()  # discard old experience
 
         if env_steps > self.params.reachability_bootstrap:
             self.initialized = True

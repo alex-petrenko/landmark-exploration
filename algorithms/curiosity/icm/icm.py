@@ -12,6 +12,14 @@ from utils.utils import log, AttrDict
 class IntrinsicCuriosityModule(CuriosityModule):
     """Prediction-based intrinsic curiosity."""
 
+    class Params:
+        def __init__(self):
+            self.cm_beta = 0.5
+            self.cm_lr_scale = 10.0
+            self.clip_bonus = 0.1
+            self.prediction_bonus_coeff = 0.05  # scaling factor for prediction bonus vs env rewards
+            self.forward_fc = 256
+
     def __init__(self, env, ph_obs, ph_next_obs, ph_actions, forward_fc=256, params=None):
         """
         :param ph_obs - placeholder for observations

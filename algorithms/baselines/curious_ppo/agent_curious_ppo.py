@@ -29,32 +29,19 @@ class CuriousPPOBuffer(PPOBuffer):
 
 class AgentCuriousPPO(AgentPPO):
     """PPO with a curiosity module (ICM or RND)"""
-    class Params(AgentPPO.Params):
+    class Params(
+        AgentPPO.Params,
+        ReachabilityCuriosityModule.Params,  # find "episodic curiosity" params here
+        IntrinsicCuriosityModule.Params,  # find "ICM" params here
+    ):
         """Hyperparams for curious PPO"""
         def __init__(self, experiment_name):
-            super(AgentCuriousPPO.Params, self).__init__(experiment_name)
+            # calling all parent constructors
+            AgentPPO.Params.__init__(self, experiment_name)
+            ReachabilityCuriosityModule.Params.__init__(self)
+            IntrinsicCuriosityModule.Params.__init__(self)
 
             self.curiosity_type = 'icm'  # icm or reachability
-
-            # icm parameters
-            self.cm_beta = 0.5
-            self.cm_lr_scale = 10.0
-            self.clip_bonus = 0.1
-            self.prediction_bonus_coeff = 0.05  # scaling factor for prediction bonus vs env rewards
-            self.forward_fc = 256
-
-            # episodic curiosity parameters
-            self.reachable_threshold = 8  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 24  # num. of frames between obs, such that one is unreachable from the other
-            self.reachability_target_buffer_size = 100000  # target number of training examples to store
-            self.reachability_train_epochs = 10
-            self.reachability_batch_size = 128
-            self.reachability_bootstrap = 1000000
-            self.reachability_train_interval = 500000
-
-            self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
-            self.loop_closure_threshold = 0.7  # condition for graph loop closure (finding new edge)
-            self.map_expansion_reward = 0.2  # reward for finding new vertex
 
         @staticmethod
         def filename_prefix():

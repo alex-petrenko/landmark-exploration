@@ -105,7 +105,7 @@ class ReachabilityBuffer:
                 np.random.shuffle(indices)
 
                 for i in indices:
-                    if len(data) > self.params.reachability_target_buffer_size // 5:
+                    if len(data) > self.params.reachability_target_buffer_size // 4:
                         break
 
                     close_i = min(i + close, len(trajectory))
@@ -122,14 +122,15 @@ class ReachabilityBuffer:
                         data.add(obs_first=obs[i], obs_second=obs[second_idx], labels=1)
                         num_far += 1
 
-        with timing.timeit('add_and_shuffle'):
             if len(data) > 0:
-                self.buffer.add_buff(data)
+                with timing.timeit('add'):
+                    self.buffer.add_buff(data)
 
                 # adjust this for memory consumption
-                if len(self.buffer) > 1.5 * self.params.reachability_target_buffer_size:
-                    self.shuffle_data()
-                    self.buffer.trim_at(self.params.reachability_target_buffer_size)
+                with timing.timeit('shuffle'):
+                    if len(self.buffer) > 1.5 * self.params.reachability_target_buffer_size:
+                        self.shuffle_data()
+                        self.buffer.trim_at(self.params.reachability_target_buffer_size)
 
         if self.batch_num % 20 == 0:
             with timing.timeit('visualize'):
@@ -153,6 +154,9 @@ class ReachabilityBuffer:
 
     def shuffle_data(self):
         self.buffer.shuffle_data()
+
+    def reset(self):
+        self.buffer.clear()
 
     def _visualize_data(self):
         min_vis = 10
