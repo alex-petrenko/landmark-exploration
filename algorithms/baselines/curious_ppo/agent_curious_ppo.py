@@ -105,7 +105,7 @@ class AgentCuriousPPO(AgentPPO):
                     actions, action_probs, values = self.actor_critic.invoke(self.session, obs, goals)
 
                     # wait for all the workers to complete an environment step
-                    env_obs, rewards, dones, infos = multi_env.step(actions)
+                    env_obs, rewards, dones, new_infos = multi_env.step(actions)
                     next_obs, new_goals = main_observation(env_obs), goal_observation(env_obs)
 
                     trajectory_buffer.add(obs, actions, dones)
@@ -119,9 +119,8 @@ class AgentCuriousPPO(AgentPPO):
 
                     # add experience from environment to the current buffer
                     buffer.add(obs, next_obs, actions, action_probs, rewards, dones, values, goals)
-                    goals = new_goals
-                    obs = next_obs
 
+                    obs, goals, infos = next_obs, new_goals, new_infos
                     num_steps += num_env_steps(infos)
 
                 # last step values are required for TD-return calculation
