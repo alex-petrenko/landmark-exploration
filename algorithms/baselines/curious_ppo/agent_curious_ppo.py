@@ -82,6 +82,7 @@ class AgentCuriousPPO(AgentPPO):
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
         env_obs = multi_env.reset()
+        infos = multi_env.info()
         obs, goals = main_observation(env_obs), goal_observation(env_obs)
 
         buffer = CuriousPPOBuffer()

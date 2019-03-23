@@ -459,6 +459,7 @@ class AgentPPO(AgentLearner):
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
         env_obs = multi_env.reset()
+        infos = multi_env.info()  # @Alex this is the initial info
         observations, goals = main_observation(env_obs), goal_observation(env_obs)
         buffer = PPOBuffer()
 
