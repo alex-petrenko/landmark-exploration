@@ -202,11 +202,14 @@ class ReachabilityCuriosityModule(CuriosityModule):
 
         summary_writer.add_summary(summary, env_steps)
 
-        map_for_summary = random.choice(maps)
-        random_graph_summary = visualize_graph_tensorboard(
-            map_for_summary.labeled_graph, tag=f'{section}/random_graph',
-        )
-        summary_writer.add_summary(random_graph_summary, env_steps)
+        num_maps_to_plot = 3
+        maps_for_summary = random.sample(maps, num_maps_to_plot)
+
+        for map_for_summary in maps_for_summary:
+            random_graph_summary = visualize_graph_tensorboard(
+                map_for_summary.labeled_graph, tag=f'{section}/random_graph',
+            )
+            summary_writer.add_summary(random_graph_summary, env_steps)
 
         max_graph_idx = 0
         for i, m in enumerate(maps):

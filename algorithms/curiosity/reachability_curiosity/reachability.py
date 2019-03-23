@@ -105,7 +105,7 @@ class ReachabilityBuffer:
                 np.random.shuffle(indices)
 
                 for i in indices:
-                    if len(data) > self.params.reachability_target_buffer_size // 4:
+                    if len(data) > self.params.reachability_target_buffer_size // 5:
                         break
 
                     close_i = min(i + close, len(trajectory))
