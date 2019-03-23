@@ -344,7 +344,9 @@ class AgentPPO(AgentLearner):
             self.params.stats_episodes, avg_rewards, best_avg_reward,
         )
 
-    def _maybe_aux_summaries(self, env_steps, avg_reward, avg_length):
+    def _maybe_aux_summaries(self, env_steps, avg_reward, avg_length, fps):
+        self._report_basic_summaries(fps, env_steps)
+
         if math.isnan(avg_reward) or math.isnan(avg_length):
             # not enough data to report yet
             return
@@ -504,7 +506,7 @@ class AgentPPO(AgentLearner):
             fps = num_steps / (time.time() - batch_start)
 
             self._maybe_print(step, env_steps, avg_reward, avg_length, fps, timing)
-            self._maybe_aux_summaries(env_steps, avg_reward, avg_length)
+            self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
 
     def learn(self):

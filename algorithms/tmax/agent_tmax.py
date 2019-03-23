@@ -710,9 +710,6 @@ class AgentTMAX(AgentLearner):
 
             self.bootstrap_env_steps = 1000 * 1000
 
-            self.gif_save_rate = 100  # number of seconds to wait before saving another gif to tensorboard
-            self.gif_summary_num_envs = 2
-
             self.show_automap = False
 
             # training process
@@ -817,7 +814,6 @@ class AgentTMAX(AgentLearner):
 
         # auxiliary stuff not related to the computation graph
         self.tmax_mgr = TmaxManager(self)
-        self._last_trajectory_summary = 0  # timestamp of the latest trajectory summary written
 
     @staticmethod
     def add_ppo_objectives(actor_critic, actions, old_action_probs, advantages, returns, masks, params, step):
@@ -1008,22 +1004,6 @@ class AgentTMAX(AgentLearner):
         self.summary_writer.add_summary(max_graph_summary, env_steps)
 
         self.summary_writer.flush()
-
-    def _maybe_trajectory_summaries(self, trajectory_buffer, env_steps):
-        time_since_last = time.time() - self._last_trajectory_summary
-        if time_since_last < self.params.gif_save_rate or not trajectory_buffer.complete_trajectories:
-            return
-
-        start_gif_summaries = time.time()
-
-        self._last_trajectory_summary = time.time()
-        num_envs = self.params.gif_summary_num_envs
-
-        trajectories = [
-            numpy_all_the_way(t.obs)[:, :, :, -3:] for t in trajectory_buffer.complete_trajectories[:num_envs]
-        ]
-        self._write_gif_summaries(tag='obs_trajectories', gif_images=trajectories, step=env_steps)
-        log.info('Took %.3f seconds to write gif summaries', time.time() - start_gif_summaries)
 
     def best_action(self, observation):
         raise NotImplementedError('Use best_action_tmax instead')

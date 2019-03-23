@@ -50,3 +50,4 @@ class TrajectoryBuffer:
                 total_nbytes += traj.obs_nbytes()
 
         return total_len, total_nbytes
+

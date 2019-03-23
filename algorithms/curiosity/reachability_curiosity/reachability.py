@@ -125,8 +125,11 @@ class ReachabilityBuffer:
         with timing.timeit('add_and_shuffle'):
             if len(data) > 0:
                 self.buffer.add_buff(data)
-                self.shuffle_data()
-                self.buffer.trim_at(self.params.reachability_target_buffer_size)
+
+                # adjust this for memory consumption
+                if len(self.buffer) > 1.5 * self.params.reachability_target_buffer_size:
+                    self.shuffle_data()
+                    self.buffer.trim_at(self.params.reachability_target_buffer_size)
 
         if self.batch_num % 20 == 0:
             with timing.timeit('visualize'):
@@ -141,6 +144,12 @@ class ReachabilityBuffer:
             log.info('Need to gather more data to train reachability net, %d/%d', len_data, min_data)
             return False
         return True
+
+    def get_buffer(self):
+        if len(self.buffer) > self.params.reachability_target_buffer_size:
+            self.shuffle_data()
+            self.buffer.trim_at(self.params.reachability_target_buffer_size)
+        return self.buffer
 
     def shuffle_data(self):
         self.buffer.shuffle_data()

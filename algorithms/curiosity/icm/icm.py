@@ -147,3 +147,6 @@ class IntrinsicCuriosityModule(CuriosityModule):
 
     def is_initialized(self):
         return True
+
+    def additional_summaries(self, env_steps, summary_writer, stats_episodes):
+        pass

@@ -157,7 +157,7 @@ class TestBuffer(TestCase):
 
     def test_buffer_performance(self):
         small_buffer = Buffer()
-        small_buffer.add_many(obs=np.zeros([1000, 42, 42, 1]))
+        small_buffer.add_many(obs=np.zeros([1000, 84, 84, 3], dtype=np.uint8))
 
         buffer = Buffer()
 
@@ -172,13 +172,20 @@ class TestBuffer(TestCase):
             huge_buffer.add_buff(buffer)
             huge_buffer.add_buff(buffer)
 
+        with t.timeit('single_add_small'):
+            huge_buffer.add_buff(small_buffer)
+
         with t.timeit('clear_and_add'):
             huge_buffer.clear()
             huge_buffer.add_buff(buffer)
             huge_buffer.add_buff(buffer)
 
-        with t.timeit('shuffle'):
-            huge_buffer.shuffle_data()
+        with t.timeit('shuffle_and_add'):
+            huge_buffer.clear()
+            huge_buffer.add_buff(buffer)
+            huge_buffer.add_buff(small_buffer)
+            with t.timeit('shuffle'):
+                huge_buffer.shuffle_data()
 
         log.debug('Timing: %s', t)
 

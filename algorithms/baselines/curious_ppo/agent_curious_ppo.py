@@ -123,10 +123,11 @@ class AgentCuriousPPO(AgentPPO):
                     trajectory_buffer.add(obs, actions, dones)
 
                     # calculate curiosity bonus
-                    bonuses = self.curiosity.generate_bonus_rewards(
-                        self.session, obs, next_obs, actions, dones, infos,
-                    )
-                    rewards += bonuses
+                    with timing.add_time('curiosity'):
+                        bonuses = self.curiosity.generate_bonus_rewards(
+                            self.session, obs, next_obs, actions, dones, infos,
+                        )
+                        rewards += bonuses
 
                     # add experience from environment to the current buffer
                     buffer.add(obs, next_obs, actions, action_probs, rewards, dones, values, goals)
@@ -150,10 +151,13 @@ class AgentCuriousPPO(AgentPPO):
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)
-            fps = num_steps / (time.time() - batch_start)
 
-            self._maybe_print(step, env_steps, avg_reward, avg_length, fps, timing)
-            self._maybe_aux_summaries(env_steps, avg_reward, avg_length)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
+            self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
+            self.curiosity.additional_summaries(env_steps, self.summary_writer, self.params.stats_episodes)
 
             trajectory_buffer.reset_trajectories()
+
+            fps = num_steps / (time.time() - batch_start)
+            self._maybe_print(step, env_steps, avg_reward, avg_length, fps, timing)
+            self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps)

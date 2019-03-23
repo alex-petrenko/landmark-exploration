@@ -3,6 +3,7 @@ Base classes for RL agent implementations with some boilerplate.
 
 """
 import gc
+import time
 
 import numpy as np
 import tensorflow as tf
@@ -11,7 +12,7 @@ from tensorflow.contrib import slim
 from utils.gifs import encode_gif
 from utils.params import Params
 
-from utils.utils import log, model_dir, summaries_dir, memory_consumption_mb
+from utils.utils import log, model_dir, summaries_dir, memory_consumption_mb, numpy_all_the_way
 from utils.decay import LinearDecay
 
 
@@ -70,6 +71,9 @@ class AgentLearner(Agent):
 
             self.stats_episodes = 100  # how many rewards to average to measure performance
 
+            self.gif_save_rate = 100  # number of seconds to wait before saving another gif to tensorboard
+            self.gif_summary_num_envs = 2
+
     def __init__(self, params):
         super(AgentLearner, self).__init__(params)
         self.session = None  # actually created in "initialize" method
@@ -93,6 +97,8 @@ class AgentLearner(Agent):
 
         summary_dir = summaries_dir(self.params.experiment_dir())
         self.summary_writer = tf.summary.FileWriter(summary_dir)
+
+        self._last_trajectory_summary = 0  # timestamp of the latest trajectory summary written
 
     def initialize(self):
         """Start the session."""
@@ -156,6 +162,22 @@ class AgentLearner(Agent):
 
         self.summary_writer.add_summary(summary, env_steps)
         self.summary_writer.flush()
+
+    def _maybe_trajectory_summaries(self, trajectory_buffer, env_steps):
+        time_since_last = time.time() - self._last_trajectory_summary
+        if time_since_last < self.params.gif_save_rate or not trajectory_buffer.complete_trajectories:
+            return
+
+        start_gif_summaries = time.time()
+
+        self._last_trajectory_summary = time.time()
+        num_envs = self.params.gif_summary_num_envs
+
+        trajectories = [
+            numpy_all_the_way(t.obs)[:, :, :, -3:] for t in trajectory_buffer.complete_trajectories[:num_envs]
+        ]
+        self._write_gif_summaries(tag='obs_trajectories', gif_images=trajectories, step=env_steps)
+        log.info('Took %.3f seconds to write gif summaries', time.time() - start_gif_summaries)
 
     def _write_gif_summaries(self, tag, gif_images, step, fps=12):
         """Logs list of input image vectors (nx[time x w h x c]) into GIFs."""
