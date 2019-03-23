@@ -205,9 +205,9 @@ class ReachabilityCuriosityModule(CuriosityModule):
         num_maps_to_plot = 3
         maps_for_summary = random.sample(maps, num_maps_to_plot)
 
-        for map_for_summary in maps_for_summary:
+        for i, map_for_summary in enumerate(maps_for_summary):
             random_graph_summary = visualize_graph_tensorboard(
-                map_for_summary.labeled_graph, tag=f'{section}/random_graph',
+                map_for_summary.labeled_graph, tag=f'{section}/random_graph_{i}',
             )
             summary_writer.add_summary(random_graph_summary, env_steps)
 

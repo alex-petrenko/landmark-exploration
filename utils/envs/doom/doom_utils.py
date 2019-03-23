@@ -37,6 +37,9 @@ DOOM_ENVS = [
 
     DoomCfg('doom_maze_goal', 'VizdoomMyWayHomeGoal-v0', 1.0, 2100),
     DoomCfg('doom_maze_sptm', 'VizdoomSptmBattleNavigation-v0', 1.0, 2100),
+
+    DoomCfg('doom_textured_easy', 'VizdoomTexturedMazeEasy-v0', 1.0, 2100),
+    DoomCfg('doom_textured_very_sparse', 'VizdoomTexturedMazeVerySparse-v0', 1.0, 2100),
 ]
 
 
