@@ -26,3 +26,5 @@ class ObservationEncoder:
 
             for i in range(len(encoded)):
                 self.encoded_obs[hashes_to_encode[i]] = encoded[i]
+
+        return self.encoded_obs

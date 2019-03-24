@@ -7,9 +7,10 @@ import numpy as np
 import networkx as nx
 
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
-from algorithms.topological_maps.topological_map import TopologicalMap
+from algorithms.topological_maps.topological_map import TopologicalMap, hash_observation
 from utils.envs.doom.doom_utils import doom_env_by_name, make_doom_env
 from utils.graph import plot_graph
+from utils.timing import Timing
 from utils.utils import log
 
 
@@ -43,10 +44,18 @@ class TestGraph(TestCase):
         path = m.get_path(0, 1)
         self.assertEqual(path, [0, 1])
 
+    def test_hash_performance(self):
+        x = np.empty((84, 84, 3), dtype=np.uint8)
+        t = Timing()
+        with t.timeit('hashes'):
+            for i in range(1000):
+                hash_observation(x)
+        log.debug('Hash 1k images %s', t)
+
     def test_shortest(self):
         m = TopologicalMap(np.array(0), directed_graph=False)
         for i in range(4):
-            idx = m.add_landmark(np.array(0))
+            m.add_landmark(np.array(0))
 
         m.graph.remove_edges_from(list(m.graph.edges))
 

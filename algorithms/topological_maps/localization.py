@@ -113,6 +113,7 @@ class Localizer:
             current_obs.extend([obs_encoded[env_i]] * len(non_neighbor_indices))
 
         assert len(non_neighborhood_obs) == len(current_obs)
+        assert len(non_neighborhood_obs) == len(non_neighborhood_hashes)
 
         with timing.add_time('non_neigh'):
             # calculate reachability for all non-neighbors
@@ -121,11 +122,10 @@ class Localizer:
             for i in range(0, len(non_neighborhood_obs), batch_size):
                 start, end = i, i + batch_size
                 self.obs_encoder.encode(session, non_neighborhood_obs[start:end], non_neighborhood_hashes[start:end])
-                non_neighborhood_encoded = [self.obs_encoder.encoded_obs[h] for h in non_neighborhood_hashes]
+                non_neighborhood_encoded = [self.obs_encoder.encoded_obs[h] for h in non_neighborhood_hashes[start:end]]
+                assert len(non_neighborhood_encoded)
 
-                distances_batch = reachability.distances(
-                    session, non_neighborhood_encoded[start:end], current_obs[start:end],
-                )
+                distances_batch = reachability.distances(session, non_neighborhood_encoded, current_obs[start:end])
                 distances.extend(distances_batch)
 
         j = 0
