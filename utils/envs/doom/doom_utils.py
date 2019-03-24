@@ -3,7 +3,7 @@ import gym
 import vizdoomgym
 from pynput.keyboard import Key
 
-from algorithms.env_wrappers import ResizeWrapper, RewardScalingWrapper, SkipFramesWrapper
+from algorithms.env_wrappers import ResizeWrapper, RewardScalingWrapper, SkipFramesWrapper, TimeLimitWrapper
 from utils.envs.doom.wrappers.observation_space import SetResolutionWrapper
 from utils.envs.doom.wrappers.step_human_input import StepHumanInput
 
@@ -71,4 +71,5 @@ def make_doom_env(doom_cfg, mode='train', human_input=False, show_automap=False)
     if doom_cfg.reward_scaling != 1.0:
         env = RewardScalingWrapper(env, doom_cfg.reward_scaling)
 
+    env = TimeLimitWrapper(env, doom_cfg.default_timeout - 5, 5)
     return env

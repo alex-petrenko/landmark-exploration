@@ -27,10 +27,12 @@ class ReachabilityCuriosityModule(CuriosityModule):
             self.reachability_batch_size = 128
             self.reachability_bootstrap = 1000000
             self.reachability_train_interval = 500000
+            self.reachability_symmetric = True  # useful in 3D environments like Doom and DMLab
 
             self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
-            self.loop_closure_threshold = 0.7  # condition for graph loop closure (finding new edge)
+            self.loop_closure_threshold = 0.6  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.2  # reward for finding new vertex
+            self.reachability_dense_reward = True
 
     def __init__(self, env, params):
         self.params = params
@@ -125,7 +127,7 @@ class ReachabilityCuriosityModule(CuriosityModule):
 
     def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos):
         if self.episodic_maps is None:
-            self.current_episode_bonus = np.zeros(self.params.num_envs)
+            self.current_episode_bonus = np.zeros(self.params.num_envs)  # for statistics
             self.episodic_maps = []
             for i in range(self.params.num_envs):
                 self.episodic_maps.append(TopologicalMap(obs[i], directed_graph=False, initial_info=infos[i]))
@@ -142,9 +144,17 @@ class ReachabilityCuriosityModule(CuriosityModule):
             def on_new_landmark(env_i):
                 bonuses[env_i] += self.params.map_expansion_reward
 
-            self.localizer.localize(
+            distances_to_memory = self.localizer.localize(
                 session, obs, infos, self.episodic_maps, self.reachability, on_new_landmark=on_new_landmark,
             )
+            assert len(distances_to_memory) == len(obs)
+            dense_rewards = np.array([
+                0.0 if done else dist - 0.5 for (dist, done) in zip(distances_to_memory, dones)
+            ])
+            dense_rewards *= 0.1  # scaling factor
+
+            if self.params.reachability_dense_reward:
+                bonuses += dense_rewards
 
         self.current_episode_bonus += bonuses
         return bonuses

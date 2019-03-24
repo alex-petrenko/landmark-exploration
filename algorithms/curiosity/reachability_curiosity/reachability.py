@@ -1,4 +1,5 @@
 import os
+import random
 import time
 import shutil
 from collections import deque
@@ -105,20 +106,28 @@ class ReachabilityBuffer:
                 np.random.shuffle(indices)
 
                 for i in indices:
-                    if len(data) > self.params.reachability_target_buffer_size // 5:
+                    if len(data) > self.params.reachability_target_buffer_size // 4:
                         break
 
                     close_i = min(i + close, len(trajectory))
                     far_i = min(i + far, len(trajectory))
 
                     # sample close observation pair
+                    first_idx = i
                     second_idx = np.random.randint(i, close_i)
+                    if self.params.reachability_symmetric and random.random() < 0.5:
+                        first_idx, second_idx = second_idx, first_idx
+
                     data.add(obs_first=obs[i], obs_second=obs[second_idx], labels=0)
                     num_close += 1
 
                     # sample far observation pair
                     if far_i < len(trajectory):
+                        first_idx = i
                         second_idx = np.random.randint(far_i, len(trajectory))
+                        if self.params.reachability_symmetric and random.random() < 0.5:
+                            first_idx, second_idx = second_idx, first_idx
+
                         data.add(obs_first=obs[i], obs_second=obs[second_idx], labels=1)
                         num_far += 1
 

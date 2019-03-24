@@ -1,7 +1,5 @@
 import math
 
-import numpy as np
-
 from algorithms.topological_maps.topological_map import hash_observation
 from utils.timing import Timing
 from utils.utils import log, min_with_idx
@@ -16,7 +14,7 @@ class Localizer:
         self.loop_closure_threshold = self.params.loop_closure_threshold
 
         # noise-filtering parameter, how many frames we need to wait before we change localization
-        self.localize_frames = 4
+        self.localize_frames = 3
 
         self.num_envs = self.params.num_envs
 
@@ -65,6 +63,9 @@ class Localizer:
         new_landmark_candidates = []
         closest_landmark_idx = [-1] * self.num_envs
 
+        # closest distance to the landmark in the existing graph (excluding new landmarks)
+        closest_landmark_dist = [math.inf] * self.num_envs
+
         j = 0
         for env_i, m in enumerate(maps):
             neighbor_indices = m.neighborhood()
@@ -76,6 +77,7 @@ class Localizer:
             # check if we're far enough from all landmarks in the neighborhood
             min_d, min_d_idx = min_with_idx(distance)
             closest_landmark_idx[env_i] = neighbor_indices[min_d_idx]
+            closest_landmark_dist[env_i] = min_d
 
             if min_d >= self.new_landmark_threshold:
                 # we're far enough from all obs in the neighborhood, might have found something new!
@@ -138,6 +140,7 @@ class Localizer:
             min_d, min_d_idx = math.inf, math.inf
             if len(distance) > 0:
                 min_d, min_d_idx = min_with_idx(distance)
+                closest_landmark_dist[env_i] = min(closest_landmark_dist[env_i], min_d)
 
             if min_d < self.loop_closure_threshold:
                 # current observation is close to some other landmark, "close the loop" by creating a new edge
@@ -171,3 +174,5 @@ class Localizer:
         for env_i in range(self.num_envs):
             assert closest_landmark_idx[env_i] >= 0
             maps[env_i].closest_landmarks.append(closest_landmark_idx[env_i])
+
+        return closest_landmark_dist
