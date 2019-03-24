@@ -20,8 +20,8 @@ from utils.utils import log
 class ReachabilityCuriosityModule(CuriosityModule):
     class Params:
         def __init__(self):
-            self.reachable_threshold = 8  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 24  # num. of frames between obs, such that one is unreachable from the other
+            self.reachable_threshold = 5  # num. of frames between obs, such that one is reachable from the other
+            self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 100000  # target number of training examples to store
             self.reachability_train_epochs = 10
             self.reachability_batch_size = 128
@@ -120,9 +120,6 @@ class ReachabilityCuriosityModule(CuriosityModule):
                 break
             prev_loss = avg_loss
 
-        # invalidate observation features because reachability network has changed
-        self.obs_encoder.reset()
-
         self.last_trained = env_steps
 
     def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos):
@@ -165,7 +162,12 @@ class ReachabilityCuriosityModule(CuriosityModule):
         if env_steps - self.last_trained > self.params.reachability_train_interval:
             if self.reachability_buffer.has_enough_data():
                 self._train_reachability(self.reachability_buffer, env_steps, agent)
-                self.reachability_buffer.reset()  # discard old experience
+
+                # discard old experience
+                self.reachability_buffer.reset()
+
+                # invalidate observation features because reachability network has changed
+                self.obs_encoder.reset()
 
         if env_steps > self.params.reachability_bootstrap:
             self.initialized = True

@@ -118,7 +118,7 @@ class ReachabilityBuffer:
                     if self.params.reachability_symmetric and random.random() < 0.5:
                         first_idx, second_idx = second_idx, first_idx
 
-                    data.add(obs_first=obs[i], obs_second=obs[second_idx], labels=0)
+                    data.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=0)
                     num_close += 1
 
                     # sample far observation pair
@@ -128,7 +128,7 @@ class ReachabilityBuffer:
                         if self.params.reachability_symmetric and random.random() < 0.5:
                             first_idx, second_idx = second_idx, first_idx
 
-                        data.add(obs_first=obs[i], obs_second=obs[second_idx], labels=1)
+                        data.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=1)
                         num_far += 1
 
             if len(data) > 0:

@@ -65,6 +65,7 @@ def make_doom_env(doom_cfg, mode='train', human_input=False, show_automap=False)
 
     env = ResizeWrapper(env, DOOM_W, DOOM_H, grayscale=False)
 
+    # randomly vary episode duration to somewhat decorrelate the experience
     timeout = doom_cfg.default_timeout - 100
     env = TimeLimitWrapper(env, limit=timeout, random_variation_steps=99)
 
