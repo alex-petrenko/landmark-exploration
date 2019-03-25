@@ -181,10 +181,13 @@ class TestGraph(TestCase):
             for j in range(1, 4):
                 m.add_landmark(np.array(0), {'pos': {'agent_x': 300 + i, 'agent_y': 400 + j, 'agent_a': 10}})
 
+        import cv2
+        img = cv2.imread("/home/gautam/curiosity/landmark-exploration/misc/airlines.jpg")
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         graph = m.labeled_graph
-        figure = plot_graph(graph, layout='pos')
+        figure = plot_graph(graph, automap=img, layout='pos')
 
-        show = False
+        show = True
         if show:
             from matplotlib import pyplot as plt
             plt.show()

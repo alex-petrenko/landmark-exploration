@@ -20,7 +20,7 @@ def parse_layout(nx_graph, layout):
     return pos
 
 
-def plot_graph(nx_graph, layout, node_size=80):
+def plot_graph(nx_graph, layout, automap=None, node_size=80):
     if layout == 'pos':
         for node_name in nx_graph.nodes:
             pos = nx_graph.node[node_name].get('pos')
@@ -32,10 +32,19 @@ def plot_graph(nx_graph, layout, node_size=80):
 
     figure = plt.gcf()
     figure.clear()
+    if automap is not None:
+        # ax.imshow(automap)
+        import numpy as np
+        automap = np.array(automap).astype(np.float) / 255
+        height = 0
+        figure.figimage(automap, 0, height)
     nx.draw(
         nx_graph, pos, node_size=node_size, node_color=list(range(len(nx_graph.nodes))), edge_color='#cccccc',
         cmap=plt.cm.get_cmap('plasma'), with_labels=True, font_color='#00ff00', font_size=7,
     )
+    ax = plt.gca()
+    ax.set_aspect('equal')
+    ax.grid(True, which='both')
     return figure
 
 
