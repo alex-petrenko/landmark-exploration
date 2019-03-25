@@ -10,15 +10,19 @@ def parse_args(default_env, default_experiment_name, params_cls):
     # common args
     parser.add_argument('--experiment', type=str, default=None)
     parser.add_argument('--env', type=str, default=default_env)
+    parser.add_argument('--curiosity_type', type=str, default=None)
 
     # params object args
     params_cls.add_cli_args(parser)
 
     args = parser.parse_args()
+    extra_strings = {}
+    if args.curiosity_type is not None:
+        extra_strings['curiosity_type'] = args.curiosity_type
 
     experiment = args.experiment
     if experiment is None:
-        experiment = get_experiment_name(args.env, default_experiment_name)
+        experiment = get_experiment_name(args.env, default_experiment_name, **extra_strings)
 
     params = params_cls(experiment)
     params.set_command_line(sys.argv)

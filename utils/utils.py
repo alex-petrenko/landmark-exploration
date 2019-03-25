@@ -170,5 +170,13 @@ def vis_dir(experiment_dir_):
     return ensure_dir_exists(join(experiment_dir_, '.vis'))
 
 
-def get_experiment_name(env_id, name):
-    return '{}-{}'.format(env_id, name)
+def get_experiment_name(env_id, name, **kwargs):
+    extra = ""
+    for str in kwargs.items():
+        extra += str
+
+    if extra is not "":
+        expt_name = '{}-{}-{}'.format(env_id, name, extra)
+    else:
+        expt_name = '{}-{}'.format(env_id, name)
+    return expt_name
