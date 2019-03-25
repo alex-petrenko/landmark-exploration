@@ -137,9 +137,7 @@ class EncoderWithGoal:
 
 
 def make_encoder_with_goal(ph_observations, ph_goal_obs, obs_space, regularizer, params, name='enc_with_goal'):
-    assert isinstance(obs_space, spaces.Dict)
-    main_obs_space = obs_space.spaces['obs']
-    goal_obs_space = obs_space.spaces['goal']
+    main_obs_space = goal_obs_space = obs_space
 
     # main and goal obs spaces should be the same
     assert main_obs_space.low.flat[0] == goal_obs_space.low.flat[0]

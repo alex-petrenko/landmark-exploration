@@ -1,9 +1,12 @@
-from hashlib import sha1
 import math
 import random
+from hashlib import sha1
+
+import tensorflow as tf
 
 import networkx as nx
 
+from utils.graph import visualize_graph_tensorboard
 from utils.utils import ensure_contigious, log
 
 
@@ -58,12 +61,10 @@ class TopologicalMap:
 
         self.new_episode()
 
-    def new_episode(self, prune_edge_threshold=0.2, prune_vertex_chance=0.05):
+    def new_episode(self):
         self.new_landmark_candidate_frames = 0
         self.closest_landmarks = []
-        self.curr_landmark_idx = 0
-        self._prune_edges(threshold=prune_edge_threshold)
-        self._prune_nodes(chance=prune_vertex_chance)
+        self.curr_landmark_idx = 0  # assuming we're being put into the exact same spot every time
 
     def _log_verbose(self, msg, *args):
         if not self._verbose:
@@ -113,7 +114,9 @@ class TopologicalMap:
         self.curr_landmark_idx = landmark_idx
 
     def add_landmark(self, obs, info=None):
-        new_landmark_idx = self.graph.number_of_nodes()
+        new_landmark_idx = max(self.graph.nodes) + 1
+        assert new_landmark_idx not in self.graph.nodes
+
         self.graph.add_node(
             new_landmark_idx, obs=obs, hash=hash_observation(obs), pos=get_position(info), angle=get_angle(info),
         )
@@ -167,9 +170,54 @@ class TopologicalMap:
         except nx.exception.NetworkXNoPath:
             return None
 
+    def topological_distances(self, from_idx):
+        return nx.shortest_path_length(self.graph, from_idx)
+
     @property
     def labeled_graph(self):
         g = self.graph.copy()
         labels = {i: str(i) for i in g.nodes}
         g = nx.relabel_nodes(g, labels)
         return g
+
+
+def map_summaries(maps, env_steps, summary_writer, section):
+    # summaries related to episodic memory (maps)
+    num_landmarks = [m.num_landmarks() for m in maps]
+    num_neighbors = [len(m.neighborhood()) for m in maps]
+    num_edges = [m.num_edges() for m in maps]
+
+    avg_num_landmarks = sum(num_landmarks) / len(num_landmarks)
+    avg_num_neighbors = sum(num_neighbors) / len(num_neighbors)
+    avg_num_edges = sum(num_edges) / len(num_edges)
+
+    summary = tf.Summary()
+
+    def curiosity_summary(tag, value):
+        summary.value.add(tag=f'{section}/{tag}', simple_value=float(value))
+
+    curiosity_summary('avg_landmarks', avg_num_landmarks)
+    curiosity_summary('max_landmarks', max(num_landmarks))
+    curiosity_summary('avg_neighbors', avg_num_neighbors)
+    curiosity_summary('max_neighbors', max(num_neighbors))
+    curiosity_summary('avg_edges', avg_num_edges)
+    curiosity_summary('max_edges', max(num_edges))
+
+    summary_writer.add_summary(summary, env_steps)
+
+    num_maps_to_plot = 3
+    maps_for_summary = random.sample(maps, num_maps_to_plot)
+
+    for i, map_for_summary in enumerate(maps_for_summary):
+        random_graph_summary = visualize_graph_tensorboard(
+            map_for_summary.labeled_graph, tag=f'{section}/random_graph_{i}',
+        )
+        summary_writer.add_summary(random_graph_summary, env_steps)
+
+    max_graph_idx = 0
+    for i, m in enumerate(maps):
+        if m.num_landmarks() > maps[max_graph_idx].num_landmarks():
+            max_graph_idx = i
+
+    max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].labeled_graph, tag=f'{section}/max_graph')
+    summary_writer.add_summary(max_graph_summary, env_steps)

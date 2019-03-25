@@ -32,7 +32,7 @@ class TestTMAX(TestCase):
         params.initial_save_rate = 20
         params.batch_size = 32
         params.ppo_epochs = 2
-        params.bootstrap_env_steps = 25
+        params.reachability_bootstrap = 10
 
         tmax_train_dir = join(experiments_dir(), params.experiments_root)
         ensure_dir_exists(tmax_train_dir)

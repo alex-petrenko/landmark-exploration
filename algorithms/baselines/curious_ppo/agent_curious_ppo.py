@@ -35,6 +35,7 @@ class AgentCuriousPPO(AgentPPO):
         IntrinsicCuriosityModule.Params,  # find "ICM" params here
     ):
         """Hyperparams for curious PPO"""
+
         def __init__(self, experiment_name):
             # calling all parent constructors
             AgentPPO.Params.__init__(self, experiment_name)

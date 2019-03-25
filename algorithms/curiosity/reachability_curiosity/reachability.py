@@ -90,6 +90,10 @@ class ReachabilityBuffer:
 
         self.params = params
 
+    # noinspection PyMethodMayBeStatic,PyUnusedLocal
+    def skip(self, trajectory, i):
+        return False
+
     def extract_data(self, trajectories):
         timing = Timing()
 
@@ -118,8 +122,9 @@ class ReachabilityBuffer:
                     if self.params.reachability_symmetric and random.random() < 0.5:
                         first_idx, second_idx = second_idx, first_idx
 
-                    data.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=0)
-                    num_close += 1
+                    if not self.skip(trajectory, first_idx) and not self.skip(trajectory, second_idx):
+                        data.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=0)
+                        num_close += 1
 
                     # sample far observation pair
                     if far_i < len(trajectory):
@@ -128,8 +133,9 @@ class ReachabilityBuffer:
                         if self.params.reachability_symmetric and random.random() < 0.5:
                             first_idx, second_idx = second_idx, first_idx
 
-                        data.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=1)
-                        num_far += 1
+                        if not self.skip(trajectory, first_idx) and not self.skip(trajectory, second_idx):
+                            data.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=1)
+                            num_far += 1
 
             if len(data) > 0:
                 with timing.timeit('add'):

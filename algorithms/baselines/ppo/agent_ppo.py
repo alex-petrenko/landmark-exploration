@@ -100,7 +100,7 @@ class PPOBuffer:
     def reset(self):
         self.obs, self.actions, self.action_probs, self.rewards, self.dones, self.values = [], [], [], [], [], []
         self.goals = []
-        self.advantages = self.returns = None
+        self.advantages, self.returns = [], []
 
     def _add_args(self, args):
         for arg_name, arg_value in args.items():
@@ -111,12 +111,15 @@ class PPOBuffer:
         args = copy.copy(locals())
         self._add_args(args)
 
-    def finalize_batch(self, gamma, gae_lambda):
-        # convert everything in the buffer into numpy arrays
+    def to_numpy(self):
+        """Convert everything in the buffer into numpy arrays."""
         for item, x in self.__dict__.items():
             if x is None:
                 continue
             self.__dict__[item] = np.asarray(x)  # preserve existing array type (e.g. uint8 for images)
+
+    def finalize_batch(self, gamma, gae_lambda):
+        self.to_numpy()
 
         # calculate discounted returns and GAE
         self.advantages, self.returns = calculate_gae(self.rewards, self.dones, self.values, gamma, gae_lambda)

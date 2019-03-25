@@ -4,7 +4,7 @@ class Trajectory:
         self.actions = []
         self.env_idx = env_idx
 
-    def add(self, obs, action):
+    def add(self, obs, action, **kwargs):
         self.obs.append(obs)
         self.actions.append(action)
 

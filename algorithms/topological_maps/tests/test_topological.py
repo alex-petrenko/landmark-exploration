@@ -64,6 +64,18 @@ class TestGraph(TestCase):
         m._add_edge(1, 3)
         m._add_edge(2, 3)
 
+        reachable_indices_0 = m.reachable_indices(0)
+        log.debug('Reachable from %d: %r', 0, reachable_indices_0)
+
+        reachable_indices_1 = m.reachable_indices(1)
+        log.debug('Reachable from %d: %r', 1, reachable_indices_1)
+
+        self.assertEqual(sorted(reachable_indices_0), sorted(reachable_indices_1))
+        self.assertEqual(sorted(reachable_indices_0), [0, 1, 2, 3])
+
+        topological_distances = m.topological_distances(0)
+        log.debug('Topological distances: %r', topological_distances)
+
         path = m.get_path(0, 3)
         log.debug('Path from 0 to 3 is %r', path)
 
@@ -184,7 +196,7 @@ class TestGraph(TestCase):
         graph = m.labeled_graph
         figure = plot_graph(graph, layout='pos')
 
-        show = False
+        show = True
         if show:
             from matplotlib import pyplot as plt
             plt.show()

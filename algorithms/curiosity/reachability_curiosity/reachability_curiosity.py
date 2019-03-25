@@ -1,9 +1,7 @@
-import random
 from collections import deque
-
-import numpy as np
 from functools import partial
 
+import numpy as np
 import tensorflow as tf
 
 from algorithms.curiosity.curiosity_module import CuriosityModule
@@ -11,8 +9,7 @@ from algorithms.curiosity.reachability_curiosity.observation_encoder import Obse
 from algorithms.curiosity.reachability_curiosity.reachability import ReachabilityNetwork, ReachabilityBuffer
 from algorithms.tf_utils import merge_summaries
 from algorithms.topological_maps.localization import Localizer
-from algorithms.topological_maps.topological_map import TopologicalMap
-from utils.graph import visualize_graph_tensorboard
+from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
 from utils.timing import Timing
 from utils.utils import log
 
@@ -31,7 +28,7 @@ class ReachabilityCuriosityModule(CuriosityModule):
 
             self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
             self.loop_closure_threshold = 0.6  # condition for graph loop closure (finding new edge)
-            self.map_expansion_reward = 0.2  # reward for finding new vertex
+            self.map_expansion_reward = 0.4  # reward for finding new vertex
             self.reachability_dense_reward = True
 
     def __init__(self, env, params):
@@ -131,7 +128,7 @@ class ReachabilityCuriosityModule(CuriosityModule):
 
         for i in range(self.params.num_envs):
             if dones[i]:
-                self.episodic_maps[i].reset(obs[i], infos[i])
+                self.episodic_maps[i].reset(next_obs[i], infos[i])
                 self.episode_bonuses.append(self.current_episode_bonus[i])
                 self.current_episode_bonus[i] = 0
 
@@ -142,11 +139,12 @@ class ReachabilityCuriosityModule(CuriosityModule):
                 bonuses[env_i] += self.params.map_expansion_reward
 
             distances_to_memory = self.localizer.localize(
-                session, obs, infos, self.episodic_maps, self.reachability, on_new_landmark=on_new_landmark,
+                session, next_obs, infos, self.episodic_maps, self.reachability, on_new_landmark=on_new_landmark,
             )
-            assert len(distances_to_memory) == len(obs)
+            assert len(distances_to_memory) == len(next_obs)
+            threshold = self.params.new_landmark_threshold
             dense_rewards = np.array([
-                0.0 if done else dist - 0.5 for (dist, done) in zip(distances_to_memory, dones)
+                0.0 if done else dist - threshold for (dist, done) in zip(distances_to_memory, dones)
             ])
             dense_rewards *= 0.1  # scaling factor
 
@@ -196,39 +194,7 @@ class ReachabilityCuriosityModule(CuriosityModule):
             avg_episode_bonus = sum(self.episode_bonuses) / len(self.episode_bonuses)
             curiosity_summary('avg_episode_bonus', avg_episode_bonus)
 
-        # summaries related to episodic memory (maps)
-        num_landmarks = [m.num_landmarks() for m in maps]
-        num_neighbors = [len(m.neighborhood()) for m in maps]
-        num_edges = [m.num_edges() for m in maps]
-
-        avg_num_landmarks = sum(num_landmarks) / len(num_landmarks)
-        avg_num_neighbors = sum(num_neighbors) / len(num_neighbors)
-        avg_num_edges = sum(num_edges) / len(num_edges)
-
-        curiosity_summary('avg_landmarks', avg_num_landmarks)
-        curiosity_summary('max_landmarks', max(num_landmarks))
-        curiosity_summary('avg_neighbors', avg_num_neighbors)
-        curiosity_summary('max_neighbors', max(num_neighbors))
-        curiosity_summary('avg_edges', avg_num_edges)
-        curiosity_summary('max_edges', max(num_edges))
-
         summary_writer.add_summary(summary, env_steps)
 
-        num_maps_to_plot = 3
-        maps_for_summary = random.sample(maps, num_maps_to_plot)
-
-        for i, map_for_summary in enumerate(maps_for_summary):
-            random_graph_summary = visualize_graph_tensorboard(
-                map_for_summary.labeled_graph, tag=f'{section}/random_graph_{i}',
-            )
-            summary_writer.add_summary(random_graph_summary, env_steps)
-
-        max_graph_idx = 0
-        for i, m in enumerate(maps):
-            if m.num_landmarks() > maps[max_graph_idx].num_landmarks():
-                max_graph_idx = i
-
-        max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].labeled_graph, tag=f'{section}/max_graph')
-        summary_writer.add_summary(max_graph_summary, env_steps)
-
+        map_summaries(maps, env_steps, summary_writer, section)
         summary_writer.flush()
