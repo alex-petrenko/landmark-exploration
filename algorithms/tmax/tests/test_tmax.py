@@ -55,28 +55,6 @@ class TestTMAX(TestCase):
     def test_tmax_train_run_goal(self):
         self.tmax_train_run(env_name='doom_maze_goal')
 
-    def test_reachability(self):
-        g = tf.Graph()
-
-        env = make_doom_env(doom_env_by_name(TEST_ENV_NAME))
-        args, params = parse_args_tmax(AgentTMAX.Params)
-
-        with g.as_default():
-            reachability_net = ReachabilityNetwork(env, params)
-
-        obs = env.reset()
-
-        with tf.Session(graph=g) as sess:
-            sess.run(tf.global_variables_initializer())
-            probabilities = reachability_net.get_probabilities(sess, [obs], [obs])[0]
-            self.assertAlmostEqual(sum(probabilities), 1.0, places=5)  # probs sum up to 1
-            reachability = reachability_net.distances(sess, [obs], [obs])[0]
-            self.assertEqual(probabilities[1], reachability)
-
-        env.close()
-
-        g.finalize()
-
     def test_locomotion(self):
         g = tf.Graph()
 

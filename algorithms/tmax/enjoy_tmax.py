@@ -101,7 +101,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
         if agent.tmax_mgr.initialized:
             agent.tmax_mgr.update([obs], [goal_obs], [True], [info], verbose=True)
         else:
-            agent.tmax_mgr.initialize([obs], [info])
+            agent.tmax_mgr.initialize([obs], [info], env_steps=0)
 
         start_episode = time.time()
         while not done and not terminate and not max_frames_reached(num_frames):
@@ -137,21 +137,24 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
             if policy_type == PolicyType.RANDOM:
                 action = env.action_space.sample()
             elif policy_type == PolicyType.AGENT:
-                action = agent.policy_step([obs], [goal_obs], None, None, is_bootstrap=False)[0]
+                action = agent.policy_step([obs], [goal_obs], None, None)[0]
             elif policy_type == PolicyType.LOCOMOTION:
+                # TODO: this does not work now
                 action = agent.locomotion.navigate(agent.session, [obs], [current_landmark], deterministic=False)[0]
                 log.info('Locomotion action %d', action)
 
             env_obs, rew, done, info = env.step(action)
-            obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
+            next_obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
 
             if not done:
-                bonus, _, _ = agent.tmax_mgr.update([obs], [goal_obs], [done], [info], verbose=True)
+                bonus, _, _ = agent.tmax_mgr.update([obs], [next_obs], [rew], [done], [info], num_frames, verbose=True)
                 bonus = bonus[0]
                 if bonus > 0:
                     log.info('Bonus %.3f received', bonus)
                 if abs(rew) >= 0.01:
                     log.info('Reward %.3f received', rew)
+
+            obs = next_obs
 
             episode_reward += rew
 

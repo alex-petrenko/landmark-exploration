@@ -25,7 +25,7 @@ class ActorCritic:
         self.ph_observations = ph_observations
 
         num_actions = env.action_space.n
-        obs_space = env.observation_space
+        obs_space = main_observation_space(env)
 
         # Goal observation
         self.ph_goal_obs = None
@@ -41,8 +41,9 @@ class ActorCritic:
         # actor computation graph
         # use actor encoder as main observation encoder (including landmarks, etc.)
         if self.is_goal_env:
-            actor_encoder = make_encoder_func(self.ph_observations, self.ph_goal_obs, obs_space, regularizer,
-                                              params, name='act_enc')
+            actor_encoder = make_encoder_func(
+                self.ph_observations, self.ph_goal_obs, obs_space, regularizer, params, name='act_enc',
+            )
         else:
             actor_encoder = make_encoder_func(self.ph_observations, obs_space, regularizer, params, name='act_enc')
 
@@ -57,8 +58,9 @@ class ActorCritic:
 
         # critic computation graph
         if self.is_goal_env:
-            value_encoder = make_encoder_func(self.ph_observations, self.ph_goal_obs, obs_space, regularizer,
-                                              params, 'val_enc')
+            value_encoder = make_encoder_func(
+                self.ph_observations, self.ph_goal_obs, obs_space, regularizer, params, 'val_enc',
+            )
         else:
             value_encoder = make_encoder_func(self.ph_observations, obs_space, regularizer, params, 'val_enc')
         value_model = make_model(value_encoder.encoded_input, regularizer, params, 'val_mdl')
