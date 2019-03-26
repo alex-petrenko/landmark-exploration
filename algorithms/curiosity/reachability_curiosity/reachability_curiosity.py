@@ -28,7 +28,7 @@ class ReachabilityCuriosityModule(CuriosityModule):
 
             self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
             self.loop_closure_threshold = 0.6  # condition for graph loop closure (finding new edge)
-            self.map_expansion_reward = 0.4  # reward for finding new vertex
+            self.map_expansion_reward = 0.2  # reward for finding new vertex
             self.reachability_dense_reward = True
 
     def __init__(self, env, params):
@@ -142,7 +142,7 @@ class ReachabilityCuriosityModule(CuriosityModule):
                 session, next_obs, infos, self.episodic_maps, self.reachability, on_new_landmark=on_new_landmark,
             )
             assert len(distances_to_memory) == len(next_obs)
-            threshold = self.params.new_landmark_threshold
+            threshold = 0.5
             dense_rewards = np.array([
                 0.0 if done else dist - threshold for (dist, done) in zip(distances_to_memory, dones)
             ])

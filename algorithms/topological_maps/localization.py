@@ -37,6 +37,7 @@ class Localizer:
         if timing is None:
             timing = Timing()
 
+        # calculate feature vectors for new observations
         with timing.add_time('encode_obs'):
             obs_hashes = [hash_observation(o) for o in obs]
             self.obs_encoder.encode(session, obs, obs_hashes)

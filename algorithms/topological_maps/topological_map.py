@@ -38,10 +38,9 @@ class TopologicalMap:
     def __init__(self, initial_obs, directed_graph, initial_info=None, verbose=False):
         self._verbose = verbose
 
-        if directed_graph:
-            self.graph = nx.DiGraph()
-        else:
-            self.graph = nx.Graph()
+        # whether we add edges in both directions or not (directions are always treated separately, hence DiGraph)
+        self.directed_graph = directed_graph
+        self.graph = nx.DiGraph()
 
         self.positions = None
         self.curr_landmark_idx = 0
@@ -126,10 +125,18 @@ class TopologicalMap:
         return new_landmark_idx
 
     def _add_edge(self, i1, i2):
-        self.graph.add_edge(i1, i2, success=0.01)
+        self.graph.add_edge(i1, i2, success=0.5, last_traversal_frames=math.inf, traversed=False)
+        if not self.directed_graph:
+            self.graph.add_edge(i2, i1, success=0.5, last_traversal_frames=math.inf, traversed=False)
 
     def _remove_edge(self, i1, i2):
         self.graph.remove_edge(i1, i2)
+        if not self.directed_graph:
+            self.graph.remove_edge(i2, i1)
+
+    def remove_edges_from(self, edges):
+        for e in edges:
+            self._remove_edge(*e)
 
     def num_edges(self):
         """Helper function for summaries."""
@@ -138,27 +145,12 @@ class TopologicalMap:
     def num_landmarks(self):
         return self.graph.number_of_nodes()
 
-    def update_edge_traversal(self, i1, i2, success):
+    def update_edge_traversal(self, i1, i2, success, frames):
+        """Update traversal information only for one direction."""
         prev_value = self.graph[i1][i2]['success']
         self.graph[i1][i2]['success'] = 0.5 * (prev_value + success)
-
-    def _prune_edges(self, threshold=0.2):
-        """Remove edges with very low chance of traversal success"""
-        remove_list = []
-        for i1, i2, data in self.graph.edges(data=True):
-            if data['success'] <= threshold:
-                remove_list.append((i1, i2))
-
-        if len(remove_list) > 0:
-            log.info('Prune: removing edges %r', remove_list)
-            self.graph.remove_edges_from(remove_list)
-
-    def _prune_nodes(self, chance=0.1):
-        num_to_remove = int(self.num_landmarks() * chance)
-        remove_list = random.sample(self.graph.nodes, num_to_remove)
-        if 0 in remove_list:
-            remove_list.remove(0)
-        self.graph.remove_nodes_from(remove_list)
+        self.graph[i1][i2]['last_traversal_frames'] = frames
+        self.graph[i1][i2]['traversed'] = True
 
     # noinspection PyUnusedLocal
     @staticmethod

@@ -54,7 +54,7 @@ class TestGraph(TestCase):
 
     def test_shortest(self):
         m = TopologicalMap(np.array(0), directed_graph=False)
-        for i in range(4):
+        for i in range(5):
             m.add_landmark(np.array(0))
 
         m.graph.remove_edges_from(list(m.graph.edges))
