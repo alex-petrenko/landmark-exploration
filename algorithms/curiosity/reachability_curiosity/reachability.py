@@ -64,6 +64,10 @@ class ReachabilityNetwork:
             self.encoded_observation = self.first_encoded
 
     def get_probabilities(self, session, obs_first_encoded, obs_second_encoded):
+        assert len(obs_first_encoded) == len(obs_second_encoded)
+        if len(obs_first_encoded) <= 0:
+            return []
+
         probabilities = session.run(
             self.probabilities,
             feed_dict={self.first_encoded: obs_first_encoded, self.second_encoded: obs_second_encoded},

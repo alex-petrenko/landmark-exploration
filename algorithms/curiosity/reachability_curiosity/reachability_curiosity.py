@@ -167,7 +167,8 @@ class ReachabilityCuriosityModule(CuriosityModule):
                 # invalidate observation features because reachability network has changed
                 self.obs_encoder.reset()
 
-        if env_steps > self.params.reachability_bootstrap:
+        if env_steps > self.params.reachability_bootstrap and not self.is_initialized():
+            log.debug('Curiosity is initialized @ %d steps!', env_steps)
             self.initialized = True
 
     def set_trajectory_buffer(self, trajectory_buffer):

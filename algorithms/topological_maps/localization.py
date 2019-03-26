@@ -45,6 +45,9 @@ class Localizer:
         # create a batch of all neighborhood observations from all envs for fast processing on GPU
         neighborhood_obs, neighborhood_hashes, current_obs = [], [], []
         for env_i, m in enumerate(maps):
+            if m is None:
+                continue
+
             neighbor_indices = m.neighborhood()
             neighborhood_obs.extend([m.get_observation(i) for i in neighbor_indices])
             neighborhood_hashes.extend([m.get_hash(i) for i in neighbor_indices])
@@ -68,6 +71,9 @@ class Localizer:
 
         j = 0
         for env_i, m in enumerate(maps):
+            if m is None:
+                continue
+
             neighbor_indices = m.neighborhood()
             j_next = j + len(neighbor_indices)
             distance = distances[j:j_next]
@@ -108,6 +114,9 @@ class Localizer:
         current_obs = []
         for env_i in new_landmark_candidates:
             m = maps[env_i]
+            if m is None:
+                continue
+
             non_neighbor_indices = m.curr_non_neighbors()
             non_neighborhoods[env_i] = non_neighbor_indices
             non_neighborhood_obs.extend([m.get_observation(i) for i in non_neighbor_indices])
@@ -133,6 +142,9 @@ class Localizer:
         j = 0
         for env_i in new_landmark_candidates:
             m = maps[env_i]
+            if m is None:
+                continue
+
             non_neighbor_indices = non_neighborhoods[env_i]
             j_next = j + len(non_neighbor_indices)
             distance = distances[j:j_next]
@@ -172,7 +184,11 @@ class Localizer:
 
         # update localization info
         for env_i in range(self.num_envs):
+            m = maps[env_i]
+            if m is None:
+                continue
+
             assert closest_landmark_idx[env_i] >= 0
-            maps[env_i].closest_landmarks.append(closest_landmark_idx[env_i])
+            m.closest_landmarks.append(closest_landmark_idx[env_i])
 
         return closest_landmark_dist

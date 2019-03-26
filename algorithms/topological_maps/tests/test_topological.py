@@ -64,6 +64,9 @@ class TestGraph(TestCase):
         m._add_edge(1, 3)
         m._add_edge(2, 3)
 
+        path_lengths = m.path_lengths(0)
+        log.debug('Path lenghts from %d: %r', 0, path_lengths)
+
         reachable_indices_0 = m.reachable_indices(0)
         log.debug('Reachable from %d: %r', 0, reachable_indices_0)
 

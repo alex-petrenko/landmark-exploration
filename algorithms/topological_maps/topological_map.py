@@ -126,7 +126,7 @@ class TopologicalMap:
         return new_landmark_idx
 
     def _add_edge(self, i1, i2):
-        self.graph.add_edge(i1, i2, success=0.5)
+        self.graph.add_edge(i1, i2, success=0.01)
 
     def _remove_edge(self, i1, i2):
         self.graph.remove_edge(i1, i2)
@@ -160,15 +160,19 @@ class TopologicalMap:
             remove_list.remove(0)
         self.graph.remove_nodes_from(remove_list)
 
-    def get_path(self, from_idx, to_idx):
-        # noinspection PyUnusedLocal
-        def edge_weight(i1, i2, d):
-            return -math.log(d['success'])
+    # noinspection PyUnusedLocal
+    @staticmethod
+    def _edge_weight(i1, i2, d):
+        return -math.log(d['success'])  # weight of the edge is neg. log probability of traversal success
 
+    def get_path(self, from_idx, to_idx):
         try:
-            return nx.dijkstra_path(self.graph, from_idx, to_idx, weight=edge_weight)
+            return nx.dijkstra_path(self.graph, from_idx, to_idx, weight=self._edge_weight)
         except nx.exception.NetworkXNoPath:
             return None
+
+    def path_lengths(self, from_idx):
+        return nx.shortest_path_length(self.graph, from_idx, weight=self._edge_weight)
 
     def topological_distances(self, from_idx):
         return nx.shortest_path_length(self.graph, from_idx)
