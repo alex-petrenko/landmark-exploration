@@ -364,7 +364,7 @@ class TmaxManager:
         m = self.persistent_maps[env_i]
 
         # remove individual edges with low probability
-        remove_edges = []
+        remove_edges = set()  # unique edges, to avoid deleting the same edge twice
         g = m.graph
         for e in g.edges():
             i1, i2 = e
@@ -378,9 +378,9 @@ class TmaxManager:
 
             # remove edge if it's useless in both directions
             if unreliable_edge or edge_too_short:
-                remove_edges.append(e)
+                remove_edges.add(e)
 
-        m.remove_edges_from(remove_edges)
+        m.remove_edges_from(list(remove_edges))
 
         accessible_targets = self._accessible_targets(env_i, curr_landmark_idx=0)
         remove_vertices = []
@@ -1017,7 +1017,7 @@ class AgentTMAX(AgentLearner):
         trajectories_locomotion = []
 
         for trajectory in trajectory_buffer.complete_trajectories[:num_envs]:
-            if all(mode == TmaxMode.LOCOMOTION for mode in trajectory.modes):
+            if all(mode == TmaxMode.LOCOMOTION for mode in trajectory.mode):
                 trajectories_locomotion.append(numpy_all_the_way(trajectory.obs)[:, :, :, -3:])
             else:
                 trajectories.append(numpy_all_the_way(trajectory.obs)[:, :, :, -3:])

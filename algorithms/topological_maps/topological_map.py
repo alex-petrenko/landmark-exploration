@@ -130,9 +130,11 @@ class TopologicalMap:
             self.graph.add_edge(i2, i1, success=0.5, last_traversal_frames=math.inf, traversed=False)
 
     def _remove_edge(self, i1, i2):
-        self.graph.remove_edge(i1, i2)
+        if i2 in self.graph[i1]:
+            self.graph.remove_edge(i1, i2)
         if not self.directed_graph:
-            self.graph.remove_edge(i2, i1)
+            if i1 in self.graph[i2]:
+                self.graph.remove_edge(i2, i1)
 
     def remove_edges_from(self, edges):
         for e in edges:
