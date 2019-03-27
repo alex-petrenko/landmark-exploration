@@ -179,13 +179,13 @@ class TestGraph(TestCase):
 
         for i in range(1, 4):
             for j in range(1, 4):
-                m.add_landmark(np.array(0), {'pos': {'agent_x': 300 + i, 'agent_y': 400 + j, 'agent_a': 10}})
+                m.add_landmark(np.array(0), {'pos': {'agent_x': 300 + 50*i, 'agent_y': 400 + 100*j, 'agent_a': 10}})
 
         import cv2
-        img = cv2.imread("/home/gautam/curiosity/landmark-exploration/misc/airlines.jpg")
+        img = cv2.imread("/home/gautam/curiosity/landmark-exploration/playground/doom_textured_easy.png")
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         graph = m.labeled_graph
-        figure = plot_graph(graph, automap=img, layout='pos')
+        figure = plot_graph(graph, map_img=img, layout='pos')
 
         show = True
         if show:

@@ -36,15 +36,24 @@ def plot_graph(nx_graph, layout, map_img=None, node_size=80):
         # ax.imshow(map_img)
         import numpy as np
         map_img = np.array(map_img).astype(np.float) / 255
-        height = 0
-        figure.figimage(map_img, 0, height)
+        figure.figimage(map_img, 0, 0)
+        width, height = map_img.shape[:2]
+        dpi = 80
+        plt.close('all')
+        figure = plt.figure(num=2, figsize=(height//dpi + 1, width//dpi + 1), dpi=dpi, facecolor='none', edgecolor='k')
+        ax = plt.gca()
+        ax.set_xlim([0, 2000])
+        ax.set_ylim([0, 2000])
+        # figure.figimage(automap, 0, 0)
+    ax = plt.gca()
+    ax.set_aspect('equal')
+    ax.grid(True, which='both')
+    ax.patch.set_facecolor('none')
     nx.draw(
         nx_graph, pos, node_size=node_size, node_color=list(range(len(nx_graph.nodes))), edge_color='#cccccc',
         cmap=plt.cm.get_cmap('plasma'), with_labels=True, font_color='#00ff00', font_size=7,
     )
-    ax = plt.gca()
-    ax.set_aspect('equal')
-    ax.grid(True, which='both')
+    plt.show()
     return figure
 
 
