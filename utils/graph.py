@@ -5,7 +5,7 @@ import networkx as nx
 import tensorflow as tf
 from matplotlib import pyplot as plt
 
-from utils.utils import ensure_dir_exists
+from utils.utils import ensure_dir_exists, crop_map_image
 
 
 def parse_layout(nx_graph, layout):
@@ -34,7 +34,6 @@ def plot_graph(nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856,
     figure = plt.gcf()
     figure.clear()
     if map_img is not None:
-        # ax.imshow(map_img)
         import numpy as np
         map_img = np.array(map_img).astype(np.float) / 255
         figure.figimage(map_img, 0, 0)
@@ -55,14 +54,11 @@ def plot_graph(nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856,
     )
     plt.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
 
-    figure.savefig("/home/gautam/figure.png", pad_inches=0)
-    plt.savefig("/home/gautam/plot.png", pad_inches=0)
-    # plt.show()
     return figure
 
 
-def visualize_graph_tensorboard(nx_graph, tag, layout='pos', map_img=None):
-    figure = plot_graph(nx_graph, layout, map_img=map_img)
+def visualize_graph_tensorboard(nx_graph, tag, layout='pos', map_img=None, coord_limits=None):
+    figure = plot_graph(nx_graph, layout, map_img=crop_map_image(map_img), limits=coord_limits)
     w, h = figure.canvas.get_width_height()
 
     buffer = io.BytesIO()

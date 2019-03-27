@@ -177,6 +177,8 @@ def get_experiment_name(env_id, name):
 def crop_map_image(image_array):
     """Uses Python Image Library (PIL) to crop the borders of an image"""
     # TODO: Use openCV instead of PIL?
+    if image_array is None:
+        return None
     from PIL import Image, ImageChops
     import numpy as np
     buffer = Image.fromarray(image_array)
