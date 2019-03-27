@@ -192,10 +192,11 @@ class TmaxManager:
     (potentially) multi-env setting.
     """
 
-    def __init__(self, agent):
+    def __init__(self, agent, map_img=None):
         self.initialized = False
         self._verbose = False
 
+        self.map_img = map_img
         self.agent = agent
         self.curiosity = agent.curiosity
         self.params = agent.params
@@ -892,6 +893,7 @@ class AgentTMAX(AgentLearner):
         self.curiosity = ReachabilityCuriosityModule(env, params)
         self.curiosity.reachability_buffer = TmaxReachabilityBuffer(params)
 
+        map_img = None
         try:
             if env.unwrapped.level == 12:
                 from vizdoom import ScreenResolution
@@ -959,7 +961,7 @@ class AgentTMAX(AgentLearner):
         slim.model_analyzer.analyze_vars(all_vars, print_info=True)
 
         # auxiliary stuff not related to the computation graph
-        self.tmax_mgr = TmaxManager(self)
+        self.tmax_mgr = TmaxManager(self, map_img)
 
     @staticmethod
     def add_ppo_objectives(actor_critic, actions, old_action_probs, advantages, returns, masks, params, step):
@@ -1106,7 +1108,7 @@ class AgentTMAX(AgentLearner):
 
     def _maybe_tmax_summaries(self, tmax_mgr, env_steps):
         maps = tmax_mgr.current_maps
-        map_summaries(maps, env_steps, self.summary_writer, 'tmax_maps')
+        map_summaries(maps, env_steps, self.summary_writer, 'tmax_maps', tmax_mgr.map_img)
 
         map_summaries([tmax_mgr.persistent_maps[-1]], env_steps, self.summary_writer, 'tmax_persistent_map')
         map_summaries([tmax_mgr.accessible_region], env_steps, self.summary_writer, 'tmax_accessible_region')

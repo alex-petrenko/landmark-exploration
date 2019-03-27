@@ -214,10 +214,9 @@ class TopologicalMap:
         return g
 
 
-def map_summaries(maps, env_steps, summary_writer, section):
+def map_summaries(maps, env_steps, summary_writer, section, map_img=None):
     if None in maps:
         return
-
     # summaries related to episodic memory (maps)
     num_landmarks = [m.num_landmarks() for m in maps]
     num_neighbors = [len(m.neighborhood()) for m in maps]
@@ -246,7 +245,7 @@ def map_summaries(maps, env_steps, summary_writer, section):
 
     for i, map_for_summary in enumerate(maps_for_summary):
         random_graph_summary = visualize_graph_tensorboard(
-            map_for_summary.labeled_graph, tag=f'{section}/random_graph_{i}',
+            map_for_summary.labeled_graph, tag=f'{section}/random_graph_{i}', map_img=map_img,
         )
         summary_writer.add_summary(random_graph_summary, env_steps)
 
@@ -255,5 +254,5 @@ def map_summaries(maps, env_steps, summary_writer, section):
         if m.num_landmarks() > maps[max_graph_idx].num_landmarks():
             max_graph_idx = i
 
-    max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].labeled_graph, tag=f'{section}/max_graph')
+    max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].labeled_graph, tag=f'{section}/max_graph', map_img=map_img)
     summary_writer.add_summary(max_graph_summary, env_steps)

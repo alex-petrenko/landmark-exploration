@@ -20,7 +20,7 @@ def parse_layout(nx_graph, layout):
     return pos
 
 
-def plot_graph(nx_graph, layout, automap=None, node_size=80):
+def plot_graph(nx_graph, layout, map_img=None, node_size=80):
     if layout == 'pos':
         for node_name in nx_graph.nodes:
             pos = nx_graph.node[node_name].get('pos')
@@ -32,12 +32,12 @@ def plot_graph(nx_graph, layout, automap=None, node_size=80):
 
     figure = plt.gcf()
     figure.clear()
-    if automap is not None:
-        # ax.imshow(automap)
+    if map_img is not None:
+        # ax.imshow(map_img)
         import numpy as np
-        automap = np.array(automap).astype(np.float) / 255
+        map_img = np.array(map_img).astype(np.float) / 255
         height = 0
-        figure.figimage(automap, 0, height)
+        figure.figimage(map_img, 0, height)
     nx.draw(
         nx_graph, pos, node_size=node_size, node_color=list(range(len(nx_graph.nodes))), edge_color='#cccccc',
         cmap=plt.cm.get_cmap('plasma'), with_labels=True, font_color='#00ff00', font_size=7,
@@ -48,8 +48,8 @@ def plot_graph(nx_graph, layout, automap=None, node_size=80):
     return figure
 
 
-def visualize_graph_tensorboard(nx_graph, tag, layout='pos'):
-    figure = plot_graph(nx_graph, layout)
+def visualize_graph_tensorboard(nx_graph, tag, layout='pos', map_img=None):
+    figure = plot_graph(nx_graph, layout, map_img=map_img)
     w, h = figure.canvas.get_width_height()
 
     buffer = io.BytesIO()

@@ -107,7 +107,7 @@ class LocomotionBuffer:
                             obs_curr=trajectory.obs[j],
                             obs_goal=trajectory.obs[l_next],
                             actions=trajectory.actions[j],
-                            mode=trajectory.modes[j],
+                            mode=trajectory.mode[j],
                         )
 
                     training_data.append(traj_buffer)
