@@ -42,7 +42,6 @@ class TopologicalMap:
         self.directed_graph = directed_graph
         self.graph = nx.DiGraph()
 
-        self.positions = None
         self.curr_landmark_idx = 0
 
         # variables needed for online localization
@@ -64,6 +63,11 @@ class TopologicalMap:
         self.new_landmark_candidate_frames = 0
         self.closest_landmarks = []
         self.curr_landmark_idx = 0  # assuming we're being put into the exact same spot every time
+
+        self.relabel_nodes()  # make sure nodes are labeled from 0 to n-1
+
+    def relabel_nodes(self):
+        self.graph = nx.convert_node_labels_to_integers(self.graph)
 
     def _log_verbose(self, msg, *args):
         if not self._verbose:
@@ -180,6 +184,9 @@ class TopologicalMap:
 
 
 def map_summaries(maps, env_steps, summary_writer, section):
+    if None in maps:
+        return
+
     # summaries related to episodic memory (maps)
     num_landmarks = [m.num_landmarks() for m in maps]
     num_neighbors = [len(m.neighborhood()) for m in maps]
@@ -203,7 +210,7 @@ def map_summaries(maps, env_steps, summary_writer, section):
 
     summary_writer.add_summary(summary, env_steps)
 
-    num_maps_to_plot = 3
+    num_maps_to_plot = min(3, len(maps))
     maps_for_summary = random.sample(maps, num_maps_to_plot)
 
     for i, map_for_summary in enumerate(maps_for_summary):

@@ -69,8 +69,7 @@ def make_doom_env(doom_cfg, mode='train', human_input=False, show_automap=False)
     timeout = doom_cfg.default_timeout - 100
     env = TimeLimitWrapper(env, limit=timeout, random_variation_steps=99)
 
-    if mode != 'test':
-        env = SkipFramesWrapper(env, skip_frames=4)
+    env = SkipFramesWrapper(env, skip_frames=4)
 
     if doom_cfg.reward_scaling != 1.0:
         env = RewardScalingWrapper(env, doom_cfg.reward_scaling)

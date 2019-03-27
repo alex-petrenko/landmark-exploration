@@ -34,6 +34,13 @@ class Localizer:
             self._log_verbose('Env %d distance: %r', env_i, neighbor_distance)
 
     def localize(self, session, obs, info, maps, reachability, on_new_landmark=None, on_new_edge=None, timing=None):
+        closest_landmark_idx = [-1] * self.num_envs
+        # closest distance to the landmark in the existing graph (excluding new landmarks)
+        closest_landmark_dist = [math.inf] * self.num_envs
+
+        if all(m is None for m in maps):
+            return closest_landmark_dist
+
         if timing is None:
             timing = Timing()
 
@@ -45,17 +52,22 @@ class Localizer:
 
         # create a batch of all neighborhood observations from all envs for fast processing on GPU
         neighborhood_obs, neighborhood_hashes, current_obs = [], [], []
+        total_num_neighbors = 0
+        neighborhood_sizes = [0] * len(maps)
         for env_i, m in enumerate(maps):
             if m is None:
                 continue
 
             neighbor_indices = m.neighborhood()
+            neighborhood_sizes[env_i] = len(neighbor_indices)
             neighborhood_obs.extend([m.get_observation(i) for i in neighbor_indices])
             neighborhood_hashes.extend([m.get_hash(i) for i in neighbor_indices])
             current_obs.extend([obs_encoded[env_i]] * len(neighbor_indices))
+            total_num_neighbors += len(neighbor_indices)
 
         assert len(neighborhood_obs) == len(current_obs)
         assert len(neighborhood_obs) == len(neighborhood_hashes)
+        assert len(current_obs) == total_num_neighbors
 
         with timing.add_time('neighbor_dist'):
             self.obs_encoder.encode(session, neighborhood_obs, neighborhood_hashes)
@@ -64,11 +76,9 @@ class Localizer:
             # calculate reachability for all neighborhoods in all envs
             distances = reachability.distances(session, neighborhood_encoded, current_obs)
 
-        new_landmark_candidates = []
-        closest_landmark_idx = [-1] * self.num_envs
+        assert len(distances) == total_num_neighbors
 
-        # closest distance to the landmark in the existing graph (excluding new landmarks)
-        closest_landmark_dist = [math.inf] * self.num_envs
+        new_landmark_candidates = []
 
         j = 0
         for env_i, m in enumerate(maps):
@@ -79,7 +89,25 @@ class Localizer:
             j_next = j + len(neighbor_indices)
             distance = distances[j:j_next]
 
+            if len(neighbor_indices) != neighborhood_sizes[env_i]:
+                log.warning(
+                    'For env %d neighbors size expected %d, actual %d',
+                    env_i, neighborhood_sizes[env_i], len(neighbor_indices),
+                )
+
+            assert len(neighbor_indices) == neighborhood_sizes[env_i]
+
             self._log_distances(env_i, neighbor_indices, distance)
+
+            if len(distance) <= 0:
+                log.warning('Distance to neighbors array empty! Neighbors %r, j %d jn %d', m.neighborhood(), j, j_next)
+                log.warning('Current landmark %d', m.curr_landmark_idx)
+                map_sizes = [mp.num_landmarks() if mp is not None else None for mp in maps]
+                log.warning('Map sizes %r', map_sizes)
+                log.warning('Distances array size %d', len(distances))
+                log.warning('Distances array %r', distances)
+
+            j = j_next
 
             # check if we're far enough from all landmarks in the neighborhood
             min_d, min_d_idx = min_with_idx(distance)
@@ -97,8 +125,6 @@ class Localizer:
                 if all(lm == closest_landmark_idx[env_i] for lm in m.closest_landmarks[-self.localize_frames:]):
                     if closest_landmark_idx[env_i] != m.curr_landmark_idx:
                         m.set_curr_landmark(closest_landmark_idx[env_i])
-
-            j = j_next
 
         del neighborhood_obs
         del neighborhood_hashes
@@ -149,6 +175,7 @@ class Localizer:
             non_neighbor_indices = non_neighborhoods[env_i]
             j_next = j + len(non_neighbor_indices)
             distance = distances[j:j_next]
+            j = j_next
 
             min_d, min_d_idx = math.inf, math.inf
             if len(distance) > 0:
@@ -180,8 +207,6 @@ class Localizer:
                         on_new_landmark(env_i)
                 else:
                     m.new_landmark_candidate_frames += 1
-
-            j = j_next
 
         # update localization info
         for env_i in range(self.num_envs):

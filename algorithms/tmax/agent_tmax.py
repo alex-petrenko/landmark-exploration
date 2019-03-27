@@ -203,11 +203,13 @@ class TmaxManager:
         self.neighbors_buffer = np.zeros([
             self.params.num_envs, self.params.max_neighborhood_size, agent.encoded_landmark_size,
         ])
-        self.persistent_maps = None
-        self.prune_persistent_maps_for_locomotion = [False] * self.num_envs
-        self.prune_persistent_maps_for_exploration = [False] * self.num_envs
-        self.map_size_after_prune_for_locomotion = [0] * self.num_envs
-        self.map_size_after_prune_for_exploration = [0] * self.num_envs
+        self.current_maps = None
+        # we need to potentially preserve a few most recent copies of the persistent map
+        # because when we update the persistent map not all of the environments switch to it right away,
+        # we might need to wait until the episode end in all of them
+        self.persistent_maps = deque([])
+
+        self.map_size_before_exploration = self.map_size_before_locomotion = 0
 
         self.landmarks_encoder = ObservationEncoder(agent.actor_critic.encode_landmarks)
 
@@ -221,12 +223,11 @@ class TmaxManager:
         self.locomotion_achieved_goal = deque([])
         self.locomotion_traversal_length = deque([])
 
-        self.stage = TmaxMode.EXPLORATION
+        self.global_stage = TmaxMode.EXPLORATION
         self.last_stage_change = self.params.reachability_bootstrap
 
         self.mode = [TmaxMode.EXPLORATION] * self.num_envs
-
-        self.need_reset = [True] * self.num_envs
+        self.env_stage = [TmaxMode.EXPLORATION] * self.num_envs
 
         self.idle_frames = [0] * self.num_envs
         self.action_frames = [np.random.randint(1, 3) for _ in range(self.num_envs)]
@@ -239,9 +240,11 @@ class TmaxManager:
         if self.initialized:
             return
 
-        self.persistent_maps = []
+        self.current_maps = []
         for i in range(self.num_envs):
-            self.persistent_maps.append(TopologicalMap(obs[i], directed_graph=False, initial_info=info[i]))
+            self.current_maps.append(TopologicalMap(obs[i], directed_graph=False, initial_info=info[i]))
+
+        self.persistent_maps.append(TopologicalMap(obs[0], directed_graph=False, initial_info=info[0]))
 
         self.last_stage_change = max(self.last_stage_change, env_steps)
 
@@ -260,9 +263,9 @@ class TmaxManager:
             assert self.mode[env_i] == TmaxMode.LOCOMOTION
             locomotion_target_idx = self.locomotion_targets[env_i]
             assert locomotion_target_idx is not None
-            target_obs = self.persistent_maps[env_i].get_observation(locomotion_target_idx)
+            target_obs = self.current_maps[env_i].get_observation(locomotion_target_idx)
             targets.append(target_obs)
-            target_hashes.append(self.persistent_maps[env_i].get_hash(locomotion_target_idx))
+            target_hashes.append(self.current_maps[env_i].get_hash(locomotion_target_idx))
 
         assert len(targets) == len(env_indices)
         return targets, target_hashes
@@ -273,7 +276,7 @@ class TmaxManager:
         final_target = self.locomotion_final_targets[env_i]
         assert final_target is not None
 
-        m = self.persistent_maps[env_i]
+        m = self.current_maps[env_i]
         path = m.get_path(curr_landmark_idx, final_target)
         assert path is not None  # final goal should always be reachable!
 
@@ -282,7 +285,7 @@ class TmaxManager:
 
         if curr_landmark_idx == final_target or len(path) <= 1:
             # we reached the final target
-            if self.stage == TmaxMode.EXPLORATION:
+            if self.env_stage[env_i] == TmaxMode.EXPLORATION:
                 # reached the target, switch to exploration policy
                 self.mode[env_i] = TmaxMode.EXPLORATION
                 self.locomotion_prev[env_i] = None
@@ -301,7 +304,7 @@ class TmaxManager:
             self.locomotion_targets[env_i] = path[1]  # next vertex on the path
 
     def _accessible_targets(self, env_i, curr_landmark_idx):
-        m = self.persistent_maps[env_i]
+        m = self.current_maps[env_i]
         reliable_path_length = -math.log(self.params.reliable_path_probability)
         path_lengths_to_targets = m.path_lengths(curr_landmark_idx)
 
@@ -313,10 +316,10 @@ class TmaxManager:
         return accessible_targets
 
     def _get_locomotion_final_goal(self, env_i, curr_landmark_idx):
-        m = self.persistent_maps[env_i]
+        m = self.current_maps[env_i]
         reachable_indices = m.reachable_indices(curr_landmark_idx)
 
-        if self.stage == TmaxMode.LOCOMOTION:
+        if self.env_stage[env_i] == TmaxMode.LOCOMOTION:
             # sample anything except starting landmark
             reachable_indices.remove(curr_landmark_idx)
             assert len(reachable_indices) > 0  # should always be true because we check during stage change
@@ -333,9 +336,27 @@ class TmaxManager:
 
         return locomotion_goal_idx
 
-    def _prune_persistent_map_for_locomotion(self, env_i, env_steps):
-        """Keep only vertices topologically close to starting location (progressively grow the map)."""
-        m = self.persistent_maps[env_i]
+    def _prepare_persistent_map_for_locomotion(self, env_steps):
+        """
+        Keep only vertices topologically close to starting location (progressively grow the map).
+        This is kind of natural curriculum, to avoid making problem too complex from the very beginning.
+        TODO: instead, allow map to grow 1 edge at a time from the previous map
+        """
+        # select the map with most landmarks
+        locomotion_map_idx = 0
+        maps = self.current_maps
+
+        for env_i in range(self.num_envs):
+            if maps[env_i].num_landmarks() > maps[locomotion_map_idx].num_landmarks():
+                locomotion_map_idx = env_i
+
+        log.debug(
+            'Map %d is selected as a locomotion map, with %d landmarks',
+            locomotion_map_idx, maps[locomotion_map_idx].num_landmarks(),
+        )
+
+        # TODO: remove all the localization variables from the map and move them to localizer
+        m = copy.deepcopy(maps[locomotion_map_idx])
         topological_distances = m.topological_distances(from_idx=0)  # 0 = first landmark
 
         remove_nodes = []
@@ -351,29 +372,33 @@ class TmaxManager:
 
         m.graph.remove_nodes_from(remove_nodes)
 
+        m.new_episode()
+
         topological_distances = m.topological_distances(from_idx=0)
         assert all(d <= max_dist for d in topological_distances.values())
 
-        # log.info('Pruned map %d, nodes %r, distances %r', env_i, m.graph.nodes, m.topological_distances(from_idx=0))
+        self.map_size_before_locomotion = m.num_landmarks()
+        self.persistent_maps.append(m)
+        log.debug(
+            'Pruned map %d, nodes %r, distances %r, num persistent maps %d',
+            locomotion_map_idx, m.graph.nodes, m.topological_distances(from_idx=0), len(self.persistent_maps),
+        )
 
-        self.prune_persistent_maps_for_locomotion[env_i] = False
-        self.map_size_after_prune_for_locomotion[env_i] = m.num_landmarks()
-
-    def _prune_persistent_map_for_exploration(self, env_i):
+    def _prepare_persistent_map_for_exploration(self):
         """Keep only edges with high probability of success, delete inaccessible vertices."""
-        m = self.persistent_maps[env_i]
+        m = copy.deepcopy(self.persistent_maps[-1])  # copy newest persistent map
 
         # remove individual edges with low probability
         remove_edges = set()  # unique edges, to avoid deleting the same edge twice
         g = m.graph
         for e in g.edges():
             i1, i2 = e
-            unreliable_edge = g[i1][i2]['success'] < self.params.reliable_path_probability
-            unreliable_edge_back = g[i2][i1]['success'] < self.params.reliable_path_probability
+            unreliable_edge = g[i1][i2]['success'] < self.params.reliable_edge_probability
+            unreliable_edge_back = g[i2][i1]['success'] < self.params.reliable_edge_probability
             unreliable_edge = unreliable_edge and unreliable_edge_back
 
-            edge_too_short = g[i1][i2]['last_traversal_frames'] < self.params.reachable_threshold
-            edge_too_short_back = g[i2][i1]['last_traversal_frames'] < self.params.reachable_threshold
+            edge_too_short = g[i1][i2]['last_traversal_frames'] < self.params.reachable_threshold // 2
+            edge_too_short_back = g[i2][i1]['last_traversal_frames'] < self.params.reachable_threshold // 2
             edge_too_short = edge_too_short and edge_too_short_back
 
             # remove edge if it's useless in both directions
@@ -382,97 +407,104 @@ class TmaxManager:
 
         m.remove_edges_from(list(remove_edges))
 
-        accessible_targets = self._accessible_targets(env_i, curr_landmark_idx=0)
+        # remove all isolated (non-reachable) vertices
+        reachable_targets = m.reachable_indices(0)
         remove_vertices = []
         for target_idx in m.graph.nodes():
-            if target_idx not in accessible_targets:
+            if target_idx not in reachable_targets:
                 remove_vertices.append(target_idx)
 
         assert len(remove_vertices) < len(m.graph.nodes)
         m.graph.remove_nodes_from(remove_vertices)
 
-        log.info('Prune map for exploration env %d, remove vertices %r', env_i, remove_vertices)
+        m.new_episode()
 
-        self.prune_persistent_maps_for_exploration[env_i] = False
-        self.map_size_after_prune_for_exploration[env_i] = m.num_landmarks()
+        self.map_size_before_exploration = m.num_landmarks()
+        self.persistent_maps.append(m)
+        log.info(
+            'Prune map for exploration, vertices %d, remove vertices %r, num persistent maps %d',
+            m.num_landmarks(), remove_vertices, len(self.persistent_maps),
+        )
 
-    def _reset_episodic_map(self, env_i, next_obs, info):
-        """
-        Reset episodic map to the accessible portion of the persistent map.
-        The idea is the following:
-        - in the beginning of each episode in Exploration mode we use locomotion policy to navigate to some location
-        from the map
-        - all accessible locations from the persistent maps are added to the episodic memory, so the agent will
-        receive negative reward for staying in the easily accessible area, therefore be encouraged to discover new
-        states beyond those already accessible by locomotion policy.
-        """
-        self.curiosity.episodic_maps[env_i].reset(next_obs, info)
-        accessible_targets = self._accessible_targets(env_i, curr_landmark_idx=0)
-
-        m = self.persistent_maps[env_i]
-        accessible_subgraph = m.graph.subgraph(accessible_targets).copy()
-
-        self.curiosity.episodic_maps[env_i].graph = accessible_subgraph
+    def _reset_episodic_map(self, env_i):
+        self.curiosity.episodic_maps[env_i] = copy.deepcopy(self.persistent_maps[-1])
         self.curiosity.episodic_maps[env_i].new_episode()
 
-    def _new_episode(self, env_i, next_obs, info, env_steps):
-        m = self.persistent_maps[env_i]
-        m.new_episode()
-        if self.stage == TmaxMode.LOCOMOTION and self.prune_persistent_maps_for_locomotion[env_i]:
-            self._prune_persistent_map_for_locomotion(env_i, env_steps)
+    def _new_episode(self, env_i):
+        if self.global_stage == TmaxMode.LOCOMOTION:
+            self.current_maps[env_i] = self.persistent_maps[-1]  # use literally the same map instance in all envs
+        else:
+            if self.global_stage != self.env_stage[env_i]:
+                # update map!
+                self.current_maps[env_i] = copy.deepcopy(self.persistent_maps[-1])
 
-        if self.stage == TmaxMode.EXPLORATION and self.prune_persistent_maps_for_exploration[env_i]:
-            self._prune_persistent_map_for_exploration(env_i)
+        self.env_stage[env_i] = self.global_stage
 
-        self._reset_episodic_map(env_i, next_obs, info)
+        self.current_maps[env_i].new_episode()
 
-        self.episode_frames[env_i] = 0
+        # delete old persistent maps that aren't used anymore
+        while len(self.persistent_maps) > 1:
+            used_by_env = False
+            for i in range(self.num_envs):
+                if self.current_maps[i] is self.persistent_maps[0]:
+                    used_by_env = True
+            if not used_by_env:
+                log.debug(
+                    'Delete old persistent map with %d landmarks, it is not used anymore!',
+                    self.persistent_maps[0].num_landmarks(),
+                )
+                self.persistent_maps.popleft()
+            else:
+                break
+
+        self._reset_episodic_map(env_i)
+
+        self.episode_frames[env_i] = self.last_locomotion_success[env_i] = 0
         self.episode_locomotion_reward[env_i] = 0
 
         self.locomotion_prev[env_i] = None
         self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
-        self.last_locomotion_success[env_i] = 0
 
         # only for montezuma
         self.idle_frames[env_i] = 0
         self.action_frames[env_i] = np.random.randint(1, 3)
 
-        locomotion_goal_idx = self._get_locomotion_final_goal(env_i, m.curr_landmark_idx)
-        if self.stage == TmaxMode.LOCOMOTION:
-            assert locomotion_goal_idx != m.curr_landmark_idx
+        curr_landmark_idx = 0
+        locomotion_goal_idx = self._get_locomotion_final_goal(env_i, curr_landmark_idx)
+        if self.env_stage[env_i] == TmaxMode.LOCOMOTION:
+            assert locomotion_goal_idx != curr_landmark_idx
 
         self.mode[env_i] = TmaxMode.LOCOMOTION
         self.locomotion_final_targets[env_i] = locomotion_goal_idx
-        self._select_next_locomotion_target(env_i, m.curr_landmark_idx, verbose=True)
+        self._select_next_locomotion_target(env_i, curr_landmark_idx, verbose=True)
 
         assert self.mode[env_i] is not None
         if self.mode[env_i] == TmaxMode.LOCOMOTION:
-            assert self.locomotion_prev[env_i] == m.curr_landmark_idx
+            assert self.locomotion_prev[env_i] == curr_landmark_idx
             assert self.locomotion_targets[env_i] is not None
             assert self.locomotion_final_targets[env_i] is not None
 
     def _update_stage(self, env_steps):
         stage_changed = False
         if env_steps - self.last_stage_change > self.params.stage_duration:
-            if self.stage == TmaxMode.EXPLORATION:
+            if self.global_stage == TmaxMode.EXPLORATION:
                 # it's time to switch to locomotion stage, but only if all the persistent maps are not empty
                 # (so we can have some locomotion targets)
-                num_non_empty_maps = 0
+                has_non_empty_map = False
                 for env_i in range(self.num_envs):
-                    if len(self.persistent_maps[env_i].reachable_indices(0)) > 1:
-                        num_non_empty_maps += 1
+                    if len(self.current_maps[env_i].reachable_indices(0)) > 1:
+                        has_non_empty_map = True
+                        break
 
-                if num_non_empty_maps >= self.num_envs:
+                if has_non_empty_map:
                     # all the maps are non-empty, we can change to locomotion
-                    self.stage = TmaxMode.LOCOMOTION
-                    for env_i in range(self.num_envs):
-                        self.prune_persistent_maps_for_locomotion[env_i] = True
+                    self.global_stage = TmaxMode.LOCOMOTION
+                    self._prepare_persistent_map_for_locomotion(env_steps)
                     stage_changed = True
-                    log.debug('Stage changed to Locomotion (%d)', num_non_empty_maps)
+                    log.debug('Stage changed to Locomotion')
             else:
-                self.stage = TmaxMode.EXPLORATION
-                for env_i in range(self.num_envs):
-                    self.prune_persistent_maps_for_exploration[env_i] = True
+                self.global_stage = TmaxMode.EXPLORATION
+                self._prepare_persistent_map_for_exploration()
                 stage_changed = True
                 log.debug('Stage changed to Exploration')
 
@@ -489,7 +521,7 @@ class TmaxManager:
         maps = [None] * self.num_envs
         for env_i in range(self.num_envs):
             if self.mode[env_i] == TmaxMode.EXPLORATION:
-                maps[env_i] = self.persistent_maps[env_i]
+                maps[env_i] = self.current_maps[env_i]
 
         self.localizer.localize(
             self.agent.session, next_obs, infos, maps, self.curiosity.reachability,
@@ -531,54 +563,73 @@ class TmaxManager:
             return rewards, locomotion_dones
 
         distances = self._distance_to_locomotion_targets(next_obs)
-        for env_i in range(self.num_envs):
-            # TODO: stop locomotion by timer if we in exploration stage?
+        successful_traversal_frames = self.params.successful_traversal_frames
 
+        for env_i in range(self.num_envs):
             if self.mode[env_i] != TmaxMode.LOCOMOTION:
                 continue
 
-            if dones[env_i]:
+            since_last_success = self.episode_frames[env_i] - self.last_locomotion_success[env_i]
+
+            episode_ended = dones[env_i]
+            locomotion_timed_out = \
+                self.env_stage[env_i] == TmaxMode.EXPLORATION \
+                and since_last_success > successful_traversal_frames
+
+            locomotion_failed = episode_ended or locomotion_timed_out
+
+            if locomotion_failed:
                 # locomotion not successful
-                self.persistent_maps[env_i].update_edge_traversal(
+                locomotion_dones[env_i] = True
+
+                self.current_maps[env_i].update_edge_traversal(
                     self.locomotion_prev[env_i], self.locomotion_targets[env_i], 0, frames=math.inf,
                 )
                 self.locomotion_achieved_goal.append(0)
+                rewards[env_i] -= 5.0  # failed locomotion, to prevent being attracted by the goal
+
                 log.info(
-                    'Locomotion failed dist %.3f, prev %d, goal %d, frame %d',
+                    'Locomotion failed dist %.3f, prev %d, goal %d, frame %d, since last success %d',
                     distances[env_i], self.locomotion_prev[env_i],
-                    self.locomotion_targets[env_i], self.episode_frames[env_i],
+                    self.locomotion_targets[env_i], self.episode_frames[env_i], since_last_success,
                 )
+
+                if locomotion_timed_out:
+                    self.mode[env_i] = TmaxMode.EXPLORATION
+                    self.locomotion_prev[env_i] = None
+                    self.locomotion_targets[env_i] = None
+                    self.locomotion_final_targets[env_i] = None
+
                 continue
 
             assert distances[env_i] is not None and 0.0 <= distances[env_i] <= 1.0
 
-            rewards[env_i] -= distances[env_i] * 0.1  # scaling factor for dense reward
+            rewards[env_i] -= distances[env_i] * 0.05  # scaling factor for dense reward
 
             if distances[env_i] < self.params.locomotion_reached_threshold:  # TODO: low-pass filter?
                 # reached the target!
                 curr_landmark_idx = self.locomotion_targets[env_i]
-                took_frames = self.episode_frames[env_i] - self.last_locomotion_success[env_i]
+
                 rewards[env_i] += 1
 
                 log.info(
                     'Locomotion net gets reward +1! (%.3f) dist %.3f, prev %d, goal %d, frame %d, took %d env %d',
                     rewards[env_i], distances[env_i], self.locomotion_prev[env_i],
-                    curr_landmark_idx, self.episode_frames[env_i], took_frames, env_i,
+                    curr_landmark_idx, self.episode_frames[env_i], since_last_success, env_i,
                 )
 
                 locomotion_dones[env_i] = True
-                is_success = 1 if took_frames < 100 else 0
-                self.persistent_maps[env_i].update_edge_traversal(
-                    self.locomotion_prev[env_i], self.locomotion_targets[env_i], is_success, frames=took_frames,
+                is_success = 1 if since_last_success < successful_traversal_frames else 0
+                self.current_maps[env_i].update_edge_traversal(
+                    self.locomotion_prev[env_i], self.locomotion_targets[env_i], is_success, frames=since_last_success,
                 )
                 self.last_locomotion_success[env_i] = self.episode_frames[env_i]
                 self.locomotion_achieved_goal.append(1)
-                self.locomotion_traversal_length.append(took_frames)
+                self.locomotion_traversal_length.append(since_last_success)
 
                 self._select_next_locomotion_target(env_i, curr_landmark_idx)
                 if self.mode[env_i] != TmaxMode.LOCOMOTION:
                     log.info('Reached the locomotion goal and switched to exploration')
-                    locomotion_dones[env_i] = True
 
         return rewards, locomotion_dones
 
@@ -587,7 +638,7 @@ class TmaxManager:
         if timing is None:
             timing = Timing()
 
-        assert len(obs) == len(self.persistent_maps)
+        assert len(obs) == len(self.current_maps)
 
         with timing.add_time('curiosity'):
             curiosity_bonus = self.curiosity.generate_bonus_rewards(
@@ -602,7 +653,7 @@ class TmaxManager:
 
         for env_i in range(self.num_envs):
             if dones[env_i]:
-                self._new_episode(env_i, next_obs[env_i], infos[env_i], env_steps)
+                self._new_episode(env_i)
             else:
                 self.episode_frames[env_i] += 1
 
@@ -623,10 +674,8 @@ class TmaxManager:
                     augmented_rewards[env_i] += curiosity_bonus[env_i]
                 done_flags[env_i] = dones[env_i]
             else:
-                augmented_rewards[env_i] = 0.0
-                if not dones[env_i]:
-                    augmented_rewards[env_i] += locomotion_rewards[env_i]
-                    self.episode_locomotion_reward[env_i] += locomotion_rewards[env_i]
+                augmented_rewards[env_i] = locomotion_rewards[env_i]
+                self.episode_locomotion_reward[env_i] += locomotion_rewards[env_i]
                 done_flags[env_i] = dones[env_i] or locomotion_dones[env_i]
 
         return augmented_rewards, done_flags, modes
@@ -639,7 +688,7 @@ class TmaxManager:
             return None, None
 
         neighbors_buffer = self.neighbors_buffer
-        maps = self.persistent_maps
+        maps = self.current_maps
 
         neighbors_buffer.fill(0)
         num_neighbors = [0] * len(maps)
@@ -707,7 +756,9 @@ class AgentTMAX(AgentLearner):
             self.locomotion_batch_size = 256
             self.rl_locomotion = True
             self.locomotion_reached_threshold = 0.1  # if distance is less than that, we reached the target
-            self.reliable_path_probability = 0.75  # product of probs along the path for it to be considered reliable
+            self.reliable_path_probability = 0.5  # product of probs along the path for it to be considered reliable
+            self.reliable_edge_probability = 0.75
+            self.successful_traversal_frames = 100  # if we traverse an edge in less than that, we succeeded
 
             self.stage_duration = 1000000
 
@@ -957,8 +1008,10 @@ class AgentTMAX(AgentLearner):
         self.summary_writer.flush()
 
     def _maybe_tmax_summaries(self, tmax_mgr, env_steps):
-        maps = tmax_mgr.persistent_maps
+        maps = tmax_mgr.current_maps
         map_summaries(maps, env_steps, self.summary_writer, 'tmax_maps')
+
+        map_summaries([tmax_mgr.persistent_maps[-1]], env_steps, self.summary_writer, 'tmax_persistent_map')
 
         # locomotion summaries
         stats_samples = 300
@@ -977,11 +1030,10 @@ class AgentTMAX(AgentLearner):
             summary_obj.value.add(tag='locomotion/avg_traversal_len', simple_value=np.mean(traversal_len))
 
         traversal_success = []
-        for m in maps:
-            for e, properties in m.graph.edges.items():
-                if properties['traversed']:
-                    traversal_success.append(properties['success'])
-        if len(traversal_success) > 10:
+        for e, properties in tmax_mgr.persistent_maps[-1].graph.edges.items():
+            if properties['traversed']:
+                traversal_success.append(properties['success'])
+        if len(traversal_success) > 0:
             summary_obj.value.add(
                 tag='locomotion/edge_traversal_success', simple_value=np.mean(traversal_success),
             )
@@ -990,15 +1042,17 @@ class AgentTMAX(AgentLearner):
             tag='locomotion/episode_locomotion_reward', simple_value=np.mean(tmax_mgr.episode_locomotion_reward),
         )
         summary_obj.value.add(
-            tag='locomotion/map_after_prune_exploration',
-            simple_value=np.mean(tmax_mgr.map_size_after_prune_for_exploration),
+            tag='tmax_maps/map_size_before_locomotion',
+            simple_value=np.mean(tmax_mgr.map_size_before_locomotion),
         )
         summary_obj.value.add(
-            tag='locomotion/map_after_prune_locomotion',
-            simple_value=np.mean(tmax_mgr.map_size_after_prune_for_locomotion),
+            tag='tmax_maps/map_size_before_exploration',
+            simple_value=np.mean(tmax_mgr.map_size_before_exploration),
         )
 
+        summary_obj.value.add(tag='tmax/global_stage', simple_value=tmax_mgr.global_stage)
         summary_obj.value.add(tag='tmax/avg_mode', simple_value=np.mean(tmax_mgr.mode))
+        summary_obj.value.add(tag='tmax/avg_env_stage', simple_value=np.mean(tmax_mgr.env_stage))
 
         self.summary_writer.add_summary(summary_obj, env_steps)
         self.summary_writer.flush()
@@ -1475,3 +1529,5 @@ class AgentTMAX(AgentLearner):
                 multi_env.close()
 
         return status
+
+# TODO: better heuristic to grow the persistent map (e.g. 1 edge at a time)

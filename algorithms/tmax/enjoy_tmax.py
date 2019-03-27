@@ -8,7 +8,7 @@ from pynput.keyboard import Key, Listener, KeyCode
 from algorithms.algo_utils import main_observation, goal_observation
 from algorithms.env_wrappers import reset_with_info
 from algorithms.tmax.agent_tmax import AgentTMAX
-from algorithms.tmax.tmax_utils import parse_args_tmax
+from algorithms.tmax.tmax_utils import parse_args_tmax, TmaxMode
 from utils.envs.atari import atari_utils
 from utils.envs.doom import doom_utils
 from utils.envs.envs import create_env
@@ -99,7 +99,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
         episode_reward, episode_frames = 0, 0
 
         if agent.tmax_mgr.initialized:
-            agent.tmax_mgr.update([obs], [goal_obs], [True], [info], verbose=True)
+            bonus, _, _ = agent.tmax_mgr.update([obs], [obs], [0], [True], [info], num_frames, verbose=True)
         else:
             agent.tmax_mgr.initialize([obs], [info], env_steps=0)
 
@@ -137,11 +137,15 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
             if policy_type == PolicyType.RANDOM:
                 action = env.action_space.sample()
             elif policy_type == PolicyType.AGENT:
-                action = agent.policy_step([obs], [goal_obs], None, None)[0]
+                agent.tmax_mgr.mode[0] = TmaxMode.EXPLORATION
+                action, _, _, _, _ = agent.policy_step([obs], [goal_obs], None, None)
+                action = action[0]
             elif policy_type == PolicyType.LOCOMOTION:
-                # TODO: this does not work now
-                action = agent.locomotion.navigate(agent.session, [obs], [current_landmark], deterministic=False)[0]
-                log.info('Locomotion action %d', action)
+                agent.tmax_mgr.mode[0] = TmaxMode.LOCOMOTION
+                action, _, _ = agent.loco_actor_critic.invoke(
+                    agent.session, [obs], [current_landmark], None, None,
+                )
+                action = action[0]
 
             env_obs, rew, done, info = env.step(action)
             next_obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
