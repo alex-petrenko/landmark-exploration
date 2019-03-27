@@ -397,8 +397,8 @@ class TmaxManager:
             unreliable_edge_back = g[i2][i1]['success'] < self.params.reliable_edge_probability
             unreliable_edge = unreliable_edge and unreliable_edge_back
 
-            edge_too_short = g[i1][i2]['last_traversal_frames'] < self.params.reachable_threshold // 2
-            edge_too_short_back = g[i2][i1]['last_traversal_frames'] < self.params.reachable_threshold // 2
+            edge_too_short = g[i1][i2]['last_traversal_frames'] < self.params.reachable_threshold
+            edge_too_short_back = g[i2][i1]['last_traversal_frames'] < self.params.reachable_threshold
             edge_too_short = edge_too_short and edge_too_short_back
 
             # remove edge if it's useless in both directions
@@ -757,8 +757,8 @@ class AgentTMAX(AgentLearner):
             self.rl_locomotion = True
             self.locomotion_reached_threshold = 0.1  # if distance is less than that, we reached the target
             self.reliable_path_probability = 0.5  # product of probs along the path for it to be considered reliable
-            self.reliable_edge_probability = 0.75
-            self.successful_traversal_frames = 100  # if we traverse an edge in less than that, we succeeded
+            self.reliable_edge_probability = 0.8
+            self.successful_traversal_frames = 40  # if we traverse an edge in less than that, we succeeded
 
             self.stage_duration = 1000000
 
