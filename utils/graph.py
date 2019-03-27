@@ -20,7 +20,8 @@ def parse_layout(nx_graph, layout):
     return pos
 
 
-def plot_graph(nx_graph, layout, map_img=None, node_size=80):
+def plot_graph(nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856, 1856)):
+    """ Plot the graph with a map image overlaid on it. Give coordinate limits of map in :limits:"""
     if layout == 'pos':
         for node_name in nx_graph.nodes:
             pos = nx_graph.node[node_name].get('pos')
@@ -38,15 +39,12 @@ def plot_graph(nx_graph, layout, map_img=None, node_size=80):
         map_img = np.array(map_img).astype(np.float) / 255
         figure.figimage(map_img, 0, 0)
         width, height = map_img.shape[:2]
-        dpi = 80
+        dpi = 80  # can be changed
         plt.close('all')
         figure = plt.figure(num=2, figsize=(height//dpi, width//dpi), dpi=dpi, facecolor='none', edgecolor='k')
         extra_x, extra_y = 0, 0
-        cut = 1.0
-        xmax = cut * max(xx for xx, yy in pos.values())
-        ymax = cut * max(yy for xx, yy in pos.values())
-        plt.xlim(0, xmax)  # (0, 1856)
-        plt.ylim(0, ymax)  # (0, 1856)
+        plt.xlim(limits[0], limits[2])
+        plt.ylim(limits[1], limits[3])
         figure.figimage(map_img, extra_x, extra_y)
     ax = plt.gca()
     ax.set_aspect('equal')
