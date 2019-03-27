@@ -40,20 +40,26 @@ def plot_graph(nx_graph, layout, map_img=None, node_size=80):
         width, height = map_img.shape[:2]
         dpi = 80
         plt.close('all')
-        figure = plt.figure(num=2, figsize=(height//dpi + 1, width//dpi + 1), dpi=dpi, facecolor='none', edgecolor='k')
-        ax = plt.gca()
-        ax.set_xlim([0, 2000])
-        ax.set_ylim([0, 2000])
-        # figure.figimage(automap, 0, 0)
+        figure = plt.figure(num=2, figsize=(height//dpi, width//dpi), dpi=dpi, facecolor='none', edgecolor='k')
+        extra_x, extra_y = 0, 0
+        cut = 1.0
+        xmax = cut * max(xx for xx, yy in pos.values())
+        ymax = cut * max(yy for xx, yy in pos.values())
+        plt.xlim(0, xmax)  # (0, 1856)
+        plt.ylim(0, ymax)  # (0, 1856)
+        figure.figimage(map_img, extra_x, extra_y)
     ax = plt.gca()
     ax.set_aspect('equal')
-    ax.grid(True, which='both')
     ax.patch.set_facecolor('none')
     nx.draw(
         nx_graph, pos, node_size=node_size, node_color=list(range(len(nx_graph.nodes))), edge_color='#cccccc',
         cmap=plt.cm.get_cmap('plasma'), with_labels=True, font_color='#00ff00', font_size=7,
     )
-    plt.show()
+    plt.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
+
+    figure.savefig("/home/gautam/figure.png", pad_inches=0)
+    plt.savefig("/home/gautam/plot.png", pad_inches=0)
+    # plt.show()
     return figure
 
 

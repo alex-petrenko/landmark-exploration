@@ -180,6 +180,9 @@ class TestGraph(TestCase):
         for i in range(1, 4):
             for j in range(1, 4):
                 m.add_landmark(np.array(0), {'pos': {'agent_x': 300 + 50*i, 'agent_y': 400 + 100*j, 'agent_a': 10}})
+        m.add_landmark(np.array(0), {'pos': {'agent_x': 0, 'agent_y': 0, 'agent_a': 10}})
+        m.add_landmark(np.array(0), {'pos': {'agent_x': 928, 'agent_y': 928, 'agent_a': 10}})
+        m.add_landmark(np.array(0), {'pos': {'agent_x': 1856, 'agent_y': 1856, 'agent_a': 10}})
 
         import cv2
         img = cv2.imread("/home/gautam/curiosity/landmark-exploration/playground/doom_textured_easy.png")
