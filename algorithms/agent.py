@@ -2,22 +2,20 @@
 Base classes for RL agent implementations with some boilerplate.
 
 """
-from collections import deque
 import gc
 import time
+from collections import deque
 
-import numpy as np
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
+import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
 from utils.decay import LinearDecay
 from utils.gifs import encode_gif
-from utils.img_utils import crop_map_image
 from utils.params import Params
-from utils.graph import visualize_matplotlib_figure_tensorboard
-
+from utils.tensorboard import visualize_matplotlib_figure_tensorboard
 from utils.utils import log, model_dir, summaries_dir, memory_consumption_mb, numpy_all_the_way
 
 
@@ -78,7 +76,7 @@ class AgentLearner(Agent):
 
             self.gif_save_rate = 200  # number of seconds to wait before saving another gif to tensorboard
             self.gif_summary_num_envs = 2
-            self.num_position_histograms = 100  # number of position heatmaps to aggregate
+            self.num_position_histograms = 200  # number of position heatmaps to aggregate
             self.heatmap_save_rate = 20
 
             self.use_env_map = False

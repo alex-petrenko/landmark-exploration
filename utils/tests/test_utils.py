@@ -5,7 +5,7 @@ import numpy as np
 
 from algorithms.algo_utils import EPS
 from utils.decay import LinearDecay
-from utils.img_utils import image_summary
+from utils.tensorboard import image_summary
 from utils.timing import Timing
 from utils.utils import numpy_all_the_way, numpy_flatten, max_with_idx, min_with_idx
 
@@ -83,7 +83,7 @@ class TestUtils(TestCase):
         self.assertEqual(min_idx, 4)
 
 
-class TestImgUtils(TestCase):
+class TestTensorboardUtils(TestCase):
     def test_img_summary(self):
         fake_img = np.empty((10, 20, 1), dtype=np.uint8)
         summary = image_summary(fake_img, 'img_uint8')

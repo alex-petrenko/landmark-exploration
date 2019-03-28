@@ -29,7 +29,7 @@ from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries, hash_observation
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.envs.generate_env_map import generate_env_map
-from utils.img_utils import image_summary
+from utils.tensorboard import image_summary
 from utils.timing import Timing
 from utils.utils import log, AttrDict, numpy_all_the_way, model_dir
 

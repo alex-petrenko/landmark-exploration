@@ -32,6 +32,7 @@ class TestPPO(TestCase):
         params.initial_save_rate = 20
         params.batch_size = 32
         params.ppo_epochs = 2
+        params.use_env_map = False
         status = train(params, args.env)
         self.assertEqual(status, TrainStatus.SUCCESS)
 

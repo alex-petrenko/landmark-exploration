@@ -27,6 +27,7 @@ class TestPPO(TestCase):
         params.curiosity_type = 'reachability'
         params.reachability_bootstrap = 10
         params.reachability_train_interval = 5
+        params.use_env_map = False
         status = train(params, args.env)
         self.assertEqual(status, TrainStatus.SUCCESS)
 

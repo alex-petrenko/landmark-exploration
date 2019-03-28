@@ -39,7 +39,7 @@ def plot_graph(nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856,
         width, height = map_img.shape[:2]
         dpi = 80  # can be changed
         plt.close('all')
-        figure = plt.figure(num=2, figsize=(height//dpi, width//dpi), dpi=dpi, facecolor='none', edgecolor='k')
+        figure = plt.figure(num=2, figsize=(height // dpi, width // dpi), dpi=dpi, facecolor='none', edgecolor='k')
         figure.figimage(map_img, 0, 0)
         plt.xlim(limits[0], limits[2])
         plt.ylim(limits[1], limits[3])
@@ -68,17 +68,6 @@ def visualize_graph_tensorboard(nx_graph, tag, layout='pos', map_img=None, coord
     figure.clear()
     return summary
 
-def visualize_matplotlib_figure_tensorboard(figure, tag):
-    w, h = figure.canvas.get_width_height()
-
-    buffer = io.BytesIO()
-    plt.savefig(buffer, format='png', bbox_inches='tight')
-    graph_image_summary = tf.Summary.Image(encoded_image_string=buffer.getvalue(), height=h, width=w)
-    graph_summary = tf.Summary.Value(tag=tag, image=graph_image_summary)
-
-    summary = tf.Summary(value=[graph_summary])
-    figure.clear()
-    return summary
 
 def visualize_graph_html(nx_graph, output_dir=None, title_text='', layout='kamada_kawai', should_show=False):
     """
