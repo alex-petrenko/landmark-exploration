@@ -177,7 +177,7 @@ class ReachabilityCuriosityModule(CuriosityModule):
     def is_initialized(self):
         return self.initialized
 
-    def additional_summaries(self, env_steps, summary_writer, stats_episodes):
+    def additional_summaries(self, env_steps, summary_writer, stats_episodes, **kwargs):
         maps = self.episodic_maps
         if not self.initialized or maps is None:
             return
@@ -197,5 +197,7 @@ class ReachabilityCuriosityModule(CuriosityModule):
 
         summary_writer.add_summary(summary, env_steps)
 
-        map_summaries(maps, env_steps, summary_writer, section)
+        map_img = kwargs.get('map_img')
+        coord_limits = kwargs.get('coord_limits')
+        map_summaries(maps, env_steps, summary_writer, section, map_img, coord_limits)
         summary_writer.flush()

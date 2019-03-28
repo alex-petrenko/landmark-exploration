@@ -12,12 +12,13 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow.contrib import slim
 
+from utils.decay import LinearDecay
 from utils.gifs import encode_gif
+from utils.img_utils import crop_map_image
 from utils.params import Params
 from utils.graph import visualize_matplotlib_figure_tensorboard
 
 from utils.utils import log, model_dir, summaries_dir, memory_consumption_mb, numpy_all_the_way
-from utils.decay import LinearDecay
 
 
 class TrainStatus:
@@ -75,7 +76,7 @@ class AgentLearner(Agent):
 
             self.stats_episodes = 100  # how many rewards to average to measure performance
 
-            self.gif_save_rate = 100  # number of seconds to wait before saving another gif to tensorboard
+            self.gif_save_rate = 200  # number of seconds to wait before saving another gif to tensorboard
             self.gif_summary_num_envs = 2
             self.num_position_histograms = 100 # number of position heatmaps to aggregate
             self.heatmap_save_rate = 20
@@ -109,9 +110,10 @@ class AgentLearner(Agent):
         self._last_trajectory_summary = 0  # timestamp of the latest trajectory summary written
         self._last_coverage_summary = 0  # timestamp of the latest coverage summary written
 
-    def set_map_image(self, env):
         self.map_img = None
         self.coord_limits = None
+
+    def set_map_image(self, env):
         try:
             if env.unwrapped.coord_limits:
                 from vizdoom import ScreenResolution
@@ -122,9 +124,10 @@ class AgentLearner(Agent):
                 env.reset()
                 env.unwrapped.game.advance_action()
                 self.map_img = env.unwrapped.get_automap_buffer()
+                self.map_img = crop_map_image(self.map_img)
                 self.coord_limits = env.unwrapped.coord_limits
-        except AttributeError:
-            log.debug('Could not get map image from env.')
+        except AttributeError as exc:
+            log.warning(f'Could not get map image from env, exception: {exc}')
 
     def initialize(self):
         """Start the session."""
@@ -175,7 +178,6 @@ class AgentLearner(Agent):
         saver_path = model_dir(self.params.experiment_dir()) + '/' + self.__class__.__name__
         self.session.run(self.update_env_steps, feed_dict={self.total_env_steps_placeholder: env_steps})
         self.saver.save(self.session, saver_path, global_step=step)
-
 
     def _should_write_summaries(self, step):
         summaries_every = self.summary_rate_decay.at(step)
