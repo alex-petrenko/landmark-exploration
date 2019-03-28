@@ -42,6 +42,8 @@ DOOM_ENVS = [
     DoomCfg('doom_textured_very_sparse', 'VizdoomTexturedMazeVerySparse-v0', 1.0, 2100),
     DoomCfg('doom_textured', 'VizdoomTexturedMaze-v0', 1.0, 2100),
     DoomCfg('doom_textured_multi_goal', 'VizdoomTexturedMazeMultiGoal-v0', 1.0, 2100),
+    DoomCfg('doom_textured_super_sparse', 'VizdoomTexturedMazeSuperSparse-v0', 1.0, 2100),
+    DoomCfg('doom_textured_large_no_goal', 'VizdoomTexturedMazeLargeNoGoal-v0', 1.0, 2100),
 ]
 
 
