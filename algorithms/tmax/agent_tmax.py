@@ -390,10 +390,10 @@ class TmaxManager:
 
             locomotion_goal_idx = max_ucb_target
             goal_node = m.graph.nodes[locomotion_goal_idx]
-            # log.info(
-            #     'Locomotion final goal for exploration is %d with value %.3f, samples %d and UCB %.3f',
-            #     locomotion_goal_idx, goal_node['value_estimate'], goal_node['num_samples'], max_ucb,
-            # )
+            log.info(
+                'Locomotion final goal for exploration is %d with value %.3f, samples %d and UCB %.3f',
+                locomotion_goal_idx, goal_node['value_estimate'], goal_node['num_samples'], max_ucb,
+            )
             goal_node['num_samples'] += 1
 
         return locomotion_goal_idx
@@ -475,11 +475,12 @@ class TmaxManager:
         assert all(d <= max_dist for d in topological_distances.values())
 
         self.map_size_before_locomotion = m.num_landmarks()
-        self.persistent_maps.append(m)
         log.debug(
             'Pruned map %d, nodes %r, distances %r, num persistent maps %d',
             locomotion_map_idx, m.graph.nodes, m.topological_distances(from_idx=0), len(self.persistent_maps),
         )
+
+        return m
 
     def _prepare_persistent_map_for_exploration(self):
         """Keep only edges with high probability of success, delete inaccessible vertices."""
@@ -593,10 +594,12 @@ class TmaxManager:
 
                 if has_non_empty_map:
                     # all the maps are non-empty, we can change to locomotion
-                    self.global_stage = TmaxMode.LOCOMOTION
-                    self._prepare_persistent_map_for_locomotion(env_steps)
-                    stage_changed = True
-                    log.debug('Stage changed to Locomotion')
+                    new_map = self._prepare_persistent_map_for_locomotion(env_steps)
+                    if new_map.num_landmarks() > 1:
+                        self.persistent_maps.append(new_map)
+                        self.global_stage = TmaxMode.LOCOMOTION
+                        stage_changed = True
+                        log.debug('Stage changed to Locomotion')
             else:
                 self.global_stage = TmaxMode.EXPLORATION
                 self._prepare_persistent_map_for_exploration()
@@ -723,11 +726,11 @@ class TmaxManager:
 
                 rewards[env_i] += 1
 
-                log.info(
-                    'Locomotion net gets reward +1! (%.3f) dist %.3f, prev %d, goal %d, frame %d, took %d env %d',
-                    rewards[env_i], distances[env_i], self.locomotion_prev[env_i],
-                    curr_landmark_idx, self.episode_frames[env_i], since_last_success, env_i,
-                )
+                # log.info(
+                #     'Locomotion net gets reward +1! (%.3f) dist %.3f, prev %d, goal %d, frame %d, took %d env %d',
+                #     rewards[env_i], distances[env_i], self.locomotion_prev[env_i],
+                #     curr_landmark_idx, self.episode_frames[env_i], since_last_success, env_i,
+                # )
 
                 locomotion_dones[env_i] = True
                 is_success = 1 if since_last_success < successful_traversal_frames else 0
@@ -869,7 +872,7 @@ class AgentTMAX(AgentLearner):
             self.locomotion_reached_threshold = 0.1  # if distance is less than that, we reached the target
             self.reliable_path_probability = 0.5  # product of probs along the path for it to be considered reliable
             self.reliable_edge_probability = 0.8
-            self.successful_traversal_frames = 40  # if we traverse an edge in less than that, we succeeded
+            self.successful_traversal_frames = 30  # if we traverse an edge in less than that, we succeeded
 
             self.stage_duration = 1000000
 
