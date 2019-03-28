@@ -11,5 +11,5 @@ class CuriosityModule:
     def is_initialized(self):
         raise NotImplementedError
 
-    def additional_summaries(self, env_steps, summary_writer, stats_episodes):
+    def additional_summaries(self, env_steps, summary_writer, stats_episodes, **kwargs):
         raise NotImplementedError

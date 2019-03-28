@@ -140,10 +140,12 @@ class AgentCuriousPPO(AgentPPO):
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)
 
-            map_summaries(self.curiosity.episodic_maps, env_steps, self.summary_writer, 'tmax_maps', self.map_img, self.coord_limits)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
             self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
-            self.curiosity.additional_summaries(env_steps, self.summary_writer, self.params.stats_episodes)
+            self.curiosity.additional_summaries(
+                env_steps, self.summary_writer, self.params.stats_episodes,
+                map_img=self.map_img, coord_limits=self.coord_limits,
+            )
 
             trajectory_buffer.reset_trajectories()
 

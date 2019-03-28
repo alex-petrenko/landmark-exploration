@@ -266,7 +266,6 @@ class TmaxManager:
                 for m in maps:
                     m.load_dict(topo_map_dict)
 
-
     def save(self):
         checkpoint_dir = model_dir(self.params.experiment_dir())
 
@@ -361,10 +360,10 @@ class TmaxManager:
             locomotion_goal_idx = min_chosen_idx
             m.graph.nodes[locomotion_goal_idx]['locomotion_goal'] += 1
 
-            log.info(
-                'Locomotion final goal for locomotion is %d chosen %d times',
-                locomotion_goal_idx, min_chosen_times,
-            )
+            # log.info(
+            #     'Locomotion final goal for locomotion is %d chosen %d times',
+            #     locomotion_goal_idx, min_chosen_times,
+            # )
             assert locomotion_goal_idx != curr_landmark_idx
         else:
             # sample target according to UCB of value estimate
@@ -391,11 +390,11 @@ class TmaxManager:
 
             locomotion_goal_idx = max_ucb_target
             goal_node = m.graph.nodes[locomotion_goal_idx]
-            log.info(
-                'Locomotion final goal for exploration is %d with value %.3f, samples %d and UCB %.3f',
-                locomotion_goal_idx, goal_node['value_estimate'], goal_node['num_samples'], max_ucb,
-            )
-            m.graph.nodes[locomotion_goal_idx]['num_samples'] += 1
+            # log.info(
+            #     'Locomotion final goal for exploration is %d with value %.3f, samples %d and UCB %.3f',
+            #     locomotion_goal_idx, goal_node['value_estimate'], goal_node['num_samples'], max_ucb,
+            # )
+            goal_node['num_samples'] += 1
 
         return locomotion_goal_idx
 
@@ -418,21 +417,7 @@ class TmaxManager:
             locomotion_map_idx, maps[locomotion_map_idx].num_landmarks(),
         )
 
-        # TODO: remove all the localization variables from the map and move them to localizer
         m = copy.deepcopy(maps[locomotion_map_idx])
-        topological_distances = m.topological_distances(from_idx=0)  # 0 = first landmark
-
-        remove_nodes = []
-
-        locomotion_stage_number = env_steps // (2 * self.params.stage_duration)
-        locomotion_stage_number = max(2, locomotion_stage_number)
-
-        max_dist = locomotion_stage_number
-
-        for node, distance in topological_distances.items():
-            if distance > max_dist:
-                remove_nodes.append(node)
-        m.graph.remove_nodes_from(remove_nodes)
 
         # 1) sort candidate vertices according to their topological distance
         # 2) if a vertex is too close to one of it's neighbors - delete it from the graph
@@ -445,7 +430,11 @@ class TmaxManager:
         )
 
         assert 0 in node_candidates_for_removal
+        min_landmarks_to_keep = 3
         for candidate_node in node_candidates_for_removal:
+            if m.num_landmarks() <= min_landmarks_to_keep:
+                continue
+
             if candidate_node == 0:  # never remove the initial landmark
                 continue
 
@@ -465,10 +454,22 @@ class TmaxManager:
         # remove all isolated (non-reachable) vertices
         m.remove_unreachable_vertices(from_idx=0)
 
+        # remove landmarks that are too far away in terms of topological distance
+        topological_distances = m.topological_distances(from_idx=0)  # 0 = first landmark
+        locomotion_stage_number = env_steps // (2 * self.params.stage_duration)
+        locomotion_stage_number = max(2, locomotion_stage_number)
+        max_dist = locomotion_stage_number
+
+        remove_nodes = []
+        for node, distance in topological_distances.items():
+            if distance > max_dist:
+                remove_nodes.append(node)
+        m.graph.remove_nodes_from(remove_nodes)
+
         m.new_episode()
 
         for node in m.graph.nodes:
-            m.graph.nodes[node]['locomotion_goal'] = 1  # reset number of times we chose this node
+            m.graph.nodes[node]['locomotion_goal'] = 0  # reset number of times we chose this node
 
         topological_distances = m.topological_distances(from_idx=0)
         assert all(d <= max_dist for d in topological_distances.values())
@@ -918,7 +919,8 @@ class AgentTMAX(AgentLearner):
         self.curiosity = ReachabilityCuriosityModule(env, params)
         self.curiosity.reachability_buffer = TmaxReachabilityBuffer(params)
 
-        self.set_map_image(env)  # this must be done after we get the rest of the info from the env and right before env.close()
+        # this must be done after we get the rest of the info from the env and right before env.close()
+        self.set_map_image(env)
         env.close()
 
         self.objectives = self.add_ppo_objectives(
@@ -1099,6 +1101,10 @@ class AgentTMAX(AgentLearner):
             self.params.stats_episodes, avg_rewards, best_avg_reward,
         )
 
+    def _save(self, step, env_steps):
+        super()._save(step, env_steps)
+        self.tmax_mgr.save()
+
     def _maybe_aux_summaries(self, env_steps, avg_reward, avg_length, fps):
         self._report_basic_summaries(fps, env_steps)
 
@@ -1122,8 +1128,14 @@ class AgentTMAX(AgentLearner):
         maps = tmax_mgr.current_maps
         map_summaries(maps, env_steps, self.summary_writer, 'tmax_maps', self.map_img, self.coord_limits)
 
-        map_summaries([tmax_mgr.persistent_maps[-1]], env_steps, self.summary_writer, 'tmax_persistent_map')
-        map_summaries([tmax_mgr.accessible_region], env_steps, self.summary_writer, 'tmax_accessible_region')
+        map_summaries(
+            [tmax_mgr.persistent_maps[-1]],
+            env_steps, self.summary_writer, 'tmax_persistent_map', self.map_img, self.coord_limits,
+        )
+        map_summaries(
+            [tmax_mgr.accessible_region],
+            env_steps, self.summary_writer, 'tmax_accessible_region', self.map_img, self.coord_limits,
+        )
 
         # locomotion summaries
         stats_samples = 300
@@ -1614,7 +1626,10 @@ class AgentTMAX(AgentLearner):
             self._maybe_tmax_summaries(tmax_mgr, env_steps)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
             self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
-            self.curiosity.additional_summaries(env_steps, self.summary_writer, self.params.stats_episodes)
+            self.curiosity.additional_summaries(
+                env_steps, self.summary_writer, self.params.stats_episodes,
+                map_img=self.map_img, coord_limits=self.coord_limits,
+            )
 
             trajectory_buffer.reset_trajectories()
             # encoder changed, so we need to re-encode all landmarks
@@ -1641,10 +1656,5 @@ class AgentTMAX(AgentLearner):
                 multi_env.close()
 
         return status
-
-    def _save(self, step, env_steps):
-        super()._save(step, env_steps)
-
-        self.tmax_mgr.save()
 
 # TODO: better heuristic to grow the persistent map (e.g. 1 edge at a time)

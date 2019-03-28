@@ -3,7 +3,6 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/landmark-exploration.iml" filepath="$PROJECT_DIR$/.idea/landmark-exploration.iml" />
-      <module fileurl="file://$PROJECT_DIR$/../vizdoomgym/.idea/vizdoomgym.iml" filepath="$PROJECT_DIR$/../vizdoomgym/.idea/vizdoomgym.iml" />
     </modules>
   </component>
 </project>

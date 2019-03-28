@@ -268,5 +268,7 @@ def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_
         if m.num_landmarks() > maps[max_graph_idx].num_landmarks():
             max_graph_idx = i
 
-    max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].labeled_graph, tag=f'{section}/max_graph', map_img=map_img, coord_limits=coord_limits)
+    max_graph_summary = visualize_graph_tensorboard(
+        maps[max_graph_idx].labeled_graph, tag=f'{section}/max_graph', map_img=map_img, coord_limits=coord_limits,
+    )
     summary_writer.add_summary(max_graph_summary, env_steps)
