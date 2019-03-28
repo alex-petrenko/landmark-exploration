@@ -255,10 +255,11 @@ class AgentLearner(Agent):
 
         fig = plt.figure(figsize=(4, 4))
         plt.imshow(
-            summed_histogram,
+            summed_histogram.T,
             norm=colors.LogNorm(vmin=summed_histogram.min(), vmax=summed_histogram.max()),
             cmap='RdBu_r',
         )
+        plt.gca().invert_yaxis()
         plt.colorbar()
 
         summary = visualize_matplotlib_figure_tensorboard(fig, tag)
