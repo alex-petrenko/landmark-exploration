@@ -28,6 +28,7 @@ from algorithms.tmax.tmax_utils import TmaxMode, TmaxTrajectoryBuffer, TmaxReach
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries, hash_observation
 from utils.distributions import CategoricalProbabilityDistribution
+from utils.envs.generate_env_map import generate_env_map
 from utils.img_utils import image_summary
 from utils.timing import Timing
 from utils.utils import log, AttrDict, numpy_all_the_way, model_dir
@@ -877,6 +878,9 @@ class AgentTMAX(AgentLearner):
 
             self.stage_duration = 1000000
 
+            # summaries, etc.
+            self.use_env_map = True
+
         @staticmethod
         def filename_prefix():
             return 'tmax_'
@@ -923,8 +927,6 @@ class AgentTMAX(AgentLearner):
         self.curiosity = ReachabilityCuriosityModule(env, params)
         self.curiosity.reachability_buffer = TmaxReachabilityBuffer(params)
 
-        # this must be done after we get the rest of the info from the env and right before env.close()
-        self.set_map_image(env)
         env.close()
 
         self.objectives = self.add_ppo_objectives(
@@ -980,6 +982,9 @@ class AgentTMAX(AgentLearner):
 
         # auxiliary stuff not related to the computation graph
         self.tmax_mgr = TmaxManager(self)
+
+        if self.params.use_env_map:
+            self.map_img, self.coord_limits = generate_env_map(make_env_func)
 
     @staticmethod
     def add_ppo_objectives(actor_critic, actions, old_action_probs, advantages, returns, masks, params, step):

@@ -1,11 +1,14 @@
 import time
 from unittest import TestCase
 
+import numpy as np
+
 from algorithms.agent import AgentRandom
 from algorithms.algo_utils import num_env_steps
 from algorithms.multi_env import MultiEnv
 from utils.envs.atari.atari_utils import make_atari_env, atari_env_by_name
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
+from utils.envs.generate_env_map import generate_env_map
 from utils.timing import Timing
 from utils.utils import log
 
@@ -130,3 +133,20 @@ class TestDmlab(TestCase):
         I think it does not work after VizDoom because of some conflict of graphics contexts.
         """
         test_multi_env_performance(self, 'dmlab', num_envs=128, num_workers=16)
+
+
+class TestEnvMap(TestCase):
+    @staticmethod
+    def make_env():
+        return make_doom_env(doom_env_by_name('doom_textured_very_sparse'))
+
+    def test_env_map(self):
+        map_img, coord_limits = generate_env_map(self.make_env)
+        self.assertIsInstance(coord_limits, tuple)
+        self.assertIsInstance(map_img, np.ndarray)
+
+        show = False  # set to True only for debug
+        if show:
+            import cv2
+            cv2.imshow('map', map_img)
+            cv2.waitKey()

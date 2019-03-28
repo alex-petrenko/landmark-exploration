@@ -18,8 +18,8 @@ def reset_with_info(env):
     """Sometimes we want to get info with the very first frame."""
     obs = env.reset()
     info = {}
-    if hasattr(env.unwrapped, 'get_info'):
-        info = env.unwrapped.get_info()  # info for the new episode
+    if hasattr(env.unwrapped, 'get_info_all'):
+        info = env.unwrapped.get_info_all()  # info for the new episode
     return obs, info
 
 

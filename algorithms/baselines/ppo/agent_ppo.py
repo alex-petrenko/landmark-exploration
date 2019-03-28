@@ -16,6 +16,7 @@ from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     image_summaries_rgb, summary_avg_min_max, merge_summaries
 from utils.distributions import CategoricalProbabilityDistribution
+from utils.envs.generate_env_map import generate_env_map
 from utils.timing import Timing
 from utils.utils import log, AttrDict, summaries_dir
 
@@ -193,6 +194,9 @@ class AgentPPO(AgentLearner):
             self.use_gpu = True
             self.initial_save_rate = 1000
 
+            # summaries, etc.
+            self.use_env_map = True
+
         @staticmethod
         def filename_prefix():
             return 'ppo_'
@@ -214,8 +218,6 @@ class AgentPPO(AgentLearner):
 
         self.actor_critic = ActorCritic(env, self.ph_observations, self.params)
 
-        # this must be done after we get the rest of the info from the env and right before env.close()
-        self.set_map_image(env)
         env.close()
 
         self.objectives = self.add_ppo_objectives(
@@ -238,6 +240,9 @@ class AgentPPO(AgentLearner):
         self.summary_writer = tf.summary.FileWriter(summary_dir)
         self.actor_summaries = merge_summaries(collections=['actor'])
         self.critic_summaries = merge_summaries(collections=['critic'])
+
+        if self.params.use_env_map:
+            self.map_img, self.coord_limits = generate_env_map(make_env_func)
 
     def input_dict(self, buffer, start, end):
         # Most placeholders are in AgentPPO, so input dict is here

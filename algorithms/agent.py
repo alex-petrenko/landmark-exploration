@@ -78,8 +78,10 @@ class AgentLearner(Agent):
 
             self.gif_save_rate = 200  # number of seconds to wait before saving another gif to tensorboard
             self.gif_summary_num_envs = 2
-            self.num_position_histograms = 100 # number of position heatmaps to aggregate
+            self.num_position_histograms = 100  # number of position heatmaps to aggregate
             self.heatmap_save_rate = 20
+
+            self.use_env_map = False
 
     def __init__(self, params):
         super(AgentLearner, self).__init__(params)
@@ -110,24 +112,7 @@ class AgentLearner(Agent):
         self._last_trajectory_summary = 0  # timestamp of the latest trajectory summary written
         self._last_coverage_summary = 0  # timestamp of the latest coverage summary written
 
-        self.map_img = None
-        self.coord_limits = None
-
-    def set_map_image(self, env):
-        try:
-            if env.unwrapped.coord_limits:
-                from vizdoom import ScreenResolution
-                env.unwrapped.show_automap = True
-                env.unwrapped.screen_w = 800
-                env.unwrapped.screen_h = 600
-                env.unwrapped.screen_resolution = ScreenResolution.RES_800X600
-                env.reset()
-                env.unwrapped.game.advance_action()
-                self.map_img = env.unwrapped.get_automap_buffer()
-                self.map_img = crop_map_image(self.map_img)
-                self.coord_limits = env.unwrapped.coord_limits
-        except AttributeError as exc:
-            log.warning(f'Could not get map image from env, exception: {exc}')
+        self.map_img = self.coord_limits = None
 
     def initialize(self):
         """Start the session."""
