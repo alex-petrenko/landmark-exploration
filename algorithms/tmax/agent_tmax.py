@@ -336,7 +336,7 @@ class TmaxManager:
             m.graph.nodes[locomotion_goal_idx]['locomotion_goal'] += 1
 
             log.info(
-                'Locomotion final goal for locomotion is %d with chosen %d times',
+                'Locomotion final goal for locomotion is %d chosen %d times',
                 locomotion_goal_idx, min_chosen_times,
             )
             assert locomotion_goal_idx != curr_landmark_idx
@@ -406,8 +406,38 @@ class TmaxManager:
         for node, distance in topological_distances.items():
             if distance > max_dist:
                 remove_nodes.append(node)
-
         m.graph.remove_nodes_from(remove_nodes)
+
+        # 1) sort candidate vertices according to their topological distance
+        # 2) if a vertex is too close to one of it's neighbors - delete it from the graph
+        node_candidates_for_removal = list(m.graph.nodes)
+        topological_distances = m.topological_distances(from_idx=0)  # 0 = first landmark
+        node_candidates_for_removal.sort(key=lambda node_: topological_distances[node_], reverse=True)
+        log.debug(
+            'All nodes %r, distances %r',
+            node_candidates_for_removal, topological_distances,
+        )
+
+        assert 0 in node_candidates_for_removal
+        for candidate_node in node_candidates_for_removal:
+            if candidate_node == 0:  # never remove the initial landmark
+                continue
+
+            neighbors = m.neighbors(candidate_node)
+            if len(neighbors) <= 0:
+                continue
+
+            assert candidate_node not in neighbors
+            distances = self._node_distances(m, from_node=candidate_node, to_nodes=neighbors)
+            assert len(distances) == len(neighbors)
+            min_d = min(distances)
+            if min_d < self.params.locomotion_reached_threshold:
+                # landmark is too easy to reach from one of it's neighbors - delete it
+                log.debug('Removing node %d because distances %r, min_d %.4f', candidate_node, distances, min_d)
+                m.graph.remove_nodes_from([candidate_node])
+
+        # remove all isolated (non-reachable) vertices
+        m.remove_unreachable_vertices(from_idx=0)
 
         m.new_episode()
 
@@ -442,49 +472,9 @@ class TmaxManager:
                     e, g[i1][i2]['success'], g[i2][i1]['success'],
                 )
 
-            edge_too_short = g[i1][i2]['last_traversal_frames'] < self.params.reachable_threshold
-            edge_too_short_back = g[i2][i1]['last_traversal_frames'] < self.params.reachable_threshold
-            if edge_too_short and edge_too_short_back and e not in remove_edges:
-                remove_edges.add(e)
-                log.debug(
-                    'Removing too short edge %r, traversal: %.2f %.2f',
-                    e, g[i1][i2]['last_traversal_frames'], g[i2][i1]['last_traversal_frames'],
-                )
-
         m.remove_edges_from(list(remove_edges))
         log.debug('Removing edges %r', remove_edges)
         m.remove_unreachable_vertices(from_idx=0)  # just in case
-
-        # 1) sort candidate vertices according to their topological distance
-        # 2) if a vertex is too close to one of it's neighbors - delete it from the graph
-        node_candidates_for_removal = list(m.graph.nodes)
-        topological_distances = m.topological_distances(from_idx=0)  # 0 = first landmark
-        node_candidates_for_removal.sort(key=lambda node: topological_distances[node], reverse=True)
-        log.debug(
-            'All nodes %r, distances %r',
-            node_candidates_for_removal, topological_distances,
-        )
-
-        assert 0 in node_candidates_for_removal
-        for candidate_node in node_candidates_for_removal:
-            if candidate_node == 0:  # never remove the initial landmark
-                continue
-
-            neighbors = m.neighbors(candidate_node)
-            if len(neighbors) <= 0:
-                continue
-
-            assert candidate_node not in neighbors
-            distances = self._node_distances(m, from_node=candidate_node, to_nodes=neighbors)
-            assert len(distances) == len(neighbors)
-            min_d = min(distances)
-            if min_d < self.params.locomotion_reached_threshold:
-                # landmark is too easy to reach from one of it's neighbors - delete it
-                log.debug('Removing node %d because distances %r, min_d %.4f', candidate_node, distances, min_d)
-                m.graph.remove_nodes_from([candidate_node])
-
-        # remove all isolated (non-reachable) vertices
-        m.remove_unreachable_vertices(from_idx=0)
 
         m.new_episode()
 
@@ -500,7 +490,7 @@ class TmaxManager:
             m.num_landmarks(), len(self.persistent_maps), m.graph.nodes, self.accessible_region.num_landmarks(),
         )
 
-    def _update_value_estimates(self, m, env_i):
+    def _update_value_estimates(self, m):
         landmark_observations = [m.get_observation(node) for node in m.graph.nodes]
         _, _, values = self.agent.actor_critic.invoke(
             self.agent.session, landmark_observations, None, None, None,  # does not work with goals!
@@ -509,8 +499,6 @@ class TmaxManager:
         assert len(values) == len(landmark_observations)
         for i, node in enumerate(m.graph.nodes):
             m.graph.nodes[node]['value_estimate'] = values[i]
-
-        log.info('Value estimates for env_i %d: %r', env_i, values)
 
     def _new_episode(self, env_i):
         if self.global_stage == TmaxMode.LOCOMOTION:
@@ -522,7 +510,7 @@ class TmaxManager:
 
         self.env_stage[env_i] = self.global_stage
         self.current_maps[env_i].new_episode()
-        self._update_value_estimates(self.current_maps[env_i], env_i)
+        self._update_value_estimates(self.current_maps[env_i])
 
         # delete old persistent maps that aren't used anymore
         while len(self.persistent_maps) > 1:
@@ -607,22 +595,19 @@ class TmaxManager:
             self.agent.session, next_obs, infos, maps, self.curiosity.reachability,
         )
 
+    def _encoded_obs(self, m, indices):
+        obs = [m.get_observation(node) for node in indices]
+        hashes = [m.get_hash(node) for node in indices]
+        self.curiosity.obs_encoder.encode(self.agent.session, obs, hashes)
+        obs_encoded = [self.curiosity.obs_encoder.encoded_obs[hash_] for hash_ in hashes]
+        return obs_encoded
+
     def _node_distances(self, m, from_node, to_nodes):
-        from_obs = m.get_observation(from_node)
-        from_hash = m.get_hash(from_node)
-        self.curiosity.obs_encoder.encode(self.agent.session, [from_obs], [from_hash])
-        from_obs_encoded = [self.curiosity.obs_encoder.encoded_obs[from_hash] for _ in to_nodes]
-
-        to_obs = [m.get_observation(to_node) for to_node in to_nodes]
-        to_hashes = [m.get_hash(to_node) for to_node in to_nodes]
-        self.curiosity.obs_encoder.encode(self.agent.session, to_obs, to_hashes)
-        to_obs_encoded = [self.curiosity.obs_encoder.encoded_obs[to_hash] for to_hash in to_nodes]
-
-        assert len(to_obs_encoded) == len(to_nodes)
+        from_obs_encoded = self._encoded_obs(m, [from_node]) * len(to_nodes)
+        to_obs_encoded = self._encoded_obs(m, to_nodes)
         assert len(from_obs_encoded) == len(to_nodes)
-
+        assert len(to_obs_encoded) == len(to_nodes)
         distances = self.curiosity.reachability.distances(self.agent.session, from_obs_encoded, to_obs_encoded)
-
         assert len(distances) == len(to_nodes)
         return distances
 
@@ -1631,5 +1616,3 @@ class AgentTMAX(AgentLearner):
         return status
 
 # TODO: better heuristic to grow the persistent map (e.g. 1 edge at a time)
-# TODO: store value estimate in persistent map
-# TODO: sample locomotion target according to value estimate and UCB
