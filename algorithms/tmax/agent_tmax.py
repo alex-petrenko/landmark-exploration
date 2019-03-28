@@ -1619,6 +1619,7 @@ class AgentTMAX(AgentLearner):
                     with timing.add_time('env_step'):
                         env_obs, rewards, dones, infos = multi_env.step(actions)
 
+                    self.process_infos(infos)
                     new_obs, new_goals = self._get_observations(env_obs)
                     trajectory_buffer.add(observations, actions, dones, modes=modes)
 
@@ -1659,6 +1660,7 @@ class AgentTMAX(AgentLearner):
             self._maybe_tmax_summaries(tmax_mgr, env_steps)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
             self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
+            self._maybe_coverage_summaries(env_steps)
             self.curiosity.additional_summaries(
                 env_steps, self.summary_writer, self.params.stats_episodes,
                 map_img=self.map_img, coord_limits=self.coord_limits,
