@@ -28,6 +28,7 @@ from algorithms.tmax.tmax_utils import TmaxMode, TmaxTrajectoryBuffer, TmaxReach
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries, hash_observation
 from utils.distributions import CategoricalProbabilityDistribution
+from utils.img_utils import image_summary
 from utils.timing import Timing
 from utils.utils import log, AttrDict, numpy_all_the_way, model_dir
 
@@ -1181,8 +1182,37 @@ class AgentTMAX(AgentLearner):
         summary_obj.value.add(tag='tmax/avg_mode', simple_value=np.mean(tmax_mgr.mode))
         summary_obj.value.add(tag='tmax/avg_env_stage', simple_value=np.mean(tmax_mgr.env_stage))
 
+        self._landmark_summaries(self.tmax_mgr.persistent_maps[-1], env_steps)
+
         self.summary_writer.add_summary(summary_obj, env_steps)
         self.summary_writer.flush()
+
+    def _landmark_summaries(self, m, env_steps):
+        """Observation summaries for the current persistent map."""
+        first_landmarks_to_log = {0, 1, 2}
+        logged_landmarks = []
+        summary_writer = self.summary_writer
+
+        def landmark_summary(idx, tag):
+            obs = m.get_observation(idx)
+            obs_summary = image_summary(obs, f'tmax_landmarks/landmark_{tag}')
+            summary_writer.add_summary(obs_summary, env_steps)
+            logged_landmarks.append(node)
+
+        for node in first_landmarks_to_log:
+            if node in m.graph.nodes:
+                landmark_summary(node, str(node))
+
+        all_landmarks = list(m.graph.nodes)
+        landmark_last = all_landmarks[-1]
+        if landmark_last not in logged_landmarks:
+            landmark_summary(landmark_last, 'last')
+
+        random.shuffle(all_landmarks)
+        for node in all_landmarks:
+            if node not in logged_landmarks:
+                landmark_summary(node, 'random')
+                break
 
     def _maybe_trajectory_summaries(self, trajectory_buffer, env_steps):
         time_since_last = time.time() - self._last_trajectory_summary

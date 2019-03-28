@@ -34,8 +34,10 @@ DOOM_ENVS = [
     DoomCfg('doom_maze', 'VizdoomMyWayHome-v0', 1.0, 2100),
     DoomCfg('doom_maze_sparse', 'VizdoomMyWayHomeSparse-v0', 1.0, 2100),
     DoomCfg('doom_maze_very_sparse', 'VizdoomMyWayHomeVerySparse-v0', 1.0, 2100),
+    DoomCfg('doom_maze_multi_goal', 'VizdoomMyWayHomeMultiGoal-v0', 1.0, 2100),
 
     DoomCfg('doom_maze_goal', 'VizdoomMyWayHomeGoal-v0', 1.0, 2100),
+
     DoomCfg('doom_maze_sptm', 'VizdoomSptmBattleNavigation-v0', 1.0, 2100),
 
     DoomCfg('doom_textured_easy', 'VizdoomTexturedMazeEasy-v0', 1.0, 2100),
@@ -44,7 +46,6 @@ DOOM_ENVS = [
     DoomCfg('doom_textured_multi_goal', 'VizdoomTexturedMazeMultiGoal-v0', 1.0, 2100),
     DoomCfg('doom_textured_super_sparse', 'VizdoomTexturedMazeSuperSparse-v0', 1.0, 2100),
     DoomCfg('doom_textured_large_no_goal', 'VizdoomTexturedMazeLargeNoGoal-v0', 1.0, 2100),
-    DoomCfg('doom_maze_multi_goal', 'VizdoomMyWayHomeMultiGoal-v0', 1.0, 2100),
 ]
 
 

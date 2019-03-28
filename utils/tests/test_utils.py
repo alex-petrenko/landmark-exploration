@@ -5,8 +5,9 @@ import numpy as np
 
 from algorithms.algo_utils import EPS
 from utils.decay import LinearDecay
-from utils.timing import TimingContext, Timing
-from utils.utils import numpy_all_the_way, numpy_flatten, max_with_idx, min_with_idx, AttrDict
+from utils.img_utils import image_summary
+from utils.timing import Timing
+from utils.utils import numpy_all_the_way, numpy_flatten, max_with_idx, min_with_idx
 
 
 class TestDecay(TestCase):
@@ -70,7 +71,7 @@ class TestTiming(TestCase):
         self.assertGreater(timing.test, 0.05 - EPS)
 
 
-class TestUtil(TestCase):
+class TestUtils(TestCase):
     def test_op_with_idx(self):
         x = [1, 3, 2, 10, -1, 5, 9]
         max_x, max_idx = max_with_idx(x)
@@ -80,3 +81,14 @@ class TestUtil(TestCase):
         min_x, min_idx = min_with_idx(x)
         self.assertEqual(min_x, min(x))
         self.assertEqual(min_idx, 4)
+
+
+class TestImgUtils(TestCase):
+    def test_img_summary(self):
+        fake_img = np.empty((10, 20, 1), dtype=np.uint8)
+        summary = image_summary(fake_img, 'img_uint8')
+        self.assertIsNotNone(summary)
+
+        fake_img = np.empty((10, 20, 1), dtype=np.float32)
+        summary = image_summary(fake_img, 'img_float32')
+        self.assertIsNotNone(summary)
