@@ -1,4 +1,6 @@
 import copy
+from os.path import isfile, join
+
 import math
 import random
 import time
@@ -27,7 +29,7 @@ from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries, hash_observation
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.timing import Timing
-from utils.utils import log, AttrDict, numpy_all_the_way
+from utils.utils import log, AttrDict, numpy_all_the_way, model_dir
 
 
 class ActorCritic:
@@ -249,8 +251,32 @@ class TmaxManager:
 
         self.last_stage_change = max(self.last_stage_change, env_steps)
 
+        self.maybe_load_maps()
+
         self.initialized = True
         return self.mode
+
+    def maybe_load_maps(self):
+        checkpoint_dir = model_dir(self.params.experiment_dir())
+        if isfile(join(checkpoint_dir, 'topo_map.pkl')):
+            import pickle as pkl
+            with open(join(checkpoint_dir, 'topo_map.pkl'), 'rb') as file:
+                topo_map_dict = pkl.load(file)
+                maps = self.persistent_maps
+                for m in maps:
+                    m.load_dict(topo_map_dict)
+
+
+    def save(self):
+        checkpoint_dir = model_dir(self.params.experiment_dir())
+
+        maps = self.persistent_maps
+        max_graph_idx = 0
+        for i, m in enumerate(maps):
+            if m.num_landmarks() > maps[max_graph_idx].num_landmarks():
+                max_graph_idx = i
+
+        maps[max_graph_idx].save_checkpoint(checkpoint_dir)
 
     def _log_verbose(self, s, *args):
         if self._verbose:
@@ -892,6 +918,7 @@ class AgentTMAX(AgentLearner):
         self.curiosity = ReachabilityCuriosityModule(env, params)
         self.curiosity.reachability_buffer = TmaxReachabilityBuffer(params)
 
+        self.set_map_image(env)  # this must be done after we get the rest of the info from the env and right before env.close()
         env.close()
 
         self.objectives = self.add_ppo_objectives(
@@ -1093,7 +1120,7 @@ class AgentTMAX(AgentLearner):
 
     def _maybe_tmax_summaries(self, tmax_mgr, env_steps):
         maps = tmax_mgr.current_maps
-        map_summaries(maps, env_steps, self.summary_writer, 'tmax_maps')
+        map_summaries(maps, env_steps, self.summary_writer, 'tmax_maps', self.map_img, self.coord_limits)
 
         map_summaries([tmax_mgr.persistent_maps[-1]], env_steps, self.summary_writer, 'tmax_persistent_map')
         map_summaries([tmax_mgr.accessible_region], env_steps, self.summary_writer, 'tmax_accessible_region')
@@ -1614,5 +1641,10 @@ class AgentTMAX(AgentLearner):
                 multi_env.close()
 
         return status
+
+    def _save(self, step, env_steps):
+        super()._save(step, env_steps)
+
+        self.tmax_mgr.save()
 
 # TODO: better heuristic to grow the persistent map (e.g. 1 edge at a time)

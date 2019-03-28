@@ -9,9 +9,9 @@ from algorithms.exploit import run_policy_loop
 from utils.utils import log
 
 
-def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=1e9, fps=1500):
+def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=1e9, fps=1500, show_automap=True):
     def make_env_func():
-        e = create_env(env_id, mode='test')
+        e = create_env(env_id, mode='test', show_automap=show_automap)
         e.seed(0)
         return e
 

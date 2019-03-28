@@ -5,7 +5,7 @@ import networkx as nx
 import tensorflow as tf
 from matplotlib import pyplot as plt
 
-from utils.utils import ensure_dir_exists
+from utils.utils import ensure_dir_exists, crop_map_image
 
 
 def parse_layout(nx_graph, layout):
@@ -20,7 +20,8 @@ def parse_layout(nx_graph, layout):
     return pos
 
 
-def plot_graph(nx_graph, layout, node_size=80):
+def plot_graph(nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856, 1856)):
+    """ Plot the graph with a map image overlaid on it. Give coordinate limits of map in :limits:"""
     if layout == 'pos':
         for node_name in nx_graph.nodes:
             pos = nx_graph.node[node_name].get('pos')
@@ -32,15 +33,32 @@ def plot_graph(nx_graph, layout, node_size=80):
 
     figure = plt.gcf()
     figure.clear()
+    if map_img is not None:
+        import numpy as np
+        map_img = np.array(map_img).astype(np.float) / 255
+        figure.figimage(map_img, 0, 0)
+        width, height = map_img.shape[:2]
+        dpi = 80  # can be changed
+        plt.close('all')
+        figure = plt.figure(num=2, figsize=(height//dpi, width//dpi), dpi=dpi, facecolor='none', edgecolor='k')
+        extra_x, extra_y = 0, 0
+        plt.xlim(limits[0], limits[2])
+        plt.ylim(limits[1], limits[3])
+        figure.figimage(map_img, extra_x, extra_y)
+    ax = plt.gca()
+    ax.set_aspect('equal')
+    ax.patch.set_facecolor('none')
     nx.draw(
         nx_graph, pos, node_size=node_size, node_color=list(range(len(nx_graph.nodes))), edge_color='#cccccc',
         cmap=plt.cm.get_cmap('plasma'), with_labels=True, font_color='#00ff00', font_size=7,
     )
+    plt.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
+
     return figure
 
 
-def visualize_graph_tensorboard(nx_graph, tag, layout='pos'):
-    figure = plot_graph(nx_graph, layout)
+def visualize_graph_tensorboard(nx_graph, tag, layout='pos', map_img=None, coord_limits=None):
+    figure = plot_graph(nx_graph, layout, map_img=crop_map_image(map_img), limits=coord_limits)
     w, h = figure.canvas.get_width_height()
 
     buffer = io.BytesIO()

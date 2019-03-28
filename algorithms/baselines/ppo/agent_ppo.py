@@ -214,6 +214,7 @@ class AgentPPO(AgentLearner):
 
         self.actor_critic = ActorCritic(env, self.ph_observations, self.params)
 
+        self.set_map_image(env)  # this must be done after we get the rest of the info from the env and right before env.close()
         env.close()
 
         self.objectives = self.add_ppo_objectives(

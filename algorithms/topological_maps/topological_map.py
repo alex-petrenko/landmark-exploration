@@ -1,6 +1,8 @@
 import math
+import pickle as pkl
 import random
 from hashlib import sha1
+from os.path import join
 
 import tensorflow as tf
 
@@ -187,6 +189,9 @@ class TopologicalMap:
         self.graph[i1][i2]['last_traversal_frames'] = frames
         self.graph[i1][i2]['traversed'] = True
 
+        if success:
+            self.graph.nodes[i2]['visited'] += 1
+
     # noinspection PyUnusedLocal
     @staticmethod
     def _edge_weight(i1, i2, d):
@@ -213,11 +218,22 @@ class TopologicalMap:
         g = nx.relabel_nodes(g, labels)
         return g
 
+    def save_checkpoint(self, checkpoint_dir):
+        with open(join(checkpoint_dir, 'topo_map.pkl'), 'wb') as file:
+            pkl.dump(self.__dict__, file, 2)
 
-def map_summaries(maps, env_steps, summary_writer, section):
+    def load_checkpoint(self, checkpoint_dir):
+        with open(join(checkpoint_dir, 'topo_map.pkl'), 'rb') as file:
+            topo_map_dict = pkl.load(file)
+        self.load_dict(topo_map_dict)
+
+    def load_dict(self, topo_map_dict):
+        self.__dict__.update(topo_map_dict)
+
+
+def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_limits=None):
     if None in maps:
         return
-
     # summaries related to episodic memory (maps)
     num_landmarks = [m.num_landmarks() for m in maps]
     num_neighbors = [len(m.neighborhood()) for m in maps]
@@ -246,7 +262,7 @@ def map_summaries(maps, env_steps, summary_writer, section):
 
     for i, map_for_summary in enumerate(maps_for_summary):
         random_graph_summary = visualize_graph_tensorboard(
-            map_for_summary.labeled_graph, tag=f'{section}/random_graph_{i}',
+            map_for_summary.labeled_graph, tag=f'{section}/random_graph_{i}', map_img=map_img, coord_limits=coord_limits
         )
         summary_writer.add_summary(random_graph_summary, env_steps)
 
@@ -255,5 +271,5 @@ def map_summaries(maps, env_steps, summary_writer, section):
         if m.num_landmarks() > maps[max_graph_idx].num_landmarks():
             max_graph_idx = i
 
-    max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].labeled_graph, tag=f'{section}/max_graph')
+    max_graph_summary = visualize_graph_tensorboard(maps[max_graph_idx].labeled_graph, tag=f'{section}/max_graph', map_img=map_img, coord_limits=coord_limits)
     summary_writer.add_summary(max_graph_summary, env_steps)
