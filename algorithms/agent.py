@@ -100,6 +100,23 @@ class AgentLearner(Agent):
 
         self._last_trajectory_summary = 0  # timestamp of the latest trajectory summary written
 
+    def set_map_image(self, env):
+        self.map_img = None
+        self.coord_limits = None
+        try:
+            if env.unwrapped.coord_limits:
+                from vizdoom import ScreenResolution
+                env.unwrapped.show_automap = True
+                env.unwrapped.screen_w = 800
+                env.unwrapped.screen_h = 600
+                env.unwrapped.screen_resolution = ScreenResolution.RES_800X600
+                env.reset()
+                env.unwrapped.game.advance_action()
+                self.map_img = env.unwrapped.get_automap_buffer()
+                self.coord_limits = env.unwrapped.coord_limits
+        except AttributeError:
+            log.debug('Could not get map image from env.')
+
     def initialize(self):
         """Start the session."""
         self.saver = tf.train.Saver(max_to_keep=3)

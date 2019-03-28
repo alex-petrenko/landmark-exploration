@@ -7,6 +7,7 @@ from algorithms.curiosity.icm.icm import IntrinsicCuriosityModule
 from algorithms.curiosity.reachability_curiosity.reachability_curiosity import ReachabilityCuriosityModule
 from algorithms.env_wrappers import main_observation_space
 from algorithms.tf_utils import placeholder_from_space
+from algorithms.topological_maps.topological_map import map_summaries
 from algorithms.trajectory import TrajectoryBuffer
 from utils.timing import Timing
 
@@ -139,6 +140,7 @@ class AgentCuriousPPO(AgentPPO):
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)
 
+            map_summaries(self.curiosity.episodic_maps, env_steps, self.summary_writer, 'tmax_maps', self.map_img, self.coord_limits)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
             self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
             self.curiosity.additional_summaries(env_steps, self.summary_writer, self.params.stats_episodes)

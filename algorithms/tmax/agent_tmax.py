@@ -918,22 +918,7 @@ class AgentTMAX(AgentLearner):
         self.curiosity = ReachabilityCuriosityModule(env, params)
         self.curiosity.reachability_buffer = TmaxReachabilityBuffer(params)
 
-        self.map_img = None
-        self.coord_limits = None
-        try:
-            if env.unwrapped.coord_limits:
-                from vizdoom import ScreenResolution
-                env.unwrapped.show_automap = True
-                env.unwrapped.screen_w = 800
-                env.unwrapped.screen_h = 600
-                env.unwrapped.screen_resolution = ScreenResolution.RES_800X600
-                env.reset()
-                env.unwrapped.game.advance_action()
-                self.map_img = env.unwrapped.get_automap_buffer()
-                self.coord_limits = env.unwrapped.coord_limits
-        except AttributeError:
-            log.debug('Could not get map image from env.')
-
+        self.set_map_image(env)  # this must be done after we get the rest of the info from the env and right before env.close()
         env.close()
 
         self.objectives = self.add_ppo_objectives(
