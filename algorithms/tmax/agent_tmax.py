@@ -324,24 +324,52 @@ class TmaxManager:
             reachable_indices.remove(curr_landmark_idx)
             assert len(reachable_indices) > 0  # should always be true because we check during stage change
 
-            min_visits = math.inf
-            min_visits_idx = -1
+            min_chosen_times = math.inf
+            min_chosen_idx = -1
             for reachable_index in reachable_indices:
-                visits = m.graph[reachable_index]['visited']
-                if visits < min_visits:
-                    min_visits_idx = reachable_index
-                    min_visits = visits
+                chosen_times = m.graph.nodes[reachable_index]['locomotion_goal']
+                if chosen_times < min_chosen_times:
+                    min_chosen_idx = reachable_index
+                    min_chosen_times = chosen_times
 
-            locomotion_goal_idx = min_visits_idx
-            log.info('Locomotion final goal for locomotion is %d with %d visits', locomotion_goal_idx, min_visits)
+            locomotion_goal_idx = min_chosen_idx
+            m.graph.nodes[locomotion_goal_idx]['locomotion_goal'] += 1
+
+            log.info(
+                'Locomotion final goal for locomotion is %d with chosen %d times',
+                locomotion_goal_idx, min_chosen_times,
+            )
             assert locomotion_goal_idx != curr_landmark_idx
         else:
+            # sample target according to UCB of value estimate
             accessible_targets = self._accessible_targets(m, curr_landmark_idx)
             # current vertex has path length of 0 to itself and is always accessible
             assert len(accessible_targets) > 0
 
-            # TODO: instead of randomly picking target, choose the most "interesting" one
-            locomotion_goal_idx = random.choice(accessible_targets)
+            # calculate UCB of value estimate for all targets
+            total_num_samples = 0
+            for accessible_target in accessible_targets:
+                num_samples = m.graph.nodes[accessible_target]['num_samples']
+                total_num_samples += num_samples
+
+            max_ucb = -math.inf
+            max_ucb_target = -1
+            for accessible_target in accessible_targets:
+                value = m.graph.nodes[accessible_target]['value_estimate']
+                num_samples = m.graph.nodes[accessible_target]['num_samples']
+                ucb_degree = 5.0
+                ucb = value + ucb_degree * math.sqrt(math.log(total_num_samples) / num_samples)
+                if ucb > max_ucb:
+                    max_ucb = ucb
+                    max_ucb_target = accessible_target
+
+            locomotion_goal_idx = max_ucb_target
+            goal_node = m.graph.nodes[locomotion_goal_idx]
+            log.info(
+                'Locomotion final goal for exploration is %d with value %.3f, samples %d and UCB %.3f',
+                locomotion_goal_idx, goal_node['value_estimate'], goal_node['num_samples'], max_ucb,
+            )
+            m.graph.nodes[locomotion_goal_idx]['num_samples'] += 1
 
         return locomotion_goal_idx
 
@@ -384,7 +412,7 @@ class TmaxManager:
         m.new_episode()
 
         for node in m.graph.nodes:
-            m.graph.nodes[node]['visited'] = 1  # reset visitation count
+            m.graph.nodes[node]['locomotion_goal'] = 1  # reset number of times we chose this node
 
         topological_distances = m.topological_distances(from_idx=0)
         assert all(d <= max_dist for d in topological_distances.values())
@@ -472,6 +500,18 @@ class TmaxManager:
             m.num_landmarks(), len(self.persistent_maps), m.graph.nodes, self.accessible_region.num_landmarks(),
         )
 
+    def _update_value_estimates(self, m, env_i):
+        landmark_observations = [m.get_observation(node) for node in m.graph.nodes]
+        _, _, values = self.agent.actor_critic.invoke(
+            self.agent.session, landmark_observations, None, None, None,  # does not work with goals!
+        )
+
+        assert len(values) == len(landmark_observations)
+        for i, node in enumerate(m.graph.nodes):
+            m.graph.nodes[node]['value_estimate'] = values[i]
+
+        log.info('Value estimates for env_i %d: %r', env_i, values)
+
     def _new_episode(self, env_i):
         if self.global_stage == TmaxMode.LOCOMOTION:
             self.current_maps[env_i] = self.persistent_maps[-1]  # use literally the same map instance in all envs
@@ -481,8 +521,8 @@ class TmaxManager:
                 self.current_maps[env_i] = copy.deepcopy(self.persistent_maps[-1])
 
         self.env_stage[env_i] = self.global_stage
-
         self.current_maps[env_i].new_episode()
+        self._update_value_estimates(self.current_maps[env_i], env_i)
 
         # delete old persistent maps that aren't used anymore
         while len(self.persistent_maps) > 1:

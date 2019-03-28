@@ -51,15 +51,22 @@ class TopologicalMap:
 
         self.reset(initial_obs, initial_info)
 
-    def _add_node(self, idx, obs, hash_, pos, angle, visited):
-        self.graph.add_node(idx, obs=obs, hash=hash_, pos=pos, angle=angle, visited=visited)
+    def _add_node(self, idx, obs, hash_, pos, angle, locomotion_goal, value_estimate, num_samples):
+        self.graph.add_node(
+            idx,
+            obs=obs, hash=hash_, pos=pos, angle=angle, locomotion_goal=locomotion_goal,
+            value_estimate=value_estimate, num_samples=num_samples,
+        )
 
     def reset(self, obs, info=None):
         """Create the graph with only one vertex."""
         self.graph.clear()
 
         self._add_node(
-            0, obs=obs, hash_=hash_observation(obs), pos=get_position(info), angle=get_angle(info), visited=1,
+            0,
+            obs=obs, hash_=hash_observation(obs), pos=get_position(info), angle=get_angle(info),
+            locomotion_goal=0,
+            value_estimate=0.0, num_samples=1,
         )
 
         self.curr_landmark_idx = 0
@@ -129,7 +136,9 @@ class TopologicalMap:
 
         self._add_node(
             new_landmark_idx,
-            obs=obs, hash_=hash_observation(obs), pos=get_position(info), angle=get_angle(info), visited=1,
+            obs=obs, hash_=hash_observation(obs), pos=get_position(info), angle=get_angle(info),
+            locomotion_goal=0,
+            value_estimate=0.0, num_samples=1,
         )
 
         self._add_edge(self.curr_landmark_idx, new_landmark_idx)
@@ -137,7 +146,7 @@ class TopologicalMap:
         return new_landmark_idx
 
     def _add_edge(self, i1, i2):
-        initial_success = 0.25  # add to params?
+        initial_success = 0.5  # add to params?
 
         self.graph.add_edge(i1, i2, success=initial_success, last_traversal_frames=math.inf, traversed=False)
         if not self.directed_graph:
@@ -177,9 +186,6 @@ class TopologicalMap:
         self.graph[i1][i2]['success'] = 0.5 * (prev_value + success)
         self.graph[i1][i2]['last_traversal_frames'] = frames
         self.graph[i1][i2]['traversed'] = True
-
-        if success:
-            self.graph[i2]['visited'] += 1
 
     # noinspection PyUnusedLocal
     @staticmethod
