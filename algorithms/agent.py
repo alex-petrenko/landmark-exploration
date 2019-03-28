@@ -137,10 +137,14 @@ class AgentLearner(Agent):
         self.params.ensure_serialized()
         save_every = self.save_rate_decay.at(step)
         if (step + 1) % save_every == 0:
-            log.info('Training step #%d, env steps: %.1fM, saving...', step, env_steps / 1000000)
-            saver_path = model_dir(self.params.experiment_dir()) + '/' + self.__class__.__name__
-            self.session.run(self.update_env_steps, feed_dict={self.total_env_steps_placeholder: env_steps})
-            self.saver.save(self.session, saver_path, global_step=step)
+            self._save(step, env_steps)
+
+    def _save(self, step, env_steps):
+        log.info('Training step #%d, env steps: %.1fM, saving...', step, env_steps / 1000000)
+        saver_path = model_dir(self.params.experiment_dir()) + '/' + self.__class__.__name__
+        self.session.run(self.update_env_steps, feed_dict={self.total_env_steps_placeholder: env_steps})
+        self.saver.save(self.session, saver_path, global_step=step)
+
 
     def _should_write_summaries(self, step):
         summaries_every = self.summary_rate_decay.at(step)

@@ -1,6 +1,8 @@
 import math
+import pickle as pkl
 import random
 from hashlib import sha1
+from os.path import join
 
 import tensorflow as tf
 
@@ -212,6 +214,18 @@ class TopologicalMap:
         labels = {i: str(i) for i in g.nodes}
         g = nx.relabel_nodes(g, labels)
         return g
+
+    def save_checkpoint(self, checkpoint_dir):
+        with open(join(checkpoint_dir, 'topo_map.pkl'), 'wb') as file:
+            pkl.dump(self.__dict__, file, 2)
+
+    def load_checkpoint(self, checkpoint_dir):
+        with open(join(checkpoint_dir, 'topo_map.pkl'), 'rb') as file:
+            topo_map_dict = pkl.load(file)
+        self.load_dict(topo_map_dict)
+
+    def load_dict(self, topo_map_dict):
+        self.__dict__.update(topo_map_dict)
 
 
 def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_limits=None):

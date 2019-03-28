@@ -1,4 +1,6 @@
 import copy
+from os.path import isfile, join
+
 import math
 import random
 import time
@@ -27,7 +29,7 @@ from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries, hash_observation
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.timing import Timing
-from utils.utils import log, AttrDict, numpy_all_the_way
+from utils.utils import log, AttrDict, numpy_all_the_way, model_dir
 
 
 class ActorCritic:
@@ -249,8 +251,32 @@ class TmaxManager:
 
         self.last_stage_change = max(self.last_stage_change, env_steps)
 
+        self.maybe_load_maps()
+
         self.initialized = True
         return self.mode
+
+    def maybe_load_maps(self):
+        checkpoint_dir = model_dir(self.params.experiment_dir())
+        if isfile(join(checkpoint_dir, 'topo_map.pkl')):
+            import pickle as pkl
+            with open(join(checkpoint_dir, 'topo_map.pkl'), 'rb') as file:
+                topo_map_dict = pkl.load(file)
+                maps = self.persistent_maps
+                for m in maps:
+                    m.load_dict(topo_map_dict)
+
+
+    def save(self):
+        checkpoint_dir = model_dir(self.params.experiment_dir())
+
+        maps = self.persistent_maps
+        max_graph_idx = 0
+        for i, m in enumerate(maps):
+            if m.num_landmarks() > maps[max_graph_idx].num_landmarks():
+                max_graph_idx = i
+
+        maps[max_graph_idx].save_checkpoint(checkpoint_dir)
 
     def _log_verbose(self, s, *args):
         if self._verbose:
@@ -1630,5 +1656,10 @@ class AgentTMAX(AgentLearner):
                 multi_env.close()
 
         return status
+
+    def _save(self, step, env_steps):
+        super()._save(step, env_steps)
+
+        self.tmax_mgr.save()
 
 # TODO: better heuristic to grow the persistent map (e.g. 1 edge at a time)
