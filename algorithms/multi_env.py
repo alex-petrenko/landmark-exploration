@@ -66,7 +66,7 @@ class _MultiEnvWorker:
     @staticmethod
     def _get_info(env):
         info = {}
-        if hasattr(env.unwrapped, 'get_info'):
+        if hasattr(env.unwrapped, 'get_info_all'):
             info = env.unwrapped.get_info_all()  # info for the new episode
         return info
 
