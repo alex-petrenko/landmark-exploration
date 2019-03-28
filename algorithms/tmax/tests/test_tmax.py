@@ -10,7 +10,6 @@ from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.enjoy_tmax import enjoy
 from algorithms.tmax.locomotion import LocomotionNetwork
-from algorithms.curiosity.reachability_curiosity.reachability import ReachabilityNetwork
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.tmax.train_tmax import train
 from algorithms.trajectory import TrajectoryBuffer
@@ -33,6 +32,7 @@ class TestTMAX(TestCase):
         params.batch_size = 32
         params.ppo_epochs = 2
         params.reachability_bootstrap = 10
+        params.stage_duration = 100
 
         tmax_train_dir = join(experiments_dir(), params.experiments_root)
         ensure_dir_exists(tmax_train_dir)

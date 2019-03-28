@@ -6,6 +6,7 @@ import tensorflow as tf
 
 import networkx as nx
 
+from algorithms.algo_utils import EPS
 from utils.graph import visualize_graph_tensorboard
 from utils.utils import ensure_contigious, log
 
@@ -50,11 +51,17 @@ class TopologicalMap:
 
         self.reset(initial_obs, initial_info)
 
+    def _add_node(self, idx, obs, hash_, pos, angle, visited):
+        self.graph.add_node(idx, obs=obs, hash=hash_, pos=pos, angle=angle, visited=visited)
+
     def reset(self, obs, info=None):
         """Create the graph with only one vertex."""
         self.graph.clear()
 
-        self.graph.add_node(0, obs=obs, hash=hash_observation(obs), pos=get_position(info), angle=get_angle(info))
+        self._add_node(
+            0, obs=obs, hash_=hash_observation(obs), pos=get_position(info), angle=get_angle(info), visited=1,
+        )
+
         self.curr_landmark_idx = 0
 
         self.new_episode()
@@ -120,8 +127,9 @@ class TopologicalMap:
         new_landmark_idx = max(self.graph.nodes) + 1
         assert new_landmark_idx not in self.graph.nodes
 
-        self.graph.add_node(
-            new_landmark_idx, obs=obs, hash=hash_observation(obs), pos=get_position(info), angle=get_angle(info),
+        self._add_node(
+            new_landmark_idx,
+            obs=obs, hash_=hash_observation(obs), pos=get_position(info), angle=get_angle(info), visited=1,
         )
 
         self._add_edge(self.curr_landmark_idx, new_landmark_idx)
@@ -129,9 +137,11 @@ class TopologicalMap:
         return new_landmark_idx
 
     def _add_edge(self, i1, i2):
-        self.graph.add_edge(i1, i2, success=0.5, last_traversal_frames=math.inf, traversed=False)
+        initial_success = 0.25  # add to params?
+
+        self.graph.add_edge(i1, i2, success=initial_success, last_traversal_frames=math.inf, traversed=False)
         if not self.directed_graph:
-            self.graph.add_edge(i2, i1, success=0.5, last_traversal_frames=math.inf, traversed=False)
+            self.graph.add_edge(i2, i1, success=initial_success, last_traversal_frames=math.inf, traversed=False)
 
     def _remove_edge(self, i1, i2):
         if i2 in self.graph[i1]:
@@ -143,6 +153,16 @@ class TopologicalMap:
     def remove_edges_from(self, edges):
         for e in edges:
             self._remove_edge(*e)
+
+    def remove_unreachable_vertices(self, from_idx):
+        reachable_targets = self.reachable_indices(from_idx)
+        remove_vertices = []
+        for target_idx in self.graph.nodes():
+            if target_idx not in reachable_targets:
+                remove_vertices.append(target_idx)
+
+        assert len(remove_vertices) < self.num_landmarks()
+        self.graph.remove_nodes_from(remove_vertices)
 
     def num_edges(self):
         """Helper function for summaries."""
@@ -158,10 +178,15 @@ class TopologicalMap:
         self.graph[i1][i2]['last_traversal_frames'] = frames
         self.graph[i1][i2]['traversed'] = True
 
+        if success:
+            self.graph[i2]['visited'] += 1
+
     # noinspection PyUnusedLocal
     @staticmethod
     def _edge_weight(i1, i2, d):
-        return -math.log(d['success'])  # weight of the edge is neg. log probability of traversal success
+        success_prob = d['success']
+        success_prob = max(EPS, success_prob)
+        return -math.log(success_prob)  # weight of the edge is neg. log probability of traversal success
 
     def get_path(self, from_idx, to_idx):
         try:
