@@ -2,15 +2,19 @@
 Base classes for RL agent implementations with some boilerplate.
 
 """
+from collections import deque
 import gc
 import time
 
 import numpy as np
+import matplotlib.colors as colors
+import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow.contrib import slim
 
 from utils.gifs import encode_gif
 from utils.params import Params
+from utils.graph import visualize_matplotlib_figure_tensorboard
 
 from utils.utils import log, model_dir, summaries_dir, memory_consumption_mb, numpy_all_the_way
 from utils.decay import LinearDecay
@@ -73,6 +77,8 @@ class AgentLearner(Agent):
 
             self.gif_save_rate = 100  # number of seconds to wait before saving another gif to tensorboard
             self.gif_summary_num_envs = 2
+            self.num_position_histograms = 100 # number of position heatmaps to aggregate
+            self.heatmap_save_rate = 20
 
     def __init__(self, params):
         super(AgentLearner, self).__init__(params)
@@ -98,7 +104,10 @@ class AgentLearner(Agent):
         summary_dir = summaries_dir(self.params.experiment_dir())
         self.summary_writer = tf.summary.FileWriter(summary_dir)
 
+        self.position_histograms = deque([], maxlen=self.params.num_position_histograms)
+
         self._last_trajectory_summary = 0  # timestamp of the latest trajectory summary written
+        self._last_coverage_summary = 0  # timestamp of the latest coverage summary written
 
     def set_map_image(self, env):
         self.map_img = None
@@ -149,6 +158,11 @@ class AgentLearner(Agent):
         if self.session is not None:
             self.session.close()
         gc.collect()
+
+    def process_infos(self, infos):
+        for info in infos:
+            if 'previous_histogram' in info:
+                self.position_histograms.append(info['previous_histogram'])
 
     def _maybe_save(self, step, env_steps):
         self.params.ensure_serialized()
@@ -220,3 +234,32 @@ class AgentLearner(Agent):
 
         summary = tf.Summary(value=gif_summaries)
         self.summary_writer.add_summary(summary, step)
+
+    def _maybe_coverage_summaries(self, env_steps):
+        time_since_last = time.time() - self._last_coverage_summary
+        if time_since_last < self.params.heatmap_save_rate:
+            return
+        if len(self.position_histograms) == 0:
+            return
+
+        self._last_coverage_summary = time.time()
+        self._write_position_heatmap_summaries(tag='position_coverage', step=env_steps)
+
+    def _write_position_heatmap_summaries(self, tag, step):
+        summed_histogram = np.zeros_like(self.position_histograms[0])
+        for hist in self.position_histograms:
+            summed_histogram += hist
+        summed_histogram += 1  # min shouldn't be 0 (for log scale)
+
+        fig = plt.figure(figsize=(4, 4))
+        plt.imshow(
+            summed_histogram,
+            norm=colors.LogNorm(vmin=summed_histogram.min(), vmax=summed_histogram.max()),
+            cmap='RdBu_r',
+        )
+        plt.colorbar()
+
+        summary = visualize_matplotlib_figure_tensorboard(fig, tag)
+        self.summary_writer.add_summary(summary, step)
+
+        plt.close(fig)

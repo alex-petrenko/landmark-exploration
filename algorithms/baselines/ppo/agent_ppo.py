@@ -485,6 +485,7 @@ class AgentPPO(AgentLearner):
 
                     # wait for all the workers to complete an environment step
                     env_obs, rewards, dones, infos = multi_env.step(actions)
+                    self.process_infos(infos)
                     new_observations, new_goals = main_observation(env_obs), goal_observation(env_obs)
 
                     # add experience from all environments to the current buffer
@@ -514,6 +515,7 @@ class AgentPPO(AgentLearner):
             self._maybe_print(step, env_steps, avg_reward, avg_length, fps, timing)
             self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
+            self._maybe_coverage_summaries(env_steps)
 
     def learn(self):
         status = TrainStatus.SUCCESS

@@ -107,6 +107,7 @@ class AgentCuriousPPO(AgentPPO):
 
                     # wait for all the workers to complete an environment step
                     env_obs, rewards, dones, infos = multi_env.step(actions)
+                    self.process_infos(infos)
                     next_obs, new_goals = main_observation(env_obs), goal_observation(env_obs)
 
                     trajectory_buffer.add(obs, actions, dones)
@@ -143,6 +144,7 @@ class AgentCuriousPPO(AgentPPO):
             map_summaries(self.curiosity.episodic_maps, env_steps, self.summary_writer, 'tmax_maps', self.map_img, self.coord_limits)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
             self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
+            self._maybe_coverage_summaries(env_steps)
             self.curiosity.additional_summaries(env_steps, self.summary_writer, self.params.stats_episodes)
 
             trajectory_buffer.reset_trajectories()
