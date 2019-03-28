@@ -477,6 +477,7 @@ class AgentCuriousA2C(AgentA2C):
 
                 # wait for all the workers to complete an environment step
                 next_obs, rewards, dones, infos = multi_env.step(actions)
+                self.process_infos(infos)
                 next_img_obs, next_timer = extract_keys(next_obs, 'obs', 'timer')
 
                 # calculate curiosity bonus
@@ -554,6 +555,7 @@ class AgentCuriousA2C(AgentA2C):
             self._maybe_print(step, avg_reward, avg_length, fps, timing)
             self._maybe_aux_summaries(step, env_steps, avg_reward, avg_length)
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
+            self._maybe_coverage_summaries(env_steps)
 
             if step_callback is not None:
                 step_callback(locals(), globals())
