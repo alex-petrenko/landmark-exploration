@@ -189,9 +189,6 @@ class TopologicalMap:
         self.graph[i1][i2]['last_traversal_frames'] = frames
         self.graph[i1][i2]['traversed'] = True
 
-        if success:
-            self.graph.nodes[i2]['visited'] += 1
-
     # noinspection PyUnusedLocal
     @staticmethod
     def _edge_weight(i1, i2, d):
