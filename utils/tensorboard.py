@@ -21,7 +21,7 @@ def visualize_matplotlib_figure_tensorboard(figure, tag):
 def image_summary(img, tag):
     """Generate image summary for the given image numpy array."""
     encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
-    result, encoded_img = cv2.imencode('.jpg', img, encode_param)
+    result, encoded_img = cv2.imencode('.jpg', cv2.cvtColor(img, cv2.COLOR_RGB2BGR), encode_param)
     if not result:
         return None
 

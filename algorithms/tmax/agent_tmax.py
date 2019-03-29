@@ -1,6 +1,4 @@
 import copy
-from os.path import isfile, join
-
 import math
 import random
 import time
@@ -250,34 +248,21 @@ class TmaxManager:
             self.current_maps.append(TopologicalMap(obs[i], directed_graph=False, initial_info=info[i]))
 
         self.persistent_maps.append(TopologicalMap(obs[0], directed_graph=False, initial_info=info[0]))
+        self._maybe_load_maps()
 
         self.last_stage_change = max(self.last_stage_change, env_steps)
-
-        self.maybe_load_maps()
-
         self.initialized = True
         return self.mode
 
-    def maybe_load_maps(self):
+    def _maybe_load_maps(self):
         checkpoint_dir = model_dir(self.params.experiment_dir())
-        if isfile(join(checkpoint_dir, 'topo_map.pkl')):
-            import pickle as pkl
-            with open(join(checkpoint_dir, 'topo_map.pkl'), 'rb') as file:
-                topo_map_dict = pkl.load(file)
-                maps = self.persistent_maps
-                for m in maps:
-                    m.load_dict(topo_map_dict)
+        m = self.persistent_maps[-1]
+        m.maybe_load_checkpoint(checkpoint_dir)
 
     def save(self):
+        m = self.persistent_maps[-1]
         checkpoint_dir = model_dir(self.params.experiment_dir())
-
-        maps = self.persistent_maps
-        max_graph_idx = 0
-        for i, m in enumerate(maps):
-            if m.num_landmarks() > maps[max_graph_idx].num_landmarks():
-                max_graph_idx = i
-
-        maps[max_graph_idx].save_checkpoint(checkpoint_dir)
+        m.save_checkpoint(checkpoint_dir)
 
     def _log_verbose(self, s, *args):
         if self._verbose:
