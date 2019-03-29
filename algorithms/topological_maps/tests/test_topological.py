@@ -257,3 +257,6 @@ class TestGraph(TestCase):
         candidate_edges = new_map.get_cut_from(m)
         self.assertEqual(sorted(candidate_edges), [(0, 10), (1, 4), (3, 4), (3, 7)])
         self.assertEqual(len(candidate_edges), 4)
+
+        candidate_edges = m.get_cut_from(new_map)
+        self.assertEqual(len(candidate_edges), 0)

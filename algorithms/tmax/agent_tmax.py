@@ -240,8 +240,10 @@ class TmaxManager:
         self.deliberate_action = [True] * self.num_envs
 
         self.localizer = Localizer(self.params, self.curiosity.obs_encoder)
-        self.strict_loop_closure_threshold = 0.25
+        self.strict_loop_closure_threshold = 0.2
+        self.closer_new_landmark_threshold = 0.6
         self.localizer.loop_closure_threshold = self.strict_loop_closure_threshold  # to prevent noisy long edges
+        self.localizer.new_landmark_threshold = self.closer_new_landmark_threshold  # to make locomotion easier
 
     def initialize(self, obs, info, env_steps):
         if self.initialized:
@@ -255,7 +257,7 @@ class TmaxManager:
             self.current_maps.append(TopologicalMap(obs[i], directed_graph=False, initial_info=info[i]))
             self.current_persistent_maps.append(self.persistent_maps[-1])
 
-        self._maybe_load_maps()
+        self._maybe_load_maps()  # TODO fix loading
 
         self.last_stage_change = max(self.last_stage_change, env_steps)
         self.initialized = True
@@ -337,21 +339,27 @@ class TmaxManager:
 
     def _get_locomotion_final_goal_locomotion_stage(self, env_i, curr_landmark_idx):
         m = self.current_maps[env_i]
-        edges = m.graph.edges(data=True)
+        edges = list(m.graph.edges(data=True))
         assert len(edges) > 0
         least_traversed_edge = None
         min_num_traversed = math.inf
+        random.shuffle(edges)
         for e in edges:
             i1, i2, data = e
             attempted_traverse = data.get('attempted_traverse', 0)
             if attempted_traverse < min_num_traversed:
+                min_num_traversed = attempted_traverse
                 least_traversed_edge = e
 
         # we navigate to the initial vertex of the edge (i1)
         locomotion_goal_idx = least_traversed_edge[0]  # i1 -> i2
 
+        # we're already at the initial vertex of the target edge, set the other end of the edge to be the goal
+        if locomotion_goal_idx == curr_landmark_idx:
+            locomotion_goal_idx = least_traversed_edge[1]  # i2
+
         log.info(
-            'Locomotion final goal for locomotion is %d, initial vertex of edge %r',
+            'Locomotion final goal for locomotion is %d, vertex of edge %r',
             locomotion_goal_idx, least_traversed_edge,
         )
         assert locomotion_goal_idx != curr_landmark_idx
@@ -413,18 +421,20 @@ class TmaxManager:
             )
             min_d = min(distances)
 
-            if i2 not in m.graph:
+            unique_id = (env_i + 1) * 10000 + i2
+
+            if unique_id not in m.graph:
                 if min_d > self.params.new_landmark_threshold:
-                    new_node = new_map.nodes[i2]
+                    new_node = new_map.graph.nodes[i2]
                     # noinspection PyProtectedMember
                     m._add_node(
-                        i2, obs=new_map.get_observation(i2), pos=new_node['pose'], angle=new_node['angle'],
+                        unique_id, obs=new_map.get_observation(i2), pos=new_node['pos'], angle=new_node['angle'],
                     )
 
-            if i2 in m.graph:  # if was added before or just now
+            if unique_id in m.graph:  # if was added before or just now
                 # noinspection PyProtectedMember
-                m._add_edge(i1, i2)
-                added_edges.append(((i1, i2), min_d))
+                m._add_edge(i1, unique_id)
+                added_edges.append(((i1, unique_id), min_d))
 
         log.debug('Env %d, candidate edges %r, added_edges %r', env_i, candidate_edges, added_edges)
         return len(added_edges)
@@ -454,13 +464,14 @@ class TmaxManager:
 
         m = copy.deepcopy(self.persistent_maps[-1])
 
-        max_edges_to_add = 10
+        max_edges_to_add = 5
         added = 0
         for env_i in range(self.num_envs):
             added += self._expand_map(m, self.current_maps[env_i], env_i)
             if added >= max_edges_to_add:
                 break
         log.debug('Finished adding new exploration edges after %d edges added', added)
+        m.relabel_nodes()
 
         self._check_loop_closures(m)
 
@@ -476,7 +487,7 @@ class TmaxManager:
             m.graph.nodes, m.topological_distances(from_idx=0), len(self.persistent_maps),
         )
 
-        if m.num_landmarks() < 3:
+        if m.num_landmarks() < 2:
             return False
         else:
             # good enough to start learning locomotion
@@ -541,7 +552,7 @@ class TmaxManager:
 
         self.env_stage[env_i] = self.global_stage
         self.current_maps[env_i].new_episode()
-        self._update_value_estimates(self.current_maps[env_i])
+        self._update_value_estimates(self.current_persistent_maps[env_i])
 
         # delete old persistent maps that aren't used anymore
         while len(self.persistent_maps) > 1:
@@ -557,6 +568,8 @@ class TmaxManager:
                 self.persistent_maps.popleft()
             else:
                 break
+
+        # TODO reset UCB?
 
         self.episode_frames[env_i] = self.last_locomotion_success[env_i] = 0
         self.dist_to_target[env_i] = [math.inf]
