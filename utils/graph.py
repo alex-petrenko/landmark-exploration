@@ -39,7 +39,7 @@ def plot_graph(nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856,
         width, height = map_img.shape[:2]
         dpi = 80  # can be changed
         plt.close('all')
-        figure = plt.figure(num=2, figsize=(height // dpi, width // dpi), dpi=dpi, facecolor='none', edgecolor='k')
+        figure = plt.figure(num=2, figsize=(height / dpi, width / dpi), dpi=dpi, facecolor='none', edgecolor='k')
         figure.figimage(map_img, 0, 0)
         plt.xlim(limits[0], limits[2])
         plt.ylim(limits[1], limits[3])
