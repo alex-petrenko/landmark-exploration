@@ -1,6 +1,7 @@
 import math
 import pickle as pkl
 import random
+from collections import deque
 from hashlib import sha1
 from os.path import join, isfile
 
@@ -53,10 +54,11 @@ class TopologicalMap:
 
         self.reset(initial_obs, initial_info)
 
-    def _add_node(self, idx, obs, hash_, pos, angle, locomotion_goal, value_estimate, num_samples):
+    def _add_node(self, idx, obs, pos, angle, value_estimate=0.0, num_samples=1):
+        hash_ = hash_observation(obs)
         self.graph.add_node(
             idx,
-            obs=obs, hash=hash_, pos=pos, angle=angle, locomotion_goal=locomotion_goal,
+            obs=obs, hash=hash_, pos=pos, angle=angle,
             value_estimate=value_estimate, num_samples=num_samples,
         )
 
@@ -64,12 +66,7 @@ class TopologicalMap:
         """Create the graph with only one vertex."""
         self.graph.clear()
 
-        self._add_node(
-            0,
-            obs=obs, hash_=hash_observation(obs), pos=get_position(info), angle=get_angle(info),
-            locomotion_goal=0,
-            value_estimate=0.0, num_samples=1,
-        )
+        self._add_node(0, obs=obs, pos=get_position(info), angle=get_angle(info))
 
         self.curr_landmark_idx = 0
 
@@ -116,8 +113,11 @@ class TopologicalMap:
         d.extend(nx.descendants(self.graph, start_idx))
         return d
 
+    def non_neighbors(self, landmark_idx):
+        return list(nx.non_neighbors(self.graph, landmark_idx))
+
     def curr_non_neighbors(self):
-        return list(nx.non_neighbors(self.graph, self.curr_landmark_idx))
+        return self.non_neighbors(self.curr_landmark_idx)
 
     def set_curr_landmark(self, landmark_idx):
         """Replace current landmark with the given landmark. Create necessary edges if needed."""
@@ -136,23 +136,22 @@ class TopologicalMap:
         new_landmark_idx = max(self.graph.nodes) + 1
         assert new_landmark_idx not in self.graph.nodes
 
-        self._add_node(
-            new_landmark_idx,
-            obs=obs, hash_=hash_observation(obs), pos=get_position(info), angle=get_angle(info),
-            locomotion_goal=0,
-            value_estimate=0.0, num_samples=1,
-        )
-
+        self._add_node(new_landmark_idx, obs=obs, pos=get_position(info), angle=get_angle(info))
         self._add_edge(self.curr_landmark_idx, new_landmark_idx)
         self._log_verbose('Added new landmark %d', new_landmark_idx)
         return new_landmark_idx
 
     def _add_edge(self, i1, i2):
-        initial_success = 0.5  # add to params?
+        initial_success = 0.1  # add to params?
 
-        self.graph.add_edge(i1, i2, success=initial_success, last_traversal_frames=math.inf, traversed=False)
+        self.graph.add_edge(
+            i1, i2,
+            success=initial_success, last_traversal_frames=math.inf, attempted_traverse=0,
+        )
         if not self.directed_graph:
-            self.graph.add_edge(i2, i1, success=initial_success, last_traversal_frames=math.inf, traversed=False)
+            self.graph.add_edge(
+                i2, i1, success=initial_success, last_traversal_frames=math.inf, attempted_traverse=0,
+            )
 
     def _remove_edge(self, i1, i2):
         if i2 in self.graph[i1]:
@@ -184,10 +183,12 @@ class TopologicalMap:
 
     def update_edge_traversal(self, i1, i2, success, frames):
         """Update traversal information only for one direction."""
-        prev_value = self.graph[i1][i2]['success']
-        self.graph[i1][i2]['success'] = 0.5 * (prev_value + success)
+        prev_success = self.graph[i1][i2]['success']
+        self.graph[i1][i2]['success'] = 0.5 * (prev_success + success)
         self.graph[i1][i2]['last_traversal_frames'] = frames
-        self.graph[i1][i2]['traversed'] = True
+
+        previous_traverse = self.graph[i1][i2].get('attempted_traverse', 0)
+        self.graph[i1][i2]['attempted_traverse'] = previous_traverse + 1
 
     # noinspection PyUnusedLocal
     @staticmethod
@@ -208,6 +209,46 @@ class TopologicalMap:
     def topological_distances(self, from_idx):
         return nx.shortest_path_length(self.graph, from_idx)
 
+    def distances_from(self, another_map):
+        """
+        Calculate topological distances from all nodes in another map (usually submap) to nodes in this map.
+        For all nodes in the intersection of graphs the distance should be 0.
+        Solved using BFS (probably there's an algorithm in NX for this).
+        """
+        q = deque(another_map.graph.nodes)
+        distances = {node: 0 for node in another_map.graph.nodes}
+
+        while len(q) > 0:
+            node = q.popleft()
+            if node not in self.graph:
+                continue
+
+            for adj_node in list(self.graph.adj[node]):
+                if adj_node in distances:
+                    continue
+
+                distances[adj_node] = distances[node] + 1
+                q.append(adj_node)
+
+        return distances
+
+    def get_cut_from(self, another_map):
+        """
+        Return set of edges (cut) that completely separates current map from another_map (usually subgraph).
+        """
+        distances = self.distances_from(another_map)
+        surrounding_vertices = [node for node, d in distances.items() if d == 1]
+        cut_edges = []
+
+        for v in surrounding_vertices:
+            for adj_v in self.graph.adj[v]:
+                assert distances[v] == 1
+                if adj_v in another_map.graph:
+                    assert distances[adj_v] == 0
+                    cut_edges.append((adj_v, v))
+
+        return cut_edges
+
     @property
     def labeled_graph(self):
         g = self.graph.copy()
@@ -222,6 +263,7 @@ class TopologicalMap:
     def maybe_load_checkpoint(self, checkpoint_dir):
         fname = 'topo_map.pkl'
         if isfile(join(checkpoint_dir, fname)):
+            log.debug('Load env map from file %s', fname)
             with open(join(checkpoint_dir, fname), 'rb') as fobj:
                 topo_map_dict = pkl.load(fobj)
                 self.load_dict(topo_map_dict)

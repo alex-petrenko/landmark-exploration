@@ -4,7 +4,7 @@ from algorithms.arguments import parse_args
 from algorithms.curiosity.reachability_curiosity.reachability import ReachabilityBuffer
 from algorithms.trajectory import Trajectory, TrajectoryBuffer
 
-DEFAULT_EXPERIMENT_NAME = 'tmax_v020'
+DEFAULT_EXPERIMENT_NAME = 'tmax_v021'
 DEFAULT_ENV = 'doom_maze_very_sparse'
 
 
@@ -40,21 +40,27 @@ class TmaxMode:
 class TmaxReachabilityBuffer(ReachabilityBuffer):
     def skip(self, trajectory, i):
         """Override base class method."""
-        # train reachability only on samples from exploration policy
-        return trajectory.mode[i] != TmaxMode.EXPLORATION
+        train_on_everything = False
+        if train_on_everything:
+            return False
+        else:
+            # train reachability only on samples from exploration stage
+            return trajectory.stage[i] != TmaxMode.EXPLORATION
 
 
 class TmaxTrajectory(Trajectory):
     def __init__(self, env_idx):
         super().__init__(env_idx)
         self.mode = []
+        self.stage = []
 
     def add(self, obs, action, **kwargs):
         super().add(obs, action, **kwargs)
         self.mode.append(kwargs['mode'])
+        self.stage.append(kwargs['stage'])
 
     def add_frame(self, tr, i):
-        self.add(tr.obs[i], tr.actions[i], mode=tr.mode[i])
+        self.add(tr.obs[i], tr.actions[i], mode=tr.mode[i], stage=tr.stage[i])
 
 
 class TmaxTrajectoryBuffer(TrajectoryBuffer):
@@ -66,10 +72,13 @@ class TmaxTrajectoryBuffer(TrajectoryBuffer):
 
     def add(self, obs, actions, dones, **kwargs):
         assert len(obs) == len(actions)
+        tmax_mgr = kwargs['tmax_mgr']
         for env_idx in range(len(obs)):
             if dones[env_idx]:
                 # finalize the trajectory and put it into a separate buffer
                 self.complete_trajectories.append(self.current_trajectories[env_idx])
                 self.current_trajectories[env_idx] = TmaxTrajectory(env_idx)
             else:
-                self.current_trajectories[env_idx].add(obs[env_idx], actions[env_idx], mode=kwargs['modes'][env_idx])
+                self.current_trajectories[env_idx].add(
+                    obs[env_idx], actions[env_idx], mode=tmax_mgr.mode[env_idx], stage=tmax_mgr.env_stage[env_idx],
+                )

@@ -1,3 +1,4 @@
+import copy
 import math
 import random
 from string import ascii_lowercase
@@ -190,3 +191,69 @@ class TestGraph(TestCase):
             plt.show()
 
         figure.clear()
+
+    def test_map_operations(self):
+        obs = np.array(0)
+        m = TopologicalMap(obs, directed_graph=False)
+
+        # constructing test "persistent map"
+        m.add_landmark(obs)  # 0 <-> 1
+        m.add_landmark(obs)  # 0 <-> 2
+
+        m.set_curr_landmark(1)
+        m.add_landmark(obs)  # 1 <-> 3
+        m.set_curr_landmark(2)  # 1 <-> 2
+        m.set_curr_landmark(3)  # 2 <-> 3
+
+        undirected_edges = [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3)]
+        for e in undirected_edges:
+            self.assertIn(e, m.graph.edges)
+            self.assertIn(reversed(e), m.graph.edges)
+        self.assertEqual(m.num_edges(), 2 * len(undirected_edges))
+
+        new_map = copy.deepcopy(m)
+
+        # constructing test "new map" (after exploration we have some new edges)
+        new_map.new_episode()
+        new_map.set_curr_landmark(1)
+        new_map.add_landmark(obs)  # 1 <-> 4
+
+        new_map.set_curr_landmark(4)
+        new_map.add_landmark(obs)  # 4 <-> 5
+
+        new_map.set_curr_landmark(5)
+        new_map.add_landmark(obs)  # 5 <-> 6
+
+        new_map.set_curr_landmark(4)
+        new_map.set_curr_landmark(3)  # 3 <-> 4
+
+        new_map.add_landmark(obs)  # 3 <-> 7
+
+        new_map.set_curr_landmark(7)
+        new_map.add_landmark(obs)  # 7 <-> 8
+
+        new_map.set_curr_landmark(7)
+        new_map.add_landmark(obs)  # 7 <-> 9
+
+        new_map.set_curr_landmark(3)
+        new_map.set_curr_landmark(2)
+        new_map.set_curr_landmark(0)
+        new_map.add_landmark(obs)  # 0 <-> 10
+
+        undirected_edges.extend([
+            (0, 10), (1, 4), (3, 4), (3, 7), (4, 5), (5, 6), (7, 8), (7, 9),
+        ])
+        for e in undirected_edges:
+            self.assertIn(e, new_map.graph.edges)
+            self.assertIn(reversed(e), new_map.graph.edges)
+        self.assertEqual(new_map.num_edges(), 2 * len(undirected_edges))
+
+        distances = new_map.distances_from(m)
+        self.assertTrue(all(distances[n] == 0 for n in m.graph.nodes))
+        self.assertTrue(all(distances[n] == 1 for n in [4, 7, 10]))
+        self.assertTrue(all(distances[n] == 2 for n in [5, 8, 9]))
+        self.assertTrue(all(distances[n] == 3 for n in [6]))
+
+        candidate_edges = new_map.get_cut_from(m)
+        self.assertEqual(sorted(candidate_edges), [(0, 10), (1, 4), (3, 4), (3, 7)])
+        self.assertEqual(len(candidate_edges), 4)
