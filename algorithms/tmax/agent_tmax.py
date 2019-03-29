@@ -1222,12 +1222,23 @@ class AgentTMAX(AgentLearner):
 
         trajectories = []
         trajectories_locomotion = []
+        sq_sz = 5  # size of square to indicate TMaxMode in gifs
 
         for trajectory in trajectory_buffer.complete_trajectories[:num_envs]:
             if all(mode == TmaxMode.LOCOMOTION for mode in trajectory.mode):
-                trajectories_locomotion.append(numpy_all_the_way(trajectory.obs)[:, :, :, -3:])
+                img_array = numpy_all_the_way(trajectory.obs)[:, :, :, -3:]
+                img_array[:, -sq_sz:, -sq_sz:] = [255, 0, 0]  # red for locomotion
+                trajectories_locomotion.append(img_array)
             else:
-                trajectories.append(numpy_all_the_way(trajectory.obs)[:, :, :, -3:])
+                img_array = numpy_all_the_way(trajectory.obs)[:, :, :, -3:]
+                for i in range(img_array.shape[0]):
+                    if trajectory.mode[i] == TmaxMode.LOCOMOTION:
+                        img_array[i, -sq_sz:, -sq_sz:] = [255, 0, 0]  # red for locomotion
+                    elif trajectory.mode[i] == TmaxMode.EXPLORATION:
+                        img_array[i, -sq_sz:, -sq_sz:] = [0, 255, 0]  # green for exploration
+                    else:
+                        raise NotImplementedError("Unknown TMAX mode. Use EXPLORATION or LOCOMOTION")
+                trajectories.append(img_array)
 
         if len(trajectories) > 0:
             self._write_gif_summaries(tag='obs_trajectories', gif_images=trajectories, step=env_steps)
