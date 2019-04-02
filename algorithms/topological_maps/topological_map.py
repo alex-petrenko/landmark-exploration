@@ -127,7 +127,7 @@ class TopologicalMap:
 
         if landmark_idx not in self.neighborhood():
             # create new edges, we found a loop closure!
-            self._add_edge(self.curr_landmark_idx, landmark_idx)
+            self._add_edge(self.curr_landmark_idx, landmark_idx, loop_closure=True)
 
         self._log_verbose('Change current landmark to %d', landmark_idx)
         self.curr_landmark_idx = landmark_idx
@@ -141,16 +141,19 @@ class TopologicalMap:
         self._log_verbose('Added new landmark %d', new_landmark_idx)
         return new_landmark_idx
 
-    def _add_edge(self, i1, i2):
-        initial_success = 0.1  # add to params?
+    def _add_edge(self, i1, i2, loop_closure=False):
+        initial_success = 0.01  # add to params?
 
         self.graph.add_edge(
             i1, i2,
             success=initial_success, last_traversal_frames=math.inf, attempted_traverse=0,
+            loop_closure=loop_closure,
         )
         if not self.directed_graph:
             self.graph.add_edge(
-                i2, i1, success=initial_success, last_traversal_frames=math.inf, attempted_traverse=0,
+                i2, i1,
+                success=initial_success, last_traversal_frames=math.inf, attempted_traverse=0,
+                loop_closure=loop_closure,
             )
 
     def _remove_edge(self, i1, i2):
@@ -187,8 +190,8 @@ class TopologicalMap:
         self.graph[i1][i2]['success'] = 0.5 * (prev_success + success)
         self.graph[i1][i2]['last_traversal_frames'] = frames
 
-        previous_traverse = self.graph[i1][i2].get('attempted_traverse', 0)
-        self.graph[i1][i2]['attempted_traverse'] = previous_traverse + 1
+        # previous_traverse = self.graph[i1][i2].get('attempted_traverse', 0)
+        # self.graph[i1][i2]['attempted_traverse'] = previous_traverse + 1
 
     # noinspection PyUnusedLocal
     @staticmethod

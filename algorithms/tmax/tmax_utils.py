@@ -40,7 +40,7 @@ class TmaxMode:
 class TmaxReachabilityBuffer(ReachabilityBuffer):
     def skip(self, trajectory, i):
         """Override base class method."""
-        train_on_everything = False
+        train_on_everything = True
         if train_on_everything:
             return False
         else:

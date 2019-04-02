@@ -19,11 +19,11 @@ class ReachabilityCuriosityModule(CuriosityModule):
         def __init__(self):
             self.reachable_threshold = 5  # num. of frames between obs, such that one is reachable from the other
             self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
-            self.reachability_target_buffer_size = 100000  # target number of training examples to store
+            self.reachability_target_buffer_size = 200000  # target number of training examples to store
             self.reachability_train_epochs = 10
             self.reachability_batch_size = 128
-            self.reachability_bootstrap = 1000000
-            self.reachability_train_interval = 500000
+            self.reachability_bootstrap = 2000000
+            self.reachability_train_interval = 1000000
             self.reachability_symmetric = True  # useful in 3D environments like Doom and DMLab
 
             self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"

@@ -241,7 +241,7 @@ class TmaxManager:
 
         self.localizer = Localizer(self.params, self.curiosity.obs_encoder)
         self.strict_loop_closure_threshold = 0.2
-        self.closer_new_landmark_threshold = 0.6
+        self.closer_new_landmark_threshold = 0.8
         self.localizer.loop_closure_threshold = self.strict_loop_closure_threshold  # to prevent noisy long edges
         self.localizer.new_landmark_threshold = self.closer_new_landmark_threshold  # to make locomotion easier
 
@@ -342,21 +342,24 @@ class TmaxManager:
         edges = list(m.graph.edges(data=True))
         assert len(edges) > 0
         least_traversed_edge = None
-        min_num_traversed = math.inf
+        min_num_attempts = math.inf
         random.shuffle(edges)
         for e in edges:
             i1, i2, data = e
             attempted_traverse = data.get('attempted_traverse', 0)
-            if attempted_traverse < min_num_traversed:
-                min_num_traversed = attempted_traverse
+            if attempted_traverse < min_num_attempts:
+                min_num_attempts = attempted_traverse
                 least_traversed_edge = e
 
+        i1, i2, _ = least_traversed_edge
+        m.graph[i1][i2]['attempted_traverse'] = min_num_attempts + 1
+
         # we navigate to the initial vertex of the edge (i1)
-        locomotion_goal_idx = least_traversed_edge[0]  # i1 -> i2
+        locomotion_goal_idx = i1
 
         # we're already at the initial vertex of the target edge, set the other end of the edge to be the goal
         if locomotion_goal_idx == curr_landmark_idx:
-            locomotion_goal_idx = least_traversed_edge[1]  # i2
+            locomotion_goal_idx = i2
 
         log.info(
             'Locomotion final goal for locomotion is %d, vertex of edge %r',
@@ -415,6 +418,10 @@ class TmaxManager:
         for edge in candidate_edges:
             i1, i2 = edge
             assert i1 in m.graph
+            if new_map.graph[i1][i2]['loop_closure']:
+                assert new_map.graph[i2][i1]['loop_closure']
+                log.debug('Skip edge %r because it is a loop closure')
+                continue
 
             distances = self._node_distances(
                 from_map=new_map, from_node=i2, to_map=m, to_nodes=list(m.graph.nodes),
@@ -424,7 +431,7 @@ class TmaxManager:
             unique_id = (env_i + 1) * 10000 + i2
 
             if unique_id not in m.graph:
-                if min_d > self.params.new_landmark_threshold:
+                if min_d > 0.95:  # TODO: this may be too strict, better choose top N furtherst
                     new_node = new_map.graph.nodes[i2]
                     # noinspection PyProtectedMember
                     m._add_node(
@@ -512,6 +519,10 @@ class TmaxManager:
                     e, g[i1][i2]['success'], g[i2][i1]['success'],
                 )
 
+        # reset UCB statistics
+        for node in m.graph.nodes:
+            m.graph.nodes[node]['num_samples'] = 1
+
         m.remove_edges_from(list(remove_edges))
         log.debug('Removing edges %r', remove_edges)
         m.remove_unreachable_vertices(from_idx=0)  # just in case
@@ -569,8 +580,6 @@ class TmaxManager:
             else:
                 break
 
-        # TODO reset UCB?
-
         self.episode_frames[env_i] = self.last_locomotion_success[env_i] = 0
         self.dist_to_target[env_i] = [math.inf]
         self.episode_locomotion_reward[env_i] = 0
@@ -627,7 +636,7 @@ class TmaxManager:
         # call localize only for environments in exploration mode
         maps = [None] * self.num_envs
         for env_i in range(self.num_envs):
-            if self.mode[env_i] == TmaxMode.EXPLORATION:
+            if self.env_stage[env_i] == TmaxMode.EXPLORATION:
                 maps[env_i] = self.current_maps[env_i]
 
         self.localizer.localize(
@@ -695,21 +704,21 @@ class TmaxManager:
             since_last_success = self.episode_frames[env_i] - self.last_locomotion_success[env_i]
 
             episode_ended = dones[env_i]
-            locomotion_timed_out = \
-                self.env_stage[env_i] == TmaxMode.EXPLORATION \
-                and since_last_success > successful_traversal_frames
+            locomotion_timed_out = since_last_success > successful_traversal_frames
+            exploration_stage = self.env_stage[env_i] == TmaxMode.EXPLORATION
 
-            locomotion_failed = episode_ended or locomotion_timed_out
+            locomotion_failed = episode_ended or (locomotion_timed_out and exploration_stage)
 
             if locomotion_failed:
                 # locomotion not successful
                 locomotion_dones[env_i] = True
-
-                self.current_maps[env_i].update_edge_traversal(
-                    self.locomotion_prev[env_i], self.locomotion_targets[env_i], 0, frames=math.inf,
-                )
-                self.locomotion_achieved_goal.append(0)
                 rewards[env_i] -= 5.0  # failed locomotion, to prevent being attracted by the goal
+
+                if locomotion_timed_out:
+                    self.current_maps[env_i].update_edge_traversal(
+                        self.locomotion_prev[env_i], self.locomotion_targets[env_i], 0, frames=math.inf,
+                    )
+                    self.locomotion_achieved_goal.append(0)
 
                 log.info(
                     'Locomotion failed dist %.3f, prev %d, goal %d, frame %d, since last success %d',
@@ -727,7 +736,7 @@ class TmaxManager:
 
             assert distances[env_i] is not None and 0.0 <= distances[env_i] <= 1.0
 
-            rewards[env_i] -= distances[env_i] * 0.05  # scaling factor for dense reward
+            rewards[env_i] -= distances[env_i] * 0.01  # scaling factor for dense reward
 
             self.dist_to_target[env_i].append(distances[env_i])
 
@@ -882,9 +891,9 @@ class AgentTMAX(AgentLearner):
             self.locomotion_batch_size = 256
             self.rl_locomotion = True
             self.locomotion_reached_threshold = 0.075  # if distance is less than that, we reached the target
-            self.reliable_path_probability = 0.5  # product of probs along the path for it to be considered reliable
-            self.reliable_edge_probability = 0.5
-            self.successful_traversal_frames = 30  # if we traverse an edge in less than that, we succeeded
+            self.reliable_path_probability = 0.4  # product of probs along the path for it to be considered reliable
+            self.reliable_edge_probability = 0.1
+            self.successful_traversal_frames = 100  # if we traverse an edge in less than that, we succeeded
 
             self.stage_duration = 1000000
 
@@ -1250,7 +1259,7 @@ class AgentTMAX(AgentLearner):
                     elif trajectory.mode[i] == TmaxMode.EXPLORATION:
                         img_array[i, -sq_sz:, -sq_sz:] = [0, 255, 0]  # green for exploration
                     else:
-                        raise NotImplementedError("Unknown TMAX mode. Use EXPLORATION or LOCOMOTION")
+                        raise NotImplementedError('Unknown TMAX mode. Use EXPLORATION or LOCOMOTION')
                 trajectories.append(img_array)
 
         if len(trajectories) > 0:
@@ -1597,7 +1606,8 @@ class AgentTMAX(AgentLearner):
                     raise NotImplementedError  # train locomotion with self imitation from trajectories
 
         with timing.timeit('train_curiosity'):
-            self.curiosity.train(buffer, env_steps, agent=self)
+            if self.tmax_mgr.global_stage == TmaxMode.EXPLORATION:
+                self.curiosity.train(buffer, env_steps, agent=self)
 
         return step
 
