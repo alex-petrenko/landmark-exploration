@@ -1,18 +1,20 @@
 import copy
 import math
 import random
+import shutil
 from string import ascii_lowercase
 from unittest import TestCase
 
 import numpy as np
 import networkx as nx
 
+from algorithms.agent import AgentLearner
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.topological_maps.topological_map import TopologicalMap, hash_observation
 from utils.envs.doom.doom_utils import doom_env_by_name, make_doom_env
 from utils.graph import plot_graph
 from utils.timing import Timing
-from utils.utils import log
+from utils.utils import log, model_dir
 
 
 class TestGraph(TestCase):
@@ -260,3 +262,29 @@ class TestGraph(TestCase):
 
         candidate_edges = m.get_cut_from(new_map)
         self.assertEqual(len(candidate_edges), 0)
+
+    def test_save_load(self):
+        obs = np.empty([42, 42, 1], dtype=np.uint8)
+        m = TopologicalMap(obs, directed_graph=False)
+
+        # constructing test "persistent map"
+        m.add_landmark(obs)  # 0 <-> 1
+        m.add_landmark(obs)  # 0 <-> 2
+
+        m.set_curr_landmark(1)
+        m.add_landmark(obs)  # 1 <-> 3
+        m.set_curr_landmark(2)  # 1 <-> 2
+        m.set_curr_landmark(3)  # 2 <-> 3
+
+        params = AgentLearner.AgentParams('__test_map__')
+
+        checkpoint_dir = model_dir(params.experiment_dir())
+        keep = 10
+
+        for i in range(keep + 2):
+            m.save_checkpoint(checkpoint_dir, num_to_keep=keep, verbose=True)
+
+        m.maybe_load_checkpoint(checkpoint_dir)
+        self.assertEqual(m.num_landmarks(), 4)
+
+        shutil.rmtree(params.experiment_dir())

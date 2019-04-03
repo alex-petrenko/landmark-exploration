@@ -13,6 +13,7 @@ from algorithms.buffer import Buffer
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import main_observation_space
 from algorithms.tf_utils import dense, placeholders_from_spaces
+from algorithms.topological_maps.topological_map import hash_observation
 from utils.timing import Timing
 from utils.utils import log, vis_dir, ensure_dir_exists
 
@@ -77,6 +78,20 @@ class ReachabilityNetwork:
     def distances(self, session, obs_first_encoded, obs_second_encoded):
         probs = self.get_probabilities(session, obs_first_encoded, obs_second_encoded)
         return [p[1] for p in probs]
+
+    def distances_from_obs(self, session, obs_first, obs_second, obs_encoder):
+        """Use encoder to get embedding vectors first."""
+        hashes_first = [hash_observation(obs) for obs in obs_first]
+        obs_encoder.encode(session, obs_first, hashes_first)
+
+        hashes_second = [hash_observation(obs) for obs in obs_second]
+        obs_encoder.encode(session, obs_second, hashes_second)
+
+        obs_first_encoded = [obs_encoder.encoded_obs[h] for h in hashes_first]
+        obs_second_encoded = [obs_encoder.encoded_obs[h] for h in hashes_second]
+
+        d = self.distances(session, obs_first_encoded, obs_second_encoded)
+        return d
 
     def encode_observation(self, session, obs):
         return session.run(self.encoded_observation, feed_dict={self.ph_obs: obs})

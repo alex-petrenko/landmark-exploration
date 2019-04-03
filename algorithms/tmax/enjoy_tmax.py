@@ -99,7 +99,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
         episode_reward, episode_frames = 0, 0
 
         if agent.tmax_mgr.initialized:
-            bonus, _, _ = agent.tmax_mgr.update([obs], [obs], [0], [True], [info], num_frames, verbose=True)
+            bonus, _ = agent.tmax_mgr.update([obs], [obs], [0], [True], [info], num_frames, verbose=True)
         else:
             agent.tmax_mgr.initialize([obs], [info], env_steps=0)
 
@@ -138,7 +138,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
                 action = env.action_space.sample()
             elif policy_type == PolicyType.AGENT:
                 agent.tmax_mgr.mode[0] = TmaxMode.EXPLORATION
-                action, _, _, _, _ = agent.policy_step([obs], [goal_obs], None, None)
+                action, _, _, _, _, _ = agent.policy_step([obs], [goal_obs], None, None)
                 action = action[0]
             elif policy_type == PolicyType.LOCOMOTION:
                 agent.tmax_mgr.mode[0] = TmaxMode.LOCOMOTION
@@ -151,7 +151,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
             next_obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
 
             if not done:
-                bonus, _, _ = agent.tmax_mgr.update([obs], [next_obs], [rew], [done], [info], num_frames, verbose=True)
+                bonus, _ = agent.tmax_mgr.update([obs], [next_obs], [rew], [done], [info], num_frames, verbose=True)
                 bonus = bonus[0]
                 if bonus > 0:
                     log.info('Bonus %.3f received', bonus)
@@ -170,6 +170,16 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
                 log.warning('Store new landmark!')
                 current_landmark = obs
                 store_landmark = False
+
+            print_distance = num_frames % 3 == 0
+            if print_distance:
+                distance = agent.curiosity.reachability.distances_from_obs(
+                    agent.session, [current_landmark], [obs], agent.curiosity.obs_encoder,
+                )[0]
+                distance_to_self = agent.curiosity.reachability.distances_from_obs(
+                    agent.session, [obs], [obs], agent.curiosity.obs_encoder,
+                )[0]
+                log.info('Distance %.3f, to self: %.3f', distance, distance_to_self)
 
         env.render()
         log.info('Actual fps: %.1f', episode_frames / (time.time() - start_episode))

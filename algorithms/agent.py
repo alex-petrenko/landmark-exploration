@@ -129,16 +129,18 @@ class AgentLearner(Agent):
             log_device_placement=False,
         )
         self.session = tf.Session(config=config)
+        self.initialize_variables()
+        self.params.serialize()
+
+        log.info('Initialized!')
+
+    def initialize_variables(self):
         checkpoint_dir = model_dir(self.params.experiment_dir())
         try:
             self.saver.restore(self.session, tf.train.latest_checkpoint(checkpoint_dir=checkpoint_dir))
         except ValueError:
             log.info('Didn\'t find a valid restore point, start from scratch')
             self.session.run(tf.global_variables_initializer())
-
-        self.params.serialize()
-
-        log.info('Initialized!')
 
     def finalize(self):
         if self.session is not None:

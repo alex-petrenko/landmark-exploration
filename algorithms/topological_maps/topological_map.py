@@ -1,17 +1,24 @@
+import glob
 import math
+import os
 import pickle as pkl
 import random
+import shutil
+import datetime
 from collections import deque
 from hashlib import sha1
 from os.path import join, isfile
 
+import cv2
+import numpy as np
 import tensorflow as tf
+from matplotlib import pyplot as plt
 
 import networkx as nx
 
 from algorithms.algo_utils import EPS
-from utils.graph import visualize_graph_tensorboard
-from utils.utils import ensure_contigious, log
+from utils.graph import visualize_graph_tensorboard, plot_graph
+from utils.utils import ensure_contigious, log, ensure_dir_exists
 
 
 def hash_observation(o):
@@ -54,21 +61,36 @@ class TopologicalMap:
 
         self.reset(initial_obs, initial_info)
 
-    def _add_node(self, idx, obs, pos, angle, value_estimate=0.0, num_samples=1):
+    @staticmethod
+    def create_empty():
+        return TopologicalMap(np.array(0), directed_graph=False)
+
+    def _add_new_node(self, obs, pos, angle, value_estimate=0.0, num_samples=1, node_id=None):
+        if node_id is not None:
+            new_landmark_idx = node_id
+        else:
+            if self.num_landmarks() <= 0:
+                new_landmark_idx = 0
+            else:
+                new_landmark_idx = max(self.graph.nodes) + 1
+
+        assert new_landmark_idx not in self.graph.nodes
+
         hash_ = hash_observation(obs)
         self.graph.add_node(
-            idx,
+            new_landmark_idx,
             obs=obs, hash=hash_, pos=pos, angle=angle,
             value_estimate=value_estimate, num_samples=num_samples,
         )
+
+        return new_landmark_idx
 
     def reset(self, obs, info=None):
         """Create the graph with only one vertex."""
         self.graph.clear()
 
-        self._add_node(0, obs=obs, pos=get_position(info), angle=get_angle(info))
-
-        self.curr_landmark_idx = 0
+        self.curr_landmark_idx = self._add_new_node(obs=obs, pos=get_position(info), angle=get_angle(info))
+        assert self.curr_landmark_idx == 0
 
         self.new_episode()
 
@@ -133,10 +155,7 @@ class TopologicalMap:
         self.curr_landmark_idx = landmark_idx
 
     def add_landmark(self, obs, info=None):
-        new_landmark_idx = max(self.graph.nodes) + 1
-        assert new_landmark_idx not in self.graph.nodes
-
-        self._add_node(new_landmark_idx, obs=obs, pos=get_position(info), angle=get_angle(info))
+        new_landmark_idx = self._add_new_node(obs=obs, pos=get_position(info), angle=get_angle(info))
         self._add_edge(self.curr_landmark_idx, new_landmark_idx)
         self._log_verbose('Added new landmark %d', new_landmark_idx)
         return new_landmark_idx
@@ -195,19 +214,23 @@ class TopologicalMap:
 
     # noinspection PyUnusedLocal
     @staticmethod
-    def _edge_weight(i1, i2, d):
+    def edge_weight(i1, i2, d, max_probability=1.0):
         success_prob = d['success']
         success_prob = max(EPS, success_prob)
+        success_prob = min(max_probability, success_prob)
         return -math.log(success_prob)  # weight of the edge is neg. log probability of traversal success
 
-    def get_path(self, from_idx, to_idx):
+    def get_path(self, from_idx, to_idx, edge_weight=None):
+        if edge_weight is None:
+            edge_weight = self.edge_weight
+
         try:
-            return nx.dijkstra_path(self.graph, from_idx, to_idx, weight=self._edge_weight)
+            return nx.dijkstra_path(self.graph, from_idx, to_idx, weight=edge_weight)
         except nx.exception.NetworkXNoPath:
             return None
 
     def path_lengths(self, from_idx):
-        return nx.shortest_path_length(self.graph, from_idx, weight=self._edge_weight)
+        return nx.shortest_path_length(self.graph, from_idx, weight=self.edge_weight)
 
     def topological_distances(self, from_idx):
         return nx.shortest_path_length(self.graph, from_idx)
@@ -259,17 +282,65 @@ class TopologicalMap:
         g = nx.relabel_nodes(g, labels)
         return g
 
-    def save_checkpoint(self, checkpoint_dir):
-        with open(join(checkpoint_dir, 'topo_map.pkl'), 'wb') as fobj:
+    def save_checkpoint(self, checkpoint_dir, map_img=None, coord_limits=None, num_to_keep=5, verbose=False):
+        """Verbose mode also dumps all the landmark observations and the graph structure into the directory."""
+        prefix = '.map_'
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        dir_name = f'{prefix}{timestamp}'
+        map_dir = join(checkpoint_dir, dir_name)
+
+        if os.path.isdir(map_dir):
+            log.warning('Warning: map checkpoint %s already exists! Overwriting...')
+            shutil.rmtree(map_dir)
+
+        map_dir = ensure_dir_exists(map_dir)
+
+        with open(join(map_dir, 'topo_map.pkl'), 'wb') as fobj:
             pkl.dump(self.__dict__, fobj, 2)
 
+        if verbose:
+            map_extra = ensure_dir_exists(join(map_dir, '.map_verbose'))
+            for node in self.graph.nodes:
+                obs = self.get_observation(node)
+                obs_bgr = cv2.cvtColor(obs, cv2.COLOR_RGB2BGR)
+                obs_bgr_bigger = cv2.resize(obs_bgr, (420, 420), interpolation=cv2.INTER_NEAREST)
+                cv2.imwrite(join(map_extra, f'{node:03d}.jpg'), obs_bgr_bigger)
+
+            figure = plot_graph(self.graph, layout='pos', map_img=map_img, limits=coord_limits)
+            with open(join(map_extra, 'graph.png'), 'wb') as graph_fobj:
+                plt.savefig(graph_fobj, format='png')
+            figure.clear()
+
+        assert num_to_keep > 0
+        previous_checkpoints = glob.glob(f'{checkpoint_dir}/{prefix}*')
+        previous_checkpoints.sort()
+        previous_checkpoints = deque(previous_checkpoints)
+
+        while len(previous_checkpoints) > num_to_keep:
+            checkpoint_to_delete = previous_checkpoints[0]
+            log.info('Deleting old map checkpoint %s', checkpoint_to_delete)
+            shutil.rmtree(checkpoint_to_delete)
+            previous_checkpoints.popleft()
+
     def maybe_load_checkpoint(self, checkpoint_dir):
+        prefix = '.map_'
+        all_map_checkpoints = glob.glob(f'{checkpoint_dir}/{prefix}*')
+
+        if len(all_map_checkpoints) <= 0:
+            return
+
+        all_map_checkpoints.sort()
+        latest_checkpoint = all_map_checkpoints[-1]
+
         fname = 'topo_map.pkl'
-        if isfile(join(checkpoint_dir, fname)):
-            log.debug('Load env map from file %s', fname)
-            with open(join(checkpoint_dir, fname), 'rb') as fobj:
-                topo_map_dict = pkl.load(fobj)
-                self.load_dict(topo_map_dict)
+        full_path = join(latest_checkpoint, fname)
+        if not isfile(full_path):
+            return
+
+        log.debug('Load env map from file %s', full_path)
+        with open(full_path, 'rb') as fobj:
+            topo_map_dict = pkl.load(fobj)
+            self.load_dict(topo_map_dict)
 
     def load_dict(self, topo_map_dict):
         self.__dict__.update(topo_map_dict)
