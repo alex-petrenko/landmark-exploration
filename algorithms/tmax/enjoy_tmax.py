@@ -1,3 +1,4 @@
+import random
 import sys
 import time
 from threading import Thread
@@ -9,6 +10,7 @@ from algorithms.algo_utils import main_observation, goal_observation
 from algorithms.env_wrappers import reset_with_info
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax, TmaxMode
+from algorithms.topological_maps.topological_map import TopologicalMap
 from utils.envs.atari import atari_utils
 from utils.envs.doom import doom_utils
 from utils.envs.envs import create_env
@@ -22,6 +24,10 @@ class PolicyType:
 
 
 store_landmark = True
+persistent_map = None
+current_landmark = None
+show_locomotion_goal = False
+
 pause = False
 terminate = False
 policy_type = PolicyType.AGENT
@@ -48,7 +54,16 @@ def on_press(key):
 
     global store_landmark
     if key == Key.enter:
-        store_landmark = True
+        if persistent_map is None:
+            store_landmark = True  # capture checkpoint from the current environment
+        else:
+            nodes = list(persistent_map.graph.nodes)
+            landmark_node = random.choice(nodes)
+            log.info('Selecting node %d for navigation', landmark_node)
+            global current_landmark
+            current_landmark = persistent_map.get_observation(landmark_node)
+            global show_locomotion_goal
+            show_locomotion_goal = True
 
     global policy_type
     for t, k in PolicyType.KEYS.items():
@@ -79,6 +94,14 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
 
     agent.initialize()
 
+    if agent.params.persistent_map_checkpoint is not None:
+        global persistent_map
+        persistent_map = TopologicalMap.create_empty()
+        persistent_map.maybe_load_checkpoint(agent.params.persistent_map_checkpoint)
+
+    global current_landmark
+    global show_locomotion_goal
+
     episode_rewards = []
     num_frames = 0
 
@@ -90,7 +113,9 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
         done = False
 
         obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
-        current_landmark = obs
+        if current_landmark is None:
+            current_landmark = obs
+
         if goal_obs is not None:
             goal_obs_rgb = cv2.cvtColor(goal_obs, cv2.COLOR_BGR2RGB)
             cv2.imshow('goal', cv2.resize(goal_obs_rgb, (500, 500)))
@@ -170,6 +195,14 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
                 log.warning('Store new landmark!')
                 current_landmark = obs
                 store_landmark = False
+                show_locomotion_goal = True
+
+            if show_locomotion_goal:
+                locomotion_goal_obs = cv2.cvtColor(current_landmark, cv2.COLOR_RGB2BGR)
+                locomotion_goal_obs = cv2.resize(locomotion_goal_obs, (420, 420))
+                cv2.imshow('locomotion_goal', locomotion_goal_obs)
+                cv2.waitKey(1)
+                show_locomotion_goal = False
 
             print_distance = num_frames % 3 == 0
             if print_distance:

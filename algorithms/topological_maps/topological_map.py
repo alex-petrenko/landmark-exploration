@@ -205,12 +205,11 @@ class TopologicalMap:
 
     def update_edge_traversal(self, i1, i2, success, frames):
         """Update traversal information only for one direction."""
-        prev_success = self.graph[i1][i2]['success']
-        self.graph[i1][i2]['success'] = 0.5 * (prev_success + success)
-        self.graph[i1][i2]['last_traversal_frames'] = frames
+        learning_rate = 0.2
 
-        # previous_traverse = self.graph[i1][i2].get('attempted_traverse', 0)
-        # self.graph[i1][i2]['attempted_traverse'] = previous_traverse + 1
+        prev_success = self.graph[i1][i2]['success']
+        self.graph[i1][i2]['success'] = (1 - learning_rate) * prev_success + learning_rate * success
+        self.graph[i1][i2]['last_traversal_frames'] = frames
 
     # noinspection PyUnusedLocal
     @staticmethod

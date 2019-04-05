@@ -1,13 +1,14 @@
 import copy
 import time
 
+import numpy as np
+
 from algorithms.algo_utils import num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer
 from algorithms.curiosity.icm.icm import IntrinsicCuriosityModule
 from algorithms.curiosity.reachability_curiosity.reachability_curiosity import ReachabilityCuriosityModule
 from algorithms.env_wrappers import main_observation_space
 from algorithms.tf_utils import placeholder_from_space
-from algorithms.topological_maps.topological_map import map_summaries
 from algorithms.trajectory import TrajectoryBuffer
 from utils.timing import Timing
 
@@ -44,6 +45,8 @@ class AgentCuriousPPO(AgentPPO):
             IntrinsicCuriosityModule.Params.__init__(self)
 
             self.curiosity_type = 'icm'  # icm or reachability
+            self.random_exploration = False
+            self.extrinsic_reward_coeff = 1.0
 
         @staticmethod
         def filename_prefix():
@@ -54,6 +57,8 @@ class AgentCuriousPPO(AgentPPO):
 
         env = self.make_env_func()  # we need it to query observation shape, number of actions, etc.
         self.ph_next_observations = placeholder_from_space(main_observation_space(env))
+        self.num_actions = env.action_space.n
+        env.close()
 
         if self.params.curiosity_type == 'icm':
             # create graph for curiosity module (ICM)
@@ -65,12 +70,23 @@ class AgentCuriousPPO(AgentPPO):
         else:
             raise Exception(f'Curiosity type {self.params.curiosity_type} not supported')
 
+    def _policy_step(self, obs, goals):
+        if self.params.random_exploration:
+            actions = np.random.randint(0, self.num_actions, self.params.num_envs)
+            action_probs = np.ones(self.params.num_envs)
+            values = np.zeros(self.params.num_envs)
+        else:
+            actions, action_probs, values = self.actor_critic.invoke(self.session, obs, goals)
+
+        return actions, action_probs, values
+
     def _train_with_curiosity(self, step, buffer, env_steps, timing):
-        if self.curiosity.is_initialized():
-            with timing.timeit('train_actor'):
-                step = self._train_actor(buffer, env_steps)
-            with timing.timeit('train_critic'):
-                self._train_critic(buffer, env_steps)
+        if not self.params.random_exploration:
+            if self.curiosity.is_initialized():
+                with timing.timeit('train_actor'):
+                    step = self._train_actor(buffer, env_steps)
+                with timing.timeit('train_critic'):
+                    self._train_critic(buffer, env_steps)
 
         with timing.timeit('train_curiosity'):
             self.curiosity.train(buffer, env_steps, agent=self)
@@ -103,7 +119,7 @@ class AgentCuriousPPO(AgentPPO):
             with timing.timeit('experience'):
                 # collecting experience
                 for rollout_step in range(self.params.rollout):
-                    actions, action_probs, values = self.actor_critic.invoke(self.session, obs, goals)
+                    actions, action_probs, values = self._policy_step(obs, goals)
 
                     # wait for all the workers to complete an environment step
                     env_obs, rewards, dones, infos = multi_env.step(actions)
@@ -117,7 +133,7 @@ class AgentCuriousPPO(AgentPPO):
                         bonuses = self.curiosity.generate_bonus_rewards(
                             self.session, obs, next_obs, actions, dones, infos,
                         )
-                        rewards += bonuses
+                        rewards = self.params.extrinsic_reward_coeff * np.array(rewards) + bonuses
 
                     # add experience from environment to the current buffer
                     buffer.add(obs, next_obs, actions, action_probs, rewards, dones, values, goals)
@@ -126,7 +142,7 @@ class AgentCuriousPPO(AgentPPO):
                     num_steps += num_env_steps(infos)
 
                 # last step values are required for TD-return calculation
-                _, _, values = self.actor_critic.invoke(self.session, obs, goals)
+                _, _, values = self._policy_step(obs, goals)
                 buffer.values.append(values)
 
             env_steps += num_steps
