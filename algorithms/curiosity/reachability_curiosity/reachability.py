@@ -10,6 +10,7 @@ import numpy as np
 import tensorflow as tf
 
 from algorithms.buffer import Buffer
+from algorithms.curiosity.reachability_curiosity.observation_encoder import ObservationEncoder
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import main_observation_space
 from algorithms.tf_utils import dense, placeholders_from_spaces
@@ -64,6 +65,9 @@ class ReachabilityNetwork:
             self.ph_obs = self.ph_obs_first
             self.encoded_observation = self.first_encoded
 
+        # other stuff not related to computation graph
+        self.obs_encoder = ObservationEncoder(encode_func=self.encode_observation)
+
     def get_probabilities(self, session, obs_first_encoded, obs_second_encoded):
         assert len(obs_first_encoded) == len(obs_second_encoded)
         if len(obs_first_encoded) <= 0:
@@ -79,13 +83,16 @@ class ReachabilityNetwork:
         probs = self.get_probabilities(session, obs_first_encoded, obs_second_encoded)
         return [p[1] for p in probs]
 
-    def distances_from_obs(self, session, obs_first, obs_second, obs_encoder):
+    def distances_from_obs(self, session, obs_first, obs_second, hashes_first=None, hashes_second=None):
         """Use encoder to get embedding vectors first."""
-        hashes_first = [hash_observation(obs) for obs in obs_first]
-        obs_encoder.encode(session, obs_first, hashes_first)
+        obs_encoder = self.obs_encoder
 
-        hashes_second = [hash_observation(obs) for obs in obs_second]
-        obs_encoder.encode(session, obs_second, hashes_second)
+        if hashes_first is None:
+            hashes_first = [hash_observation(obs) for obs in obs_first]
+        if hashes_second is None:
+            hashes_second = [hash_observation(obs) for obs in obs_second]
+
+        obs_encoder.encode(session, obs_first + obs_second, hashes_first + hashes_second)
 
         obs_first_encoded = [obs_encoder.encoded_obs[h] for h in hashes_first]
         obs_second_encoded = [obs_encoder.encoded_obs[h] for h in hashes_second]

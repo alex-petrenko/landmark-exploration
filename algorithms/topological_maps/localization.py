@@ -1,12 +1,11 @@
 import math
 
-from algorithms.topological_maps.topological_map import hash_observation
 from utils.timing import Timing
 from utils.utils import log, min_with_idx
 
 
 class Localizer:
-    def __init__(self, params, obs_encoder, verbose=False):
+    def __init__(self, params, verbose=False):
         self._verbose = verbose
 
         self.params = params
@@ -17,8 +16,6 @@ class Localizer:
         self.localize_frames = 3
 
         self.num_envs = self.params.num_envs
-
-        self.obs_encoder = obs_encoder
 
     def _log_verbose(self, s, *args):
         if self._verbose:
@@ -44,12 +41,6 @@ class Localizer:
         if timing is None:
             timing = Timing()
 
-        # calculate feature vectors for new observations
-        with timing.add_time('encode_obs'):
-            obs_hashes = [hash_observation(o) for o in obs]
-            self.obs_encoder.encode(session, obs, obs_hashes)
-            obs_encoded = [self.obs_encoder.encoded_obs[obs_hash] for obs_hash in obs_hashes]
-
         # create a batch of all neighborhood observations from all envs for fast processing on GPU
         neighborhood_obs, neighborhood_hashes, current_obs = [], [], []
         total_num_neighbors = 0
@@ -62,7 +53,7 @@ class Localizer:
             neighborhood_sizes[env_i] = len(neighbor_indices)
             neighborhood_obs.extend([m.get_observation(i) for i in neighbor_indices])
             neighborhood_hashes.extend([m.get_hash(i) for i in neighbor_indices])
-            current_obs.extend([obs_encoded[env_i]] * len(neighbor_indices))
+            current_obs.extend([obs[env_i]] * len(neighbor_indices))
             total_num_neighbors += len(neighbor_indices)
 
         assert len(neighborhood_obs) == len(current_obs)
@@ -70,11 +61,11 @@ class Localizer:
         assert len(current_obs) == total_num_neighbors
 
         with timing.add_time('neighbor_dist'):
-            self.obs_encoder.encode(session, neighborhood_obs, neighborhood_hashes)
-            neighborhood_encoded = [self.obs_encoder.encoded_obs[h] for h in neighborhood_hashes]
-
-            # calculate reachability for all neighborhoods in all envs
-            distances = reachability.distances(session, neighborhood_encoded, current_obs)
+            distances = reachability.distances_from_obs(
+                session,
+                obs_first=neighborhood_obs, obs_second=current_obs,
+                hashes_first=neighborhood_hashes, hashes_second=None,  # calculate curr obs hashes on the fly
+            )
 
         assert len(distances) == total_num_neighbors
 
@@ -128,7 +119,6 @@ class Localizer:
 
         del neighborhood_obs
         del neighborhood_hashes
-        del neighborhood_encoded
         del current_obs
 
         # Agents in some environments discovered landmarks that are far away from all landmarks in the immediate
@@ -148,7 +138,7 @@ class Localizer:
             non_neighborhoods[env_i] = non_neighbor_indices
             non_neighborhood_obs.extend([m.get_observation(i) for i in non_neighbor_indices])
             non_neighborhood_hashes.extend([m.get_hash(i) for i in non_neighbor_indices])
-            current_obs.extend([obs_encoded[env_i]] * len(non_neighbor_indices))
+            current_obs.extend([obs[env_i]] * len(non_neighbor_indices))
 
         assert len(non_neighborhood_obs) == len(current_obs)
         assert len(non_neighborhood_obs) == len(non_neighborhood_hashes)
@@ -159,11 +149,12 @@ class Localizer:
             batch_size = 1024
             for i in range(0, len(non_neighborhood_obs), batch_size):
                 start, end = i, i + batch_size
-                self.obs_encoder.encode(session, non_neighborhood_obs[start:end], non_neighborhood_hashes[start:end])
-                non_neighborhood_encoded = [self.obs_encoder.encoded_obs[h] for h in non_neighborhood_hashes[start:end]]
-                assert len(non_neighborhood_encoded)
 
-                distances_batch = reachability.distances(session, non_neighborhood_encoded, current_obs[start:end])
+                distances_batch = reachability.distances_from_obs(
+                    session,
+                    obs_first=non_neighborhood_obs[start:end], obs_second=current_obs[start:end],
+                    hashes_first=non_neighborhood_hashes[start:end], hashes_second=None,
+                )
                 distances.extend(distances_batch)
 
         j = 0

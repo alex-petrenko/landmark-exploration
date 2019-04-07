@@ -52,8 +52,7 @@ class ReachabilityCuriosityModule(CuriosityModule):
         self.current_episode_bonus = None
         self.episode_bonuses = deque([])
 
-        self.obs_encoder = ObservationEncoder(encode_func=self.reachability.encode_observation)
-        self.localizer = Localizer(self.params, self.obs_encoder)
+        self.localizer = Localizer(self.params)
 
         self.last_trained = 0
 
