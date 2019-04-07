@@ -22,7 +22,7 @@ def parse_layout(nx_graph, layout):
 
 
 def plot_graph(nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856, 1856)):
-    """ Plot the graph with a map image overlaid on it. Give coordinate limits of map in :limits:"""
+    """Plot the graph with a map image overlaid on it. Give coordinate limits of map in :limits:"""
     if layout == 'pos':
         for node_name in nx_graph.nodes:
             pos = nx_graph.node[node_name].get('pos')

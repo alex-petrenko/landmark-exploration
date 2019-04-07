@@ -43,7 +43,7 @@ def on_press(key):
         return False
 
     global pause
-    if key == Key.space:
+    if key == Key.pause:
         pause = not pause
 
     global current_actions
@@ -53,17 +53,37 @@ def on_press(key):
             current_actions.append(action)
 
     global store_landmark
-    if key == Key.enter:
-        if persistent_map is None:
-            store_landmark = True  # capture checkpoint from the current environment
-        else:
+    if key == Key.space:
+        randomly_pick_node = False
+        if randomly_pick_node:
             nodes = list(persistent_map.graph.nodes)
             landmark_node = random.choice(nodes)
-            log.info('Selecting node %d for navigation', landmark_node)
+        else:
+            pause = True
+            try:
+                input_value = input('Please enter current landmark number')
+                current_landmark_idx = int(input_value)
+                input_value = input('Please enter landmark number')
+                landmark_node = int(input_value)
+
+                path = persistent_map.get_path(current_landmark_idx, landmark_node)
+                if len(path) > 1:
+                    landmark_node = path[1]
+                log.info('Path %r, node %d', path, landmark_node)
+            except ValueError:
+                landmark_node = 0
+
+            pause = False
+
+        log.info('Selecting node %d for navigation', landmark_node)
+        try:
             global current_landmark
             current_landmark = persistent_map.get_observation(landmark_node)
-            global show_locomotion_goal
-            show_locomotion_goal = True
+        except KeyError:
+            current_landmark = persistent_map.get_observation(0)
+
+        global show_locomotion_goal
+        show_locomotion_goal = True
 
     global policy_type
     for t, k in PolicyType.KEYS.items():
@@ -80,7 +100,6 @@ def on_release(key):
         if action in current_actions:
             current_actions.remove(action)
 
-
 def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_automap=False):
     def make_env_func():
         e = create_env(env_id, mode='test', show_automap=show_automap)
@@ -94,8 +113,8 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
 
     agent.initialize()
 
+    global persistent_map
     if agent.params.persistent_map_checkpoint is not None:
-        global persistent_map
         persistent_map = TopologicalMap.create_empty()
         persistent_map.maybe_load_checkpoint(agent.params.persistent_map_checkpoint)
 
@@ -124,9 +143,11 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
         episode_reward, episode_frames = 0, 0
 
         if agent.tmax_mgr.initialized:
-            bonus, _ = agent.tmax_mgr.update([obs], [obs], [0], [True], [info], num_frames, verbose=True)
+            # bonus, _ = agent.tmax_mgr.update([obs], [obs], [0], [True], [info], num_frames, verbose=True)
+            pass
         else:
             agent.tmax_mgr.initialize([obs], [info], env_steps=0)
+            persistent_map = agent.tmax_mgr.current_persistent_maps[0]
 
         start_episode = time.time()
         while not done and not terminate and not max_frames_reached(num_frames):
@@ -175,13 +196,13 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
             env_obs, rew, done, info = env.step(action)
             next_obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
 
-            if not done:
-                bonus, _ = agent.tmax_mgr.update([obs], [next_obs], [rew], [done], [info], num_frames, verbose=True)
-                bonus = bonus[0]
-                if bonus > 0:
-                    log.info('Bonus %.3f received', bonus)
-                if abs(rew) >= 0.01:
-                    log.info('Reward %.3f received', rew)
+            # if not done:
+            #     bonus, _ = agent.tmax_mgr.update([obs], [next_obs], [rew], [done], [info], num_frames, verbose=True)
+            #     bonus = bonus[0]
+            #     if bonus > 0:
+            #         log.info('Bonus %.3f received', bonus)
+            #     if abs(rew) >= 0.01:
+            #         log.info('Reward %.3f received', rew)
 
             obs = next_obs
 

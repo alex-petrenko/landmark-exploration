@@ -18,7 +18,7 @@ import networkx as nx
 
 from algorithms.algo_utils import EPS
 from utils.graph import visualize_graph_tensorboard, plot_graph
-from utils.utils import ensure_contigious, log, ensure_dir_exists
+from utils.utils import ensure_contigious, log, ensure_dir_exists, AttrDict
 
 
 def hash_observation(o):
@@ -99,9 +99,8 @@ class TopologicalMap:
         self.closest_landmarks = []
         self.curr_landmark_idx = 0  # assuming we're being put into the exact same spot every time
 
-        self.relabel_nodes()  # make sure nodes are labeled from 0 to n-1
-
     def relabel_nodes(self):
+        """Make sure nodes are labeled from 0 to n-1."""
         self.graph = nx.convert_node_labels_to_integers(self.graph)
 
     def _log_verbose(self, msg, *args):
@@ -283,6 +282,8 @@ class TopologicalMap:
 
     def save_checkpoint(self, checkpoint_dir, map_img=None, coord_limits=None, num_to_keep=5, verbose=False):
         """Verbose mode also dumps all the landmark observations and the graph structure into the directory."""
+        results = AttrDict()
+
         prefix = '.map_'
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         dir_name = f'{prefix}{timestamp}'
@@ -306,9 +307,12 @@ class TopologicalMap:
                 cv2.imwrite(join(map_extra, f'{node:03d}.jpg'), obs_bgr_bigger)
 
             figure = plot_graph(self.graph, layout='pos', map_img=map_img, limits=coord_limits)
-            with open(join(map_extra, 'graph.png'), 'wb') as graph_fobj:
+            graph_filename = join(map_extra, 'graph.png')
+            with open(graph_filename, 'wb') as graph_fobj:
                 plt.savefig(graph_fobj, format='png')
             figure.clear()
+
+            results.graph_filename = graph_filename
 
         assert num_to_keep > 0
         previous_checkpoints = glob.glob(f'{checkpoint_dir}/{prefix}*')
@@ -321,11 +325,14 @@ class TopologicalMap:
             shutil.rmtree(checkpoint_to_delete)
             previous_checkpoints.popleft()
 
+        return results
+
     def maybe_load_checkpoint(self, checkpoint_dir):
         prefix = '.map_'
         all_map_checkpoints = glob.glob(f'{checkpoint_dir}/{prefix}*')
 
         if len(all_map_checkpoints) <= 0:
+            log.debug('No map checkpoints found, starting from empty map')
             return
 
         all_map_checkpoints.sort()

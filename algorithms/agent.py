@@ -148,7 +148,7 @@ class AgentLearner(Agent):
         gc.collect()
 
     def process_infos(self, infos):
-        for info in infos:
+        for i, info in enumerate(infos):
             if 'previous_histogram' in info:
                 self.position_histograms.append(info['previous_histogram'])
 

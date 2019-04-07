@@ -58,10 +58,7 @@ class LocomotionNetwork:
 
 class LocomotionBuffer:
     """
-    Training data for the locomotion network. Pairs of (current observation, goal observation) and "ground truth"
-    actions taken from the "successful" trajectory (that managed to reach the goal).
-
-    This is very similar to reachability buffer, there's a potential for refactoring to reuse some code.
+    Training data for the hindsight experience replay (for locomotion policy).
     """
 
     def __init__(self, params):
