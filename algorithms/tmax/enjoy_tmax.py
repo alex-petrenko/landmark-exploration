@@ -228,10 +228,10 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
             print_distance = num_frames % 3 == 0
             if print_distance:
                 distance = agent.curiosity.reachability.distances_from_obs(
-                    agent.session, [current_landmark], [obs], agent.curiosity.obs_encoder,
+                    agent.session, [current_landmark], [obs],
                 )[0]
                 distance_to_self = agent.curiosity.reachability.distances_from_obs(
-                    agent.session, [obs], [obs], agent.curiosity.obs_encoder,
+                    agent.session, [obs], [obs],
                 )[0]
                 log.info('Distance %.3f, to self: %.3f', distance, distance_to_self)
 
