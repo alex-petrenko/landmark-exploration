@@ -69,52 +69,48 @@ class LocomotionBuffer:
 
     def extract_data(self, trajectories):
         timing = Timing()
-        training_data = []
+
+        if len(trajectories) <= 0:
+            return
 
         with timing.timeit('trajectories'):
-            for trajectory in trajectories:
-                landmarks = []  # indices of "key" observations
-                for i in range(len(trajectory)):
-                    if trajectory.is_landmark[i]:
-                        landmarks.append(i)
-                assert len(landmarks) > 0
+            training_data = []
+            max_trajectory = self.params.locomotion_max_trajectory
 
-                if len(landmarks) <= 1:
+            total_experience = sum(len(t) for t in trajectories)
+            max_total_experience = 0.5 * total_experience  # max fraction of experience to use
+            max_num_segments = int(max_total_experience / max_trajectory)
+
+            data_so_far = 0
+
+            for _ in range(max_num_segments):
+                trajectory = random.choice(trajectories)
+                if len(trajectory) <= 3:
                     continue
 
-                for i in range(1, len(landmarks)):
-                    l_prev, l_next = landmarks[i - 1], landmarks[i]
+                # sample random interval in trajectory, treat the last frame as "imaginary" goal, use actions as
+                # ground truth
+                start_idx = random.randint(0, len(trajectory) - 2)
+                goal_idx = min(start_idx + max_trajectory, len(trajectory) - 1)
+                assert start_idx < goal_idx
 
-                    deliberate_actions = sum(trajectory.deliberate_action[l_prev:l_next]) == l_next - l_prev
-                    if not deliberate_actions:
-                        # don't train locomotion on "idle" actions
-                        continue
+                traj_buffer = Buffer()
+                for i in range(start_idx, goal_idx):
+                    traj_buffer.add(
+                        obs_curr=trajectory.obs[i],
+                        obs_goal=trajectory.obs[goal_idx],
+                        actions=trajectory.actions[i],
+                        mode=trajectory.mode[i],
+                    )
+                    data_so_far += 1
 
-                    assert l_next > l_prev
-                    traj_len = l_next - l_prev
-                    if traj_len > self.params.locomotion_max_trajectory:
-                        # trajectory is too long and probably too noisy
-                        # log.info('Trajectory too long %d', traj_len)
-                        continue
+                training_data.append(traj_buffer)
 
-                    traj_buffer = Buffer()
-
-                    for j in range(l_prev, l_next):
-                        traj_buffer.add(
-                            obs_curr=trajectory.obs[j],
-                            obs_goal=trajectory.obs[l_next],
-                            actions=trajectory.actions[j],
-                            mode=trajectory.mode[j],
-                        )
-
-                    training_data.append(traj_buffer)
-
-                if sum((len(buff) for buff in training_data)) > self.params.locomotion_target_buffer_size // 5:
+                if data_so_far > self.params.locomotion_experience_replay_buffer:
                     break
 
-            if len(training_data) <= 0:
-                # no new data
-                return
+        if len(training_data) <= 0:
+            return
 
         if self.batch_num % 10 == 0:
             with timing.timeit('vis'):
@@ -125,13 +121,13 @@ class LocomotionBuffer:
                 self.buffer.add_buff(traj_buffer)
 
             self.shuffle_data()
-            self.buffer.trim_at(self.params.locomotion_target_buffer_size)
+            self.buffer.trim_at(self.params.locomotion_experience_replay_buffer)
 
         self.batch_num += 1
-        log.info('Locomotion timing %s', timing)
+        log.info('Locomotion, num trajectories: %d, timing: %s', len(training_data), timing)
 
     def has_enough_data(self):
-        len_data, min_data = len(self.buffer), self.params.locomotion_target_buffer_size // 20
+        len_data, min_data = len(self.buffer), self.params.locomotion_experience_replay_buffer // 5
         if len_data < min_data:
             log.info('Need to gather more data to train locomotion net, %d/%d', len_data, min_data)
             return False
@@ -139,6 +135,9 @@ class LocomotionBuffer:
 
     def shuffle_data(self):
         self.buffer.shuffle_data()
+
+    def reset(self):
+        self.buffer.clear()
 
     def _visualize_data(self, traj_buffers):
         data_folder = vis_dir(self.params.experiment_dir())

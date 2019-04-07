@@ -94,6 +94,12 @@ class ActorCritic:
             self.act = self.actions_distribution.sample()
             self.action_prob = self.actions_distribution.probability(self.act)
 
+            self.ph_ground_truth_actions = placeholder_from_space(env.action_space)
+            actions_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
+                labels=self.ph_ground_truth_actions, logits=action_logits,
+            )
+            self.gt_actions_loss = tf.reduce_mean(actions_loss)
+
             # critic computation graph
             value_encoder = tf.make_template(
                 'val_obs_enc', make_encoder_func, create_scope_now_=True,
@@ -842,7 +848,8 @@ class TmaxManager:
                     locomotion_dones[env_i] = True
                     is_success = 1 if since_last_success < successful_traversal_frames else 0
                     self.current_maps[env_i].update_edge_traversal(
-                        self.locomotion_prev[env_i], self.locomotion_targets[env_i], is_success, frames=since_last_success,
+                        self.locomotion_prev[env_i], self.locomotion_targets[env_i],
+                        is_success, frames=since_last_success,
                     )
                     self.last_locomotion_success[env_i] = self.episode_frames[env_i]
                     self.locomotion_achieved_goal.append(1)
@@ -991,9 +998,6 @@ class AgentTMAX(AgentLearner):
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 128  # size of GRU layer in RNN neighborhood encoder
 
-            self.locomotion_target_buffer_size = 100000  # target number of (obs, goal, action) tuples to store
-            self.locomotion_train_epochs = 1
-            self.locomotion_batch_size = 256
             self.rl_locomotion = True
             self.locomotion_dense_reward = True
             self.locomotion_reached_threshold = 0.075  # if distance is less than that, we reached the target
@@ -1001,9 +1005,10 @@ class AgentTMAX(AgentLearner):
             self.reliable_edge_probability = 0.1
             self.successful_traversal_frames = 50  # if we traverse an edge in less than that, we succeeded
 
-            self.locomotion_experience_replay = False
-            self.locomotion_experience_replay_buffer = 20000
-            self.locomotion_experience_replay_epochs = 5
+            self.locomotion_experience_replay = True
+            self.locomotion_experience_replay_buffer = 40000
+            self.locomotion_experience_replay_epochs = 1
+            self.locomotion_experience_replay_batch = 256
             self.locomotion_experience_replay_max_kl = 0.03
             self.locomotion_max_trajectory = 20  # max trajectory length to be utilized training
 
@@ -1030,8 +1035,7 @@ class AgentTMAX(AgentLearner):
         if self.params.rl_locomotion:
             self.loco_actor_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_actor_step')
             self.loco_critic_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_critic_step')
-        else:
-            self.locomotion_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='locomotion_step')
+            self.loco_her_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_her_step')
 
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
@@ -1093,9 +1097,11 @@ class AgentTMAX(AgentLearner):
             self.train_loco_critic = loco_critic_opt.minimize(
                 self.loco_objectives.critic_loss, global_step=self.loco_critic_step,
             )
-        else:
-            locomotion_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='locomotion_opt')
-            self.train_locomotion = locomotion_opt.minimize(self.locomotion.loss, global_step=self.locomotion_step)
+
+            loco_her_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='loco_her_opt')
+            self.train_loco_her = loco_her_opt.minimize(
+                self.loco_actor_critic.gt_actions_loss, global_step=self.loco_her_step,
+            )
 
         # summaries
         self.add_summaries()
@@ -1106,8 +1112,7 @@ class AgentTMAX(AgentLearner):
         if self.params.rl_locomotion:
             self.loco_actor_summaries = merge_summaries(collections=['loco_actor'])
             self.loco_critic_summaries = merge_summaries(collections=['loco_critic'])
-        else:
-            self.locomotion_summaries = merge_summaries(collections=['locomotion'])
+            self.loco_her_summaries = merge_summaries(collections=['loco_her'])
 
         self.saver = tf.train.Saver(max_to_keep=3)
 
@@ -1193,12 +1198,10 @@ class AgentTMAX(AgentLearner):
                 self.loco_actor_critic, self.loco_objectives, self.loco_actor_step, self.loco_critic_step,
                 'loco_actor', 'loco_critic',
             )
-        else:
-            with tf.name_scope('locomotion'):
-                locomotion_scalar = partial(tf.summary.scalar, collections=['locomotion'])
-                locomotion_scalar('actions_loss', self.locomotion.actions_loss)
-                locomotion_scalar('loss', self.locomotion.loss)
-                locomotion_scalar('entropy', tf.reduce_mean(self.locomotion.actions_distribution.entropy()))
+            with tf.name_scope('loco_her'):
+                locomotion_scalar = partial(tf.summary.scalar, collections=['loco_her'])
+                locomotion_scalar('actions_loss', self.loco_actor_critic.gt_actions_loss)
+                locomotion_scalar('entropy', tf.reduce_mean(self.loco_actor_critic.actions_distribution.entropy()))
 
     def add_ppo_summaries(self, actor_critic, obj, actor_step, critic_step, actor_scope='actor', critic_scope='critic'):
         with tf.name_scope(actor_scope):
@@ -1486,6 +1489,7 @@ class AgentTMAX(AgentLearner):
             )
             masks[env_i] = 1
         else:
+            # TODO remove?
             actions[env_i] = self.locomotion.navigate(
                 self.session, observations[env_i], goals[env_i], deterministic=False,
             )
@@ -1680,19 +1684,19 @@ class AgentTMAX(AgentLearner):
                 break
             prev_loss = avg_loss
 
-    def _maybe_train_locomotion(self, data, env_steps):
-        """Train locomotion using self-imitation."""
+    def _maybe_train_locomotion_experience_replay(self, data, env_steps):
+        """Train locomotion using hindsight experience replay."""
         if not data.has_enough_data():
             return
 
-        batch_size = self.params.locomotion_batch_size
+        batch_size = self.params.locomotion_experience_replay_batch
         summary = None
-        loco_step = self.locomotion_step.eval(session=self.session)
+        loco_step = self.loco_her_step.eval(session=self.session)
 
         prev_loss = 1e10
 
-        num_epochs = self.params.locomotion_train_epochs
-        log.info('Training locomotion %d pairs, batch %d, epochs %d', len(data.buffer), batch_size, num_epochs)
+        num_epochs = self.params.locomotion_experience_replay_epochs
+        log.info('Training loco_her %d pairs, batch %d, epochs %d', len(data.buffer), batch_size, num_epochs)
 
         for epoch in range(num_epochs):
             losses = []
@@ -1701,16 +1705,16 @@ class AgentTMAX(AgentLearner):
 
             for i in range(0, len(obs_curr) - 1, batch_size):
                 with_summaries = self._should_write_summaries(loco_step) and summary is None
-                summaries = [self.locomotion_summaries] if with_summaries else []
+                summaries = [self.loco_her_summaries] if with_summaries else []
 
                 start, end = i, i + batch_size
 
                 result = self.session.run(
-                    [self.locomotion.loss, self.train_locomotion] + summaries,
+                    [self.loco_actor_critic.gt_actions_loss, self.train_loco_her] + summaries,
                     feed_dict={
-                        self.locomotion.ph_obs_curr: obs_curr[start:end],
-                        self.locomotion.ph_obs_goal: obs_goal[start:end],
-                        self.locomotion.ph_actions: actions[start:end],
+                        self.loco_actor_critic.ph_observations: obs_curr[start:end],
+                        self.loco_actor_critic.ph_goal_obs: obs_goal[start:end],
+                        self.loco_actor_critic.ph_ground_truth_actions: actions[start:end],
                     }
                 )
 
@@ -1724,7 +1728,7 @@ class AgentTMAX(AgentLearner):
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
             if avg_loss >= prev_loss:
-                log.info('Early stopping after %d epochs because locomotion did not improve', epoch)
+                log.info('Early stopping loco_her after %d epochs because locomotion did not improve', epoch)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
             prev_loss = avg_loss
@@ -1746,8 +1750,8 @@ class AgentTMAX(AgentLearner):
                         self.objectives, self.actor_critic, self.train_critic, self.critic_step, self.critic_summaries,
                     )
 
-            with timing.timeit('train_loco'):
-                if self.params.rl_locomotion:
+            if self.params.rl_locomotion:
+                with timing.timeit('loco_rl'):
                     self._train_actor(
                         buffers[TmaxMode.LOCOMOTION], env_steps,
                         self.loco_objectives, self.loco_actor_critic, self.train_loco_actor,
@@ -1758,11 +1762,12 @@ class AgentTMAX(AgentLearner):
                         self.loco_objectives, self.loco_actor_critic, self.train_loco_critic,
                         self.loco_critic_step, self.loco_critic_summaries,
                     )
-                else:
-                    raise NotImplementedError  # train locomotion with self imitation from trajectories
+            else:
+                raise NotImplementedError  # train locomotion with self imitation from trajectories
 
-                # if self.params.locomotion_experience_replay:
-                #     self._train_locomotion_experience_replay(locomotion_buffer, env_steps)
+            with timing.timeit('loco_her'):
+                if self.params.locomotion_experience_replay:
+                    self._maybe_train_locomotion_experience_replay(locomotion_buffer, env_steps)
 
         if self.params.distance_network_checkpoint is None:
             # distance net not provided - train distance metric online
