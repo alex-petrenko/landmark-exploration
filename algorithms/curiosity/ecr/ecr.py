@@ -19,7 +19,7 @@ class ECRModule(CuriosityModule):
             self.reachable_threshold = 10  # num. of frames between obs, such that one is reachable from the other
             self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 200000  # target number of training examples to store
-            self.reachability_train_epochs = 10
+            self.reachability_train_epochs = 8
             self.reachability_batch_size = 128
             self.reachability_bootstrap = 2000000
             self.reachability_train_interval = 1000000
@@ -28,7 +28,7 @@ class ECRModule(CuriosityModule):
             self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
             self.loop_closure_threshold = 0.6  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.2  # reward for finding new vertex
-            self.reachability_dense_reward = True
+            self.reachability_dense_reward = False
 
     def __init__(self, env, params):
         self.params = params

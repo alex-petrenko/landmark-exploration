@@ -243,8 +243,8 @@ class TmaxManager:
         self.deliberate_action = [True] * self.num_envs
 
         self.localizer = Localizer(self.params)
-        self.strict_loop_closure_threshold = 0.2
-        self.closer_new_landmark_threshold = 0.8
+        self.strict_loop_closure_threshold = 0.1
+        self.closer_new_landmark_threshold = self.params.new_landmark_threshold
         self.localizer.loop_closure_threshold = self.strict_loop_closure_threshold  # to prevent noisy long edges
         self.localizer.new_landmark_threshold = self.closer_new_landmark_threshold  # to make locomotion easier
 
@@ -477,7 +477,10 @@ class TmaxManager:
                 unique_id = i2  # should always be unique
 
             if unique_id not in m.graph:
-                if min_d > 0.1:  # TODO: do something more clever?
+                sufficiently_new = min_d > self.params.new_landmark_threshold
+                coming_from_predefined_map = self.params.persistent_map_checkpoint is not None
+
+                if sufficiently_new or coming_from_predefined_map:
                     new_node = new_map.graph.nodes[i2]
                     # noinspection PyProtectedMember
                     m._add_new_node(
@@ -628,6 +631,11 @@ class TmaxManager:
                 self.current_maps[env_i] = copy.deepcopy(self.persistent_maps[-1])
 
         self.current_persistent_maps[env_i] = self.persistent_maps[-1]
+
+        # Initialize curiosity episode map to be the current persistent map, this is to "push" the curious agent out
+        # of the already explored region. Note - this only works with sparse ECR reward, otherwise the agent can get
+        # stuck between two landmarks to maximize the immediate reward.
+        self.curiosity.episodic_maps[env_i] = copy.deepcopy(self.current_persistent_maps[-1])
 
         self.env_stage[env_i] = self.global_stage
         self.current_maps[env_i].new_episode()

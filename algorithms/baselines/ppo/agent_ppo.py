@@ -182,7 +182,7 @@ class AgentPPO(AgentLearner):
             self.ppo_clip_ratio = 1.1  # we use clip(x, e, 1/e) instead of clip(x, 1+e, 1-e) in the paper
             self.target_kl = 0.03
             self.batch_size = 512
-            self.ppo_epochs = 10
+            self.ppo_epochs = 8
 
             # components of the loss function
             self.initial_entropy_loss_coeff = 0.1
