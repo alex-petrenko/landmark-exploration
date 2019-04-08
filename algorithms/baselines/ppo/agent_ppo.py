@@ -192,7 +192,6 @@ class AgentPPO(AgentLearner):
             self.learning_rate = 1e-4
             self.train_for_steps = self.train_for_env_steps = 10 * 1000 * 1000 * 1000
             self.use_gpu = True
-            self.initial_save_rate = 1000
 
             # summaries, etc.
             self.use_env_map = True

@@ -10,7 +10,7 @@ import numpy as np
 import tensorflow as tf
 
 from algorithms.buffer import Buffer
-from algorithms.curiosity.reachability_curiosity.observation_encoder import ObservationEncoder
+from algorithms.curiosity.ecr.observation_encoder import ObservationEncoder
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import main_observation_space
 from algorithms.tf_utils import dense, placeholders_from_spaces

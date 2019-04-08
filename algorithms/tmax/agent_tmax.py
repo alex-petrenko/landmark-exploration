@@ -12,8 +12,8 @@ from tensorflow.contrib import slim
 from algorithms.agent import AgentLearner, TrainStatus
 from algorithms.algo_utils import EPS, num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import PPOBuffer, AgentPPO
-from algorithms.curiosity.reachability_curiosity.observation_encoder import ObservationEncoder
-from algorithms.curiosity.reachability_curiosity.reachability_curiosity import ReachabilityCuriosityModule
+from algorithms.curiosity.ecr.ecr import ECRModule
+from algorithms.curiosity.ecr.observation_encoder import ObservationEncoder
 from algorithms.encoders import make_encoder, make_encoder_with_goal
 from algorithms.env_wrappers import main_observation_space, is_goal_based_env
 from algorithms.models import make_model
@@ -669,8 +669,8 @@ class TmaxManager:
         self._select_next_locomotion_target(env_i, curr_landmark_idx, verbose=True)
 
         assert self.mode[env_i] is not None
-        assert self.locomotion_prev[env_i] == curr_landmark_idx
         if self.mode[env_i] == TmaxMode.LOCOMOTION:
+            assert self.locomotion_prev[env_i] == curr_landmark_idx
             assert self.locomotion_targets[env_i] is not None
             assert self.locomotion_final_targets[env_i] is not None
 
@@ -981,7 +981,7 @@ class AgentTMAX(AgentLearner):
 
     class Params(
         AgentPPO.Params,
-        ReachabilityCuriosityModule.Params,
+        ECRModule.Params,
     ):
         """Hyperparams for the algorithm and the training process."""
 
@@ -989,7 +989,7 @@ class AgentTMAX(AgentLearner):
             """Default parameter values set in ctor."""
             # calling all parent constructors
             AgentPPO.Params.__init__(self, experiment_name)
-            ReachabilityCuriosityModule.Params.__init__(self)
+            ECRModule.Params.__init__(self)
 
             # TMAX-specific parameters
             self.use_neighborhood_encoder = False
@@ -1061,7 +1061,7 @@ class AgentTMAX(AgentLearner):
         else:
             self.encoded_landmark_size = self.actor_critic.encoded_obs_size
 
-        self.curiosity = ReachabilityCuriosityModule(env, params)
+        self.curiosity = ECRModule(env, params)
         self.curiosity.reachability_buffer = TmaxReachabilityBuffer(params)
 
         env.close()
@@ -1785,7 +1785,7 @@ class AgentTMAX(AgentLearner):
                 # rearrange actions and action_probs using the same permutation
                 old_actions, old_action_probs = old_actions[permutation], old_action_probs[permutation]
 
-    def _train_tmax(self, step, buffer, locomotion_buffer, env_steps, timing):
+    def _train_tmax(self, step, buffer, locomotion_buffer, tmax_mgr, env_steps, timing):
         buffers = buffer.split_by_mode()
         buffer.reset()  # discard the original data (before mode split)
 
@@ -1818,7 +1818,7 @@ class AgentTMAX(AgentLearner):
                 raise NotImplementedError  # train locomotion with self imitation from trajectories
 
             with timing.timeit('loco_her'):
-                if self.params.locomotion_experience_replay:
+                if self.params.locomotion_experience_replay and tmax_mgr.global_stage == TmaxMode.LOCOMOTION:
                     self._maybe_train_locomotion_experience_replay(locomotion_buffer, env_steps)
 
         if self.params.distance_network_checkpoint is None:
@@ -1906,7 +1906,7 @@ class AgentTMAX(AgentLearner):
                 locomotion_buffer.extract_data(trajectory_buffer.complete_trajectories)
 
             with timing.timeit('train'):
-                step = self._train_tmax(step, buffer, locomotion_buffer, env_steps, timing)
+                step = self._train_tmax(step, buffer, locomotion_buffer, tmax_mgr, env_steps, timing)
 
             with timing.timeit('tmax_summaries'):
                 self._maybe_tmax_summaries(tmax_mgr, env_steps)

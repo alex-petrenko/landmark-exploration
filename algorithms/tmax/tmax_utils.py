@@ -1,10 +1,10 @@
 from algorithms.arguments import parse_args
 
 # values to use if not specified in the command line
-from algorithms.curiosity.reachability_curiosity.reachability import ReachabilityBuffer
+from algorithms.curiosity.ecr.reachability import ReachabilityBuffer
 from algorithms.trajectory import Trajectory, TrajectoryBuffer
 
-DEFAULT_EXPERIMENT_NAME = 'tmax_v024'
+DEFAULT_EXPERIMENT_NAME = 'tmax_v025'
 DEFAULT_ENV = 'doom_maze_very_sparse'
 
 

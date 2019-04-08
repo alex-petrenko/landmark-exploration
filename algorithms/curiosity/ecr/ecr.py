@@ -5,8 +5,7 @@ import numpy as np
 import tensorflow as tf
 
 from algorithms.curiosity.curiosity_module import CuriosityModule
-from algorithms.curiosity.reachability_curiosity.observation_encoder import ObservationEncoder
-from algorithms.curiosity.reachability_curiosity.reachability import ReachabilityNetwork, ReachabilityBuffer
+from algorithms.curiosity.ecr.reachability import ReachabilityNetwork, ReachabilityBuffer
 from algorithms.tf_utils import merge_summaries
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
@@ -14,10 +13,10 @@ from utils.timing import Timing
 from utils.utils import log
 
 
-class ReachabilityCuriosityModule(CuriosityModule):
+class ECRModule(CuriosityModule):
     class Params:
         def __init__(self):
-            self.reachable_threshold = 5  # num. of frames between obs, such that one is reachable from the other
+            self.reachable_threshold = 10  # num. of frames between obs, such that one is reachable from the other
             self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 200000  # target number of training examples to store
             self.reachability_train_epochs = 10
@@ -164,7 +163,7 @@ class ReachabilityCuriosityModule(CuriosityModule):
                 self.reachability_buffer.reset()
 
                 # invalidate observation features because reachability network has changed
-                self.obs_encoder.reset()
+                self.reachability.obs_encoder.reset()
 
         if env_steps > self.params.reachability_bootstrap and not self.is_initialized():
             log.debug('Curiosity is initialized @ %d steps!', env_steps)

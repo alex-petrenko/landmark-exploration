@@ -6,7 +6,7 @@ import numpy as np
 from algorithms.algo_utils import num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer
 from algorithms.curiosity.icm.icm import IntrinsicCuriosityModule
-from algorithms.curiosity.reachability_curiosity.reachability_curiosity import ReachabilityCuriosityModule
+from algorithms.curiosity.ecr.ecr import ECRModule
 from algorithms.env_wrappers import main_observation_space
 from algorithms.tf_utils import placeholder_from_space
 from algorithms.trajectory import TrajectoryBuffer
@@ -33,7 +33,7 @@ class AgentCuriousPPO(AgentPPO):
     """PPO with a curiosity module (ICM or RND)"""
     class Params(
         AgentPPO.Params,
-        ReachabilityCuriosityModule.Params,  # find "episodic curiosity" params here
+        ECRModule.Params,  # find "episodic curiosity" params here
         IntrinsicCuriosityModule.Params,  # find "ICM" params here
     ):
         """Hyperparams for curious PPO"""
@@ -41,7 +41,7 @@ class AgentCuriousPPO(AgentPPO):
         def __init__(self, experiment_name):
             # calling all parent constructors
             AgentPPO.Params.__init__(self, experiment_name)
-            ReachabilityCuriosityModule.Params.__init__(self)
+            ECRModule.Params.__init__(self)
             IntrinsicCuriosityModule.Params.__init__(self)
 
             self.curiosity_type = 'icm'  # icm or reachability
@@ -66,7 +66,7 @@ class AgentCuriousPPO(AgentPPO):
                 env, self.ph_observations, self.ph_next_observations, self.ph_actions, params.forward_fc, params,
             )
         elif self.params.curiosity_type == 'reachability':
-            self.curiosity = ReachabilityCuriosityModule(env, params)
+            self.curiosity = ECRModule(env, params)
         else:
             raise Exception(f'Curiosity type {self.params.curiosity_type} not supported')
 

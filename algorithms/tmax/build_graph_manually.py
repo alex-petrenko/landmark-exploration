@@ -14,8 +14,7 @@ from utils.envs.atari import atari_utils
 from utils.envs.doom import doom_utils
 from utils.envs.envs import create_env
 from utils.envs.generate_env_map import generate_env_map
-from utils.graph import plot_graph
-from utils.utils import log, model_dir, figure_to_numpy
+from utils.utils import log, model_dir
 
 add_landmark = False
 terminate = False
