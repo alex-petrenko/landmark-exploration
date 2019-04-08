@@ -134,7 +134,8 @@ class LocomotionBuffer:
         return True
 
     def shuffle_data(self):
-        self.buffer.shuffle_data()
+        permutation = self.buffer.shuffle_data(return_permutation=True)
+        return permutation
 
     def reset(self):
         self.buffer.clear()

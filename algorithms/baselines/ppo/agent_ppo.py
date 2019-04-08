@@ -186,7 +186,7 @@ class AgentPPO(AgentLearner):
 
             # components of the loss function
             self.initial_entropy_loss_coeff = 0.1
-            self.min_entropy_loss_coeff = 0.002
+            self.min_entropy_loss_coeff = 0.003
 
             # training process
             self.learning_rate = 1e-4

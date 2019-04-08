@@ -38,6 +38,7 @@ class ActorCritic:
             obs_space = main_observation_space(env)
 
             self.ph_observations = ph_observations
+            self.ph_ground_truth_actions = placeholder_from_space(env.action_space)
 
             # placeholder for the goal observation (if available)
             self.ph_goal_obs = None
@@ -88,17 +89,11 @@ class ActorCritic:
             actor_model = make_model(act_obs_and_neighborhoods, reg, params, 'act_mdl')
 
             actions_fc = dense(actor_model.latent, params.model_fc_size // 2, reg)
-            action_logits = tf.contrib.layers.fully_connected(actions_fc, self.num_actions, activation_fn=None)
-            self.best_action_deterministic = tf.argmax(action_logits, axis=1)
-            self.actions_distribution = CategoricalProbabilityDistribution(action_logits)
+            self.action_logits = tf.contrib.layers.fully_connected(actions_fc, self.num_actions, activation_fn=None)
+            self.best_action_deterministic = tf.argmax(self.action_logits, axis=1)
+            self.actions_distribution = CategoricalProbabilityDistribution(self.action_logits)
             self.act = self.actions_distribution.sample()
             self.action_prob = self.actions_distribution.probability(self.act)
-
-            self.ph_ground_truth_actions = placeholder_from_space(env.action_space)
-            actions_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
-                labels=self.ph_ground_truth_actions, logits=action_logits,
-            )
-            self.gt_actions_loss = tf.reduce_mean(actions_loss)
 
             # critic computation graph
             value_encoder = tf.make_template(
@@ -665,6 +660,7 @@ class TmaxManager:
         self.action_frames[env_i] = np.random.randint(1, 3)
 
         curr_landmark_idx = 0
+        # noinspection PyTypeChecker
         self.locomotion_prev[env_i] = curr_landmark_idx
         locomotion_goal = self._get_locomotion_final_goal(env_i, curr_landmark_idx)
 
@@ -803,7 +799,7 @@ class TmaxManager:
                     locomotion_dones[env_i] = True
                     self.dist_to_target[env_i] = [math.inf]
 
-                    rewards[env_i] -= 0.01  # failed locomotion, to prevent being attracted by the goal
+                    rewards[env_i] -= 0.02  # failed locomotion, to prevent being attracted by the goal
 
                     if locomotion_timed_out:
                         self.current_maps[env_i].update_edge_traversal(
@@ -830,6 +826,9 @@ class TmaxManager:
 
                 if self.params.locomotion_dense_reward:
                     rewards[env_i] += (1.0 - distances[env_i]) * 0.01  # scaling factor for dense reward
+                else:
+                    if distances[env_i] <= self.params.locomotion_reached_threshold:
+                        rewards[env_i] += 0.02
 
                 # low-pass filter
                 if all(d < self.params.locomotion_reached_threshold for d in last_dist_to_target):
@@ -1007,8 +1006,8 @@ class AgentTMAX(AgentLearner):
 
             self.locomotion_experience_replay = True
             self.locomotion_experience_replay_buffer = 40000
-            self.locomotion_experience_replay_epochs = 1
-            self.locomotion_experience_replay_batch = 256
+            self.locomotion_experience_replay_epochs = 2
+            self.locomotion_experience_replay_batch = 512
             self.locomotion_experience_replay_max_kl = 0.03
             self.locomotion_max_trajectory = 20  # max trajectory length to be utilized training
 
@@ -1100,7 +1099,7 @@ class AgentTMAX(AgentLearner):
 
             loco_her_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='loco_her_opt')
             self.train_loco_her = loco_her_opt.minimize(
-                self.loco_actor_critic.gt_actions_loss, global_step=self.loco_her_step,
+                self.loco_objectives.gt_actions_loss, global_step=self.loco_her_step,
             )
 
         # summaries
@@ -1151,6 +1150,12 @@ class AgentTMAX(AgentLearner):
         value_loss = value_loss * masks
         value_loss = tf.reduce_sum(value_loss) / num_rl_samples
 
+        # behavior cloning loss (when we have "ground truth" actions)
+        gt_actions_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
+            labels=actor_critic.ph_ground_truth_actions, logits=actor_critic.action_logits,
+        )
+        gt_actions_loss = tf.reduce_mean(gt_actions_loss)
+
         # penalize the agent for being "too sure" about it's actions (to prevent converging to the suboptimal local
         # minimum too soon)
         entropy_losses = actor_critic.actions_distribution.entropy()
@@ -1179,6 +1184,7 @@ class AgentTMAX(AgentLearner):
         # final losses to optimize
         actor_loss = ppo_loss + entropy_loss
         critic_loss = value_loss
+        gt_actions_loss = gt_actions_loss + entropy_loss
 
         return AttrDict(locals())
 
@@ -1200,8 +1206,9 @@ class AgentTMAX(AgentLearner):
             )
             with tf.name_scope('loco_her'):
                 locomotion_scalar = partial(tf.summary.scalar, collections=['loco_her'])
-                locomotion_scalar('actions_loss', self.loco_actor_critic.gt_actions_loss)
+                locomotion_scalar('actions_loss', self.loco_objectives.gt_actions_loss)
                 locomotion_scalar('entropy', tf.reduce_mean(self.loco_actor_critic.actions_distribution.entropy()))
+                locomotion_scalar('sample_kl', self.loco_objectives.sample_kl)
 
     def add_ppo_summaries(self, actor_critic, obj, actor_step, critic_step, actor_scope='actor', critic_scope='critic'):
         with tf.name_scope(actor_scope):
@@ -1296,7 +1303,7 @@ class AgentTMAX(AgentLearner):
         maps = tmax_mgr.current_maps
 
         time_since_last = time.time() - self._last_tmax_map_summary
-        tmax_map_summary_rate_seconds = 60
+        tmax_map_summary_rate_seconds = 120
         if time_since_last > tmax_map_summary_rate_seconds:
             map_summaries(maps, env_steps, self.summary_writer, 'tmax_maps', self.map_img, self.coord_limits)
 
@@ -1577,20 +1584,18 @@ class AgentTMAX(AgentLearner):
         return main_obs, goal_obs
 
     def _train_actor(self, buffer, env_steps, objectives, actor_critic, train_actor, actor_step, actor_summaries):
-        # train actor for multiple epochs on all collected experience
+        """Train actor for multiple epochs on all collected experience."""
         summary = None
-        actor_step = actor_step.eval(session=self.session)
+        step = actor_step.eval(session=self.session)
         if len(buffer) <= 0:
-            return actor_step
-
-        kl_running_avg = 0.0
-        early_stop = False
+            return step
 
         for epoch in range(self.params.ppo_epochs):
             buffer.shuffle()
+            sample_kl = []  # sample kl divergences for all mini batches in buffer
 
             for i in range(0, len(buffer), self.params.batch_size):
-                with_summaries = self._should_write_summaries(actor_step) and summary is None
+                with_summaries = self._should_write_summaries(step) and summary is None
                 summaries = [actor_summaries] if with_summaries else []
 
                 start, end = i, i + self.params.batch_size
@@ -1612,34 +1617,28 @@ class AgentTMAX(AgentLearner):
                     }
                 )
 
-                actor_step += 1
-                self._maybe_save(actor_step, env_steps)
+                sample_kl.append(result[0])
+
+                step += 1
+                self._maybe_save(step, env_steps)
 
                 if with_summaries:
                     summary = result[-1]
                     self.summary_writer.add_summary(summary, global_step=env_steps)
 
-                sample_kl = result[0]
-                kl_running_avg = (kl_running_avg + sample_kl) / 2  # running avg with exponential weights for past
-
-                if kl_running_avg > self.params.target_kl:
-                    log.info(
-                        'Early stopping after %d/%d steps because of high KL divergence %f > %f',
-                        epoch + 1, self.params.ppo_epochs, sample_kl, self.params.target_kl,
-                    )
-                    early_stop = True
-                    break
-
-            if early_stop:
-                log.info('Early stopping after %d of %d epochs...', epoch + 1, self.params.ppo_epochs)
+            mean_sample_kl = np.mean(sample_kl)
+            if mean_sample_kl > self.params.target_kl:
+                log.info(
+                    'Early stopping after %d/%d epochs because of high KL divergence %.4f > %.4f (%s)',
+                    epoch + 1, self.params.ppo_epochs, mean_sample_kl, self.params.target_kl, actor_step.name,
+                )
                 break
 
-        return actor_step
+        return step
 
     def _train_critic(self, buffer, env_steps, objectives, actor_critic, train_critic, critic_step, critic_summaries):
-        # train critic
         summary = None
-        critic_step = critic_step.eval(session=self.session)
+        step = critic_step.eval(session=self.session)
 
         if len(buffer) <= 0:
             return
@@ -1650,7 +1649,7 @@ class AgentTMAX(AgentLearner):
             buffer.shuffle()
 
             for i in range(0, len(buffer), self.params.batch_size):
-                with_summaries = self._should_write_summaries(critic_step) and summary is None
+                with_summaries = self._should_write_summaries(step) and summary is None
                 summaries = [critic_summaries] if with_summaries else []
 
                 start, end = i, i + self.params.batch_size
@@ -1669,7 +1668,7 @@ class AgentTMAX(AgentLearner):
                     },
                 )
 
-                critic_step += 1
+                step += 1
                 losses.append(result[0])
 
                 if with_summaries:
@@ -1679,9 +1678,12 @@ class AgentTMAX(AgentLearner):
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
             if avg_loss >= prev_loss:
-                log.info('Early stopping after %d epochs because critic did not improve', epoch + 1)
+                log.info(
+                    'Stopping after %d epochs because critic did not improve (%s)', epoch + 1, critic_step.name,
+                )
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
+
             prev_loss = avg_loss
 
     def _maybe_train_locomotion_experience_replay(self, data, env_steps):
@@ -1689,18 +1691,45 @@ class AgentTMAX(AgentLearner):
         if not data.has_enough_data():
             return
 
-        batch_size = self.params.locomotion_experience_replay_batch
+        num_epochs = self.params.locomotion_experience_replay_epochs
+
+        obs_curr, obs_goal = data.buffer.obs_curr, data.buffer.obs_goal
+        old_actions, old_action_probs, masks = [0] * len(obs_curr), [1.0] * len(obs_curr), [1] * len(obs_curr)
+
+        if num_epochs > 1:
+            log.info('Calculate action probabilities before training')
+            max_batch = 1024
+            old_actions, old_action_probs = [], []
+            for i in range(0, len(obs_curr), max_batch):
+                start, end = i, i + max_batch
+
+                result = self.session.run(
+                    [self.loco_actor_critic.act, self.loco_actor_critic.action_prob],
+                    feed_dict={
+                        self.loco_actor_critic.ph_observations: obs_curr[start:end],
+                        self.loco_actor_critic.ph_goal_obs: obs_goal[start:end],
+                    }
+                )
+                old_actions_batch, old_actions_probs_batch = result
+                old_actions.extend(old_actions_batch)
+                old_action_probs.extend(old_actions_probs_batch)
+
+        old_actions, old_action_probs = np.asarray(old_actions), np.asarray(old_action_probs)
+
+        assert len(old_actions) == len(obs_curr)
+        assert len(old_action_probs) == len(obs_curr)
+
         summary = None
+        prev_loss = 1e10
+        batch_size = self.params.locomotion_experience_replay_batch
         loco_step = self.loco_her_step.eval(session=self.session)
 
-        prev_loss = 1e10
-
-        num_epochs = self.params.locomotion_experience_replay_epochs
         log.info('Training loco_her %d pairs, batch %d, epochs %d', len(data.buffer), batch_size, num_epochs)
 
         for epoch in range(num_epochs):
             losses = []
-            data.shuffle_data()
+            sample_kl = []
+
             obs_curr, obs_goal, actions = data.buffer.obs_curr, data.buffer.obs_goal, data.buffer.actions
 
             for i in range(0, len(obs_curr) - 1, batch_size):
@@ -1709,17 +1738,25 @@ class AgentTMAX(AgentLearner):
 
                 start, end = i, i + batch_size
 
+                objectives = [self.loco_objectives.gt_actions_loss, self.loco_objectives.sample_kl, self.train_loco_her]
+
                 result = self.session.run(
-                    [self.loco_actor_critic.gt_actions_loss, self.train_loco_her] + summaries,
+                    objectives + summaries,
                     feed_dict={
                         self.loco_actor_critic.ph_observations: obs_curr[start:end],
                         self.loco_actor_critic.ph_goal_obs: obs_goal[start:end],
                         self.loco_actor_critic.ph_ground_truth_actions: actions[start:end],
+
+                        # for KL-divergence calculation
+                        self.ph_actions: old_actions[start:end],
+                        self.ph_old_action_probs: old_action_probs[start:end],
+                        self.ph_masks: masks[start:end],
                     }
                 )
 
                 loco_step += 1
                 losses.append(result[0])
+                sample_kl.append(result[1])
 
                 if with_summaries:
                     summary = result[-1]
@@ -1728,10 +1765,25 @@ class AgentTMAX(AgentLearner):
             # check loss improvement at the end of each epoch, early stop if necessary
             avg_loss = np.mean(losses)
             if avg_loss >= prev_loss:
-                log.info('Early stopping loco_her after %d epochs because locomotion did not improve', epoch)
+                log.info('Stopping loco_her after %d epochs because locomotion did not improve', epoch)
                 log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
                 break
+
             prev_loss = avg_loss
+
+            # check if KL-divergence is too high
+            if epoch < num_epochs - 1:
+                avg_kl = np.mean(sample_kl)
+                if avg_kl > self.params.locomotion_experience_replay_max_kl:
+                    log.info(
+                        'Early stopping HER after %d/%d epochs because of high KL divergence %.4f > %.4f (%s)',
+                        epoch + 1, self.params.ppo_epochs, avg_kl, self.params.target_kl, self.actor_step.name,
+                    )
+                    break
+
+                permutation = data.shuffle_data()
+                # rearrange actions and action_probs using the same permutation
+                old_actions, old_action_probs = old_actions[permutation], old_action_probs[permutation]
 
     def _train_tmax(self, step, buffer, locomotion_buffer, env_steps, timing):
         buffers = buffer.split_by_mode()
@@ -1845,6 +1897,8 @@ class AgentTMAX(AgentLearner):
                 _, _, values, _, _, _ = self.policy_step(observations, goals, neighbors, num_neigh)
                 buffer.values.append(values)
 
+            tmax_mgr.print_map_summary()
+
             # calculate discounted returns and GAE
             buffer.finalize_batch(self.params.gamma, self.params.gae_lambda)
 
@@ -1862,7 +1916,6 @@ class AgentTMAX(AgentLearner):
                     env_steps, self.summary_writer, self.params.stats_episodes,
                     map_img=self.map_img, coord_limits=self.coord_limits,
                 )
-                tmax_mgr.print_map_summary()
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)

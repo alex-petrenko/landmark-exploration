@@ -82,7 +82,7 @@ class Buffer:
         kwargs = {key: getattr(buff, key)[i] for key in buff._data.keys()}
         self.add(**kwargs)
 
-    def shuffle_data(self):
+    def shuffle_data(self, return_permutation=False):
         if self._size <= 0:
             return
 
@@ -90,6 +90,15 @@ class Buffer:
         for key in self._data.keys():
             np.random.set_state(rng_state)
             np.random.shuffle(self._data[key][:self._size])
+
+        if return_permutation:
+            permutation = np.arange(self._size)
+            np.random.set_state(rng_state)
+            np.random.shuffle(permutation)
+            assert len(permutation) == self._size
+            return permutation
+
+        return None
 
     def trim_at(self, new_size):
         """Discard some data from the end of the buffer, but keep the capacity."""
