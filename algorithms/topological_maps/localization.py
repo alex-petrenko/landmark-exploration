@@ -188,9 +188,7 @@ class Localizer:
             else:
                 # vertex is relatively far away from all vertices in the graph, we've found a new landmark!
                 if m.new_landmark_candidate_frames >= self.localize_frames:
-                    new_landmark_idx = m.add_landmark(obs[env_i], info[env_i])
-                    m.set_curr_landmark(new_landmark_idx)
-
+                    new_landmark_idx = m.add_landmark(obs[env_i], info[env_i], update_curr_landmark=True)
                     closest_landmark_idx[env_i] = new_landmark_idx
                     m.new_landmark_candidate_frames = 0
 

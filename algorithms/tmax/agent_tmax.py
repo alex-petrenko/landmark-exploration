@@ -243,10 +243,7 @@ class TmaxManager:
         self.deliberate_action = [True] * self.num_envs
 
         self.localizer = Localizer(self.params)
-        self.strict_loop_closure_threshold = 0.1
-        self.closer_new_landmark_threshold = self.params.new_landmark_threshold
-        self.localizer.loop_closure_threshold = self.strict_loop_closure_threshold  # to prevent noisy long edges
-        self.localizer.new_landmark_threshold = self.closer_new_landmark_threshold  # to make locomotion easier
+        self.localizer.loop_closure_threshold = 0.25  # a more strict limit to create fewer loop closures
 
         # if persistent map is provided, then we can skip the entire exploration stage
         self.stage_change_required = self.params.persistent_map_checkpoint is not None
@@ -461,9 +458,30 @@ class TmaxManager:
         for edge in candidate_edges:
             i1, i2 = edge
             assert i1 in m.graph
-            if new_map.graph[i1][i2]['loop_closure']:
-                assert new_map.graph[i2][i1]['loop_closure']
-                log.debug('Skip edge %r because it is a loop closure', edge)
+
+            num_existing_edges = len(m.graph[i1])
+            if num_existing_edges > 4:
+                # this vertex already has too many adjacent edges, skip it
+                continue
+
+            path_to_new_node = new_map.nodes[i2].get('path', None)
+            path_has_loop_closure = False
+            if path_to_new_node is not None:
+                for i in range(1, len(path_to_new_node)):
+                    prev, curr = path_to_new_node[i - 1], path_to_new_node[i]
+                    assert prev in new_map.graph
+                    assert curr in new_map.graph
+                    if new_map.graph[prev][curr]['loop_closure']:
+                        assert new_map.graph[curr][prev]['loop_closure']
+                        path_has_loop_closure = True
+                        log.debug(
+                            'Path to %d (%r) contains a loop closure %d-%d. Skip!', i2, path_to_new_node, prev, curr,
+                        )
+                        break
+
+            if path_has_loop_closure:
+                # there is a loop closure on the path from explored region to the new node
+                # this is very likely a noisy edge, skip it
                 continue
 
             distances = self._node_distances(
@@ -472,7 +490,7 @@ class TmaxManager:
             min_d = min(distances)
 
             if self.params.persistent_map_checkpoint is None:
-                unique_id = (env_i + 1) * 10000 + i2
+                unique_id = (env_i + 1) * 100000 + i2
             else:
                 unique_id = i2  # should always be unique
 
@@ -487,6 +505,7 @@ class TmaxManager:
                         obs=new_map.get_observation(i2), pos=new_node['pos'], angle=new_node['angle'],
                         node_id=unique_id,
                     )
+                    log.debug('Added node %d, path to node is %r', unique_id, path_to_new_node)
 
             if unique_id in m.graph:  # if was added before or just now
                 # noinspection PyProtectedMember
@@ -578,9 +597,12 @@ class TmaxManager:
         g = m.graph
         for e in g.edges():
             i1, i2 = e
+            if i2 > i1:
+                # consider only "forward" edges
+                continue
+
             unreliable_edge = g[i1][i2]['success'] < self.params.reliable_edge_probability
-            unreliable_edge_back = g[i2][i1]['success'] < self.params.reliable_edge_probability
-            if unreliable_edge and unreliable_edge_back and e not in remove_edges:
+            if unreliable_edge and e not in remove_edges:
                 remove_edges.add(e)
                 log.debug(
                     'Removing unreliable edge %r, probabilities: %.3f %.3f',
@@ -876,7 +898,6 @@ class TmaxManager:
         return rewards, locomotion_dones
 
     def print_map_summary(self):
-        log.info('Persistent map edges:')
         m = self.persistent_maps[-1]
         num_edges = 0
         for e in m.graph.edges(data=True):

@@ -54,6 +54,7 @@ class TopologicalMap:
         self.graph = nx.DiGraph()
 
         self.curr_landmark_idx = 0
+        self.path_so_far = [0]  # full path traversed during the last or current episode
 
         # variables needed for online localization
         self.new_landmark_candidate_frames = 0
@@ -80,10 +81,13 @@ class TopologicalMap:
         self.graph.add_node(
             new_landmark_idx,
             obs=obs, hash=hash_, pos=pos, angle=angle,
-            value_estimate=value_estimate, num_samples=num_samples,
+            value_estimate=value_estimate, num_samples=num_samples, path=None,
         )
 
         return new_landmark_idx
+
+    def _node_set_path(self, idx):
+        self.graph.nodes[idx]['path'] = self.path_so_far
 
     def reset(self, obs, info=None):
         """Create the graph with only one vertex."""
@@ -98,6 +102,7 @@ class TopologicalMap:
         self.new_landmark_candidate_frames = 0
         self.closest_landmarks = []
         self.curr_landmark_idx = 0  # assuming we're being put into the exact same spot every time
+        self.path_so_far = [0]
 
     def relabel_nodes(self):
         """Make sure nodes are labeled from 0 to n-1."""
@@ -142,7 +147,6 @@ class TopologicalMap:
 
     def set_curr_landmark(self, landmark_idx):
         """Replace current landmark with the given landmark. Create necessary edges if needed."""
-
         if landmark_idx == self.curr_landmark_idx:
             return
 
@@ -152,11 +156,18 @@ class TopologicalMap:
 
         self._log_verbose('Change current landmark to %d', landmark_idx)
         self.curr_landmark_idx = landmark_idx
+        self.path_so_far.append(self.curr_landmark_idx)
 
-    def add_landmark(self, obs, info=None):
+    def add_landmark(self, obs, info=None, update_curr_landmark=False):
         new_landmark_idx = self._add_new_node(obs=obs, pos=get_position(info), angle=get_angle(info))
         self._add_edge(self.curr_landmark_idx, new_landmark_idx)
         self._log_verbose('Added new landmark %d', new_landmark_idx)
+
+        if update_curr_landmark:
+            self.set_curr_landmark(new_landmark_idx)
+            self._node_set_path(new_landmark_idx)
+            assert self.path_so_far[-1] == new_landmark_idx
+
         return new_landmark_idx
 
     def _add_edge(self, i1, i2, loop_closure=False):
