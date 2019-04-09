@@ -460,8 +460,13 @@ class TmaxManager:
             assert i1 in m.graph
 
             num_existing_edges = len(m.graph[i1])
-            if num_existing_edges > 4:
+            if num_existing_edges >= 4:
                 # this vertex already has too many adjacent edges, skip it
+                continue
+
+            if new_map.graph[i1][i2]['loop_closure']:
+                assert new_map.graph[i2][i1]['loop_closure']
+                log.debug('%d-%d is a loop closure, skip...', i1, i2)
                 continue
 
             path_to_new_node = new_map.graph.nodes[i2]['path']
