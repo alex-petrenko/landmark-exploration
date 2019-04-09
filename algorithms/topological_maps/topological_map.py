@@ -81,13 +81,13 @@ class TopologicalMap:
         self.graph.add_node(
             new_landmark_idx,
             obs=obs, hash=hash_, pos=pos, angle=angle,
-            value_estimate=value_estimate, num_samples=num_samples, path=None,
+            value_estimate=value_estimate, num_samples=num_samples, path=(new_landmark_idx,),
         )
 
         return new_landmark_idx
 
     def _node_set_path(self, idx):
-        self.graph.nodes[idx]['path'] = self.path_so_far
+        self.graph.nodes[idx]['path'] = tuple(self.path_so_far)
 
     def reset(self, obs, info=None):
         """Create the graph with only one vertex."""
@@ -156,7 +156,7 @@ class TopologicalMap:
 
         self._log_verbose('Change current landmark to %d', landmark_idx)
         self.curr_landmark_idx = landmark_idx
-        self.path_so_far.append(self.curr_landmark_idx)
+        self.path_so_far.append(landmark_idx)
 
     def add_landmark(self, obs, info=None, update_curr_landmark=False):
         new_landmark_idx = self._add_new_node(obs=obs, pos=get_position(info), angle=get_angle(info))

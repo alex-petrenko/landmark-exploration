@@ -464,7 +464,9 @@ class TmaxManager:
                 # this vertex already has too many adjacent edges, skip it
                 continue
 
-            path_to_new_node = new_map.nodes[i2].get('path', None)
+            path_to_new_node = new_map.graph.nodes[i2]['path']
+            assert path_to_new_node[-1] == i2
+
             path_has_loop_closure = False
             if path_to_new_node is not None:
                 for i in range(1, len(path_to_new_node)):
