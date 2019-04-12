@@ -24,7 +24,7 @@ class TestPPO(TestCase):
         params.initial_save_rate = 20
         params.batch_size = 32
         params.ppo_epochs = 2
-        params.curiosity_type = 'reachability'
+        params.curiosity_type = 'ecr_map'
         params.reachability_bootstrap = 10
         params.reachability_train_interval = 5
         params.use_env_map = False

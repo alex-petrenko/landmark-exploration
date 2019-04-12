@@ -126,9 +126,9 @@ class ReachabilityBuffer:
         close, far = self.params.reachable_threshold, self.params.unreachable_threshold
 
         num_close, num_far = 0, 0
+        data_added = 0
 
         with timing.timeit('trajectories'):
-            data = Buffer()
             for trajectory in trajectories:
                 obs = trajectory.obs
 
@@ -136,7 +136,7 @@ class ReachabilityBuffer:
                 np.random.shuffle(indices)
 
                 for i in indices:
-                    if len(data) > self.params.reachability_target_buffer_size // 3:  # to limit memory usage
+                    if data_added > self.params.reachability_target_buffer_size // 3:  # to limit memory usage
                         break
 
                     close_i = min(i + close, len(trajectory))
@@ -149,7 +149,8 @@ class ReachabilityBuffer:
                         first_idx, second_idx = second_idx, first_idx
 
                     if not self.skip(trajectory, first_idx) and not self.skip(trajectory, second_idx):
-                        data.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=0)
+                        self.buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=0)
+                        data_added += 1
                         num_close += 1
 
                     # sample far observation pair
@@ -160,18 +161,17 @@ class ReachabilityBuffer:
                             first_idx, second_idx = second_idx, first_idx
 
                         if not self.skip(trajectory, first_idx) and not self.skip(trajectory, second_idx):
-                            data.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=1)
+                            self.buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=1)
+                            data_added += 1
                             num_far += 1
 
-        if len(data) > 0:
-            with timing.timeit('add'):
-                self.buffer.add_buff(data)
-
-            # adjust this for memory consumption
-            with timing.timeit('shuffle'):
-                if len(self.buffer) > 1.5 * self.params.reachability_target_buffer_size:
-                    self.shuffle_data()
-                    self.buffer.trim_at(self.params.reachability_target_buffer_size)
+        with timing.timeit('shuffle'):
+            # This is to avoid shuffling data every time. We grow the buffer a little more (up to 1.5 size of max
+            # buffer) and shuffle and trim only then (or when we need it for training).
+            # Adjust this 1.5 parameter for memory consumption.
+            if len(self.buffer) > 1.5 * self.params.reachability_target_buffer_size:
+                self.shuffle_data()
+                self.buffer.trim_at(self.params.reachability_target_buffer_size)
 
         if self.batch_num % 20 == 0:
             with timing.timeit('visualize'):
