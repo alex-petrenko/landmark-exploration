@@ -1,3 +1,5 @@
+import copy
+import time
 from collections import deque
 from functools import partial
 
@@ -10,7 +12,7 @@ from algorithms.tf_utils import merge_summaries
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
 from utils.timing import Timing
-from utils.utils import log
+from utils.utils import log, model_dir
 
 
 class ECRMapModule(CuriosityModule):
@@ -29,6 +31,9 @@ class ECRMapModule(CuriosityModule):
             self.loop_closure_threshold = 0.6  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.2  # reward for finding new vertex
             self.reachability_dense_reward = False
+
+            self.expand_explored_region = False
+            self.expand_explored_region_frames = 4000000
 
     def __init__(self, env, params):
         self.params = params
@@ -53,7 +58,13 @@ class ECRMapModule(CuriosityModule):
 
         self.localizer = Localizer(self.params)
 
-        self.last_trained = 0
+        self.past_maps = deque([], maxlen=200)
+        # TODO: this does not support training re-start
+        self.last_explored_region_update = self.params.reachability_bootstrap
+        self.explored_region_map = None
+
+        self._last_trained = 0
+        self._last_map_summary = 0
 
     def _add_summaries(self):
         with tf.name_scope('reachability'):
@@ -115,7 +126,7 @@ class ECRMapModule(CuriosityModule):
                 break
             prev_loss = avg_loss
 
-        self.last_trained = env_steps
+        self._last_trained = env_steps
 
     def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos):
         if self.episodic_maps is None:
@@ -126,9 +137,24 @@ class ECRMapModule(CuriosityModule):
 
         for i in range(self.params.num_envs):
             if dones[i]:
-                self.episodic_maps[i].reset(next_obs[i], infos[i])
+                if self.params.expand_explored_region:
+                    # save last n maps for later use
+                    self.past_maps.append(copy.deepcopy(self.episodic_maps[i]))
+
                 self.episode_bonuses.append(self.current_episode_bonus[i])
                 self.current_episode_bonus[i] = 0
+
+                if self.explored_region_map is not None:
+                    assert self.params.expand_explored_region
+
+                    # set the episodic map to be the map of the explored region, so we don't receive any more reward
+                    # for seeing what we've already explored
+                    self.episodic_maps[i] = copy.deepcopy(self.explored_region_map)
+                else:
+                    # we don't have a map of explored region, so reset episodic memory to zero
+                    self.episodic_maps[i].reset(next_obs[i], infos[i])
+
+                self.episodic_maps[i].new_episode()
 
         bonuses = np.zeros(self.params.num_envs)
 
@@ -155,7 +181,7 @@ class ECRMapModule(CuriosityModule):
     def train(self, buffer, env_steps, agent):
         self.reachability_buffer.extract_data(self.trajectory_buffer.complete_trajectories)
 
-        if env_steps - self.last_trained > self.params.reachability_train_interval:
+        if env_steps - self._last_trained > self.params.reachability_train_interval:
             if self.reachability_buffer.has_enough_data():
                 self._train_reachability(self.reachability_buffer, env_steps, agent)
 
@@ -168,6 +194,29 @@ class ECRMapModule(CuriosityModule):
         if env_steps > self.params.reachability_bootstrap and not self.is_initialized():
             log.debug('Curiosity is initialized @ %d steps!', env_steps)
             self.initialized = True
+
+        if self.params.expand_explored_region:
+            if env_steps - self.last_explored_region_update >= self.params.expand_explored_region_frames:
+                if len(self.past_maps) >= self.past_maps.maxlen:
+                    map_sizes = []
+                    for i, m in enumerate(self.past_maps):
+                        map_sizes.append((m.num_landmarks(), i))
+
+                    map_sizes.sort()
+                    median_map_idx = map_sizes[len(map_sizes) // 2][1]
+                    median_map = self.past_maps[median_map_idx]
+
+                    log.debug(
+                        'Select map %d with %d landmarks as our new map of explored region @ %d frames',
+                        median_map_idx, median_map.num_landmarks(), env_steps,
+                    )
+                    self.explored_region_map = copy.deepcopy(median_map)
+                    self.last_explored_region_update = env_steps
+
+                    checkpoint_dir = model_dir(agent.params.experiment_dir())
+                    self.explored_region_map.save_checkpoint(
+                        checkpoint_dir, map_img=agent.map_img, coord_limits=agent.coord_limits, verbose=True,
+                    )
 
     def set_trajectory_buffer(self, trajectory_buffer):
         self.trajectory_buffer = trajectory_buffer
@@ -193,9 +242,23 @@ class ECRMapModule(CuriosityModule):
             avg_episode_bonus = sum(self.episode_bonuses) / len(self.episode_bonuses)
             curiosity_summary('avg_episode_bonus', avg_episode_bonus)
 
+        if self.params.expand_explored_region:
+            explored_region_size = 0 if self.explored_region_map is None else self.explored_region_map.num_landmarks()
+            curiosity_summary('explored_region_size', explored_region_size)
+
         summary_writer.add_summary(summary, env_steps)
 
-        map_img = kwargs.get('map_img')
-        coord_limits = kwargs.get('coord_limits')
-        map_summaries(maps, env_steps, summary_writer, section, map_img, coord_limits)
-        summary_writer.flush()
+        time_since_last = time.time() - self._last_map_summary
+        map_summary_rate_seconds = 60
+        if time_since_last > map_summary_rate_seconds:
+            map_img = kwargs.get('map_img')
+            coord_limits = kwargs.get('coord_limits')
+            map_summaries(maps, env_steps, summary_writer, section, map_img, coord_limits)
+            summary_writer.flush()
+
+            if self.explored_region_map is not None:
+                map_summaries(
+                    [self.explored_region_map], env_steps, summary_writer, 'explored_region', map_img, coord_limits,
+                )
+
+            self._last_map_summary = time.time()

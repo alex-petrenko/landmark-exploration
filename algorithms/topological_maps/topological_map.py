@@ -5,6 +5,7 @@ import pickle as pkl
 import random
 import shutil
 import datetime
+import time
 from collections import deque
 from hashlib import sha1
 from os.path import join, isfile
@@ -392,12 +393,6 @@ def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_
     num_maps_to_plot = min(3, len(maps))
     maps_for_summary = random.sample(maps, num_maps_to_plot)
 
-    for i, map_for_summary in enumerate(maps_for_summary):
-        random_graph_summary = visualize_graph_tensorboard(
-            map_for_summary.labeled_graph, tag=f'{section}/random_graph_{i}', map_img=map_img, coord_limits=coord_limits
-        )
-        summary_writer.add_summary(random_graph_summary, env_steps)
-
     max_graph_idx = 0
     for i, m in enumerate(maps):
         if m.num_landmarks() > maps[max_graph_idx].num_landmarks():
@@ -407,3 +402,13 @@ def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_
         maps[max_graph_idx].labeled_graph, tag=f'{section}/max_graph', map_img=map_img, coord_limits=coord_limits,
     )
     summary_writer.add_summary(max_graph_summary, env_steps)
+
+    if len(maps_for_summary) > 1:
+        for i, map_for_summary in enumerate(maps_for_summary):
+            random_graph_summary = visualize_graph_tensorboard(
+                map_for_summary.labeled_graph,
+                tag=f'{section}/random_graph_{i}',
+                map_img=map_img, coord_limits=coord_limits,
+            )
+            summary_writer.add_summary(random_graph_summary, env_steps)
+

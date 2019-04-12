@@ -3,11 +3,9 @@ Tensorflow encoders used in different trainable models.
 
 """
 import numpy as np
-
 import tensorflow as tf
-from gym import spaces
 
-from algorithms.env_wrappers import has_image_observations, main_observation_space
+from algorithms.env_wrappers import has_image_observations
 from algorithms.tf_utils import dense, conv, put_kernels_on_grid, tf_shape
 
 
@@ -34,6 +32,8 @@ class EncoderCNN(Encoder):
                 conv_filters = self._convnet_simple([(32, 3, 2)] * 4)
             elif img_enc_name == 'convnet_84px':
                 conv_filters = self._convnet_simple([(16, 3, 2)] + [(32, 3, 2)] * 4)
+            elif img_enc_name == 'convnet_84px_8x8':
+                conv_filters = self._convnet_simple([(32, 8, 4), (32, 4, 2), (32, 3, 2), (32, 3, 2)])
             else:
                 raise Exception('Unknown model name')
 
@@ -62,6 +62,8 @@ class EncoderCNN(Encoder):
 
 
 class EncoderLowDimensional(Encoder):
+    """This one probably does not work now. TODO"""
+
     def __init__(self, ph_observations, regularizer, lowdim_enc_name, name):
         super(EncoderLowDimensional, self).__init__(regularizer, name)
 
