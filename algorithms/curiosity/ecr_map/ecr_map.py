@@ -5,7 +5,7 @@ import numpy as np
 import tensorflow as tf
 
 from algorithms.curiosity.curiosity_module import CuriosityModule
-from algorithms.curiosity.ecr.reachability import ReachabilityNetwork, ReachabilityBuffer
+from algorithms.reachability.reachability import ReachabilityNetwork, ReachabilityBuffer
 from algorithms.tf_utils import merge_summaries
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
@@ -13,10 +13,10 @@ from utils.timing import Timing
 from utils.utils import log
 
 
-class ECRModule(CuriosityModule):
+class ECRMapModule(CuriosityModule):
     class Params:
         def __init__(self):
-            self.reachable_threshold = 10  # num. of frames between obs, such that one is reachable from the other
+            self.reachable_threshold = 5  # num. of frames between obs, such that one is reachable from the other
             self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
             self.reachability_target_buffer_size = 200000  # target number of training examples to store
             self.reachability_train_epochs = 8

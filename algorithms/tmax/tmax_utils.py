@@ -1,7 +1,7 @@
 from algorithms.arguments import parse_args
 
 # values to use if not specified in the command line
-from algorithms.curiosity.ecr.reachability import ReachabilityBuffer
+from algorithms.reachability.reachability import ReachabilityBuffer
 from algorithms.trajectory import Trajectory, TrajectoryBuffer
 
 DEFAULT_EXPERIMENT_NAME = 'tmax_v026'

@@ -10,7 +10,7 @@ import numpy as np
 import tensorflow as tf
 
 from algorithms.buffer import Buffer
-from algorithms.curiosity.ecr.observation_encoder import ObservationEncoder
+from algorithms.reachability.observation_encoder import ObservationEncoder
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import main_observation_space
 from algorithms.tf_utils import dense, placeholders_from_spaces
@@ -163,15 +163,15 @@ class ReachabilityBuffer:
                             data.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=1)
                             num_far += 1
 
-            if len(data) > 0:
-                with timing.timeit('add'):
-                    self.buffer.add_buff(data)
+        if len(data) > 0:
+            with timing.timeit('add'):
+                self.buffer.add_buff(data)
 
-                # adjust this for memory consumption
-                with timing.timeit('shuffle'):
-                    if len(self.buffer) > 1.5 * self.params.reachability_target_buffer_size:
-                        self.shuffle_data()
-                        self.buffer.trim_at(self.params.reachability_target_buffer_size)
+            # adjust this for memory consumption
+            with timing.timeit('shuffle'):
+                if len(self.buffer) > 1.5 * self.params.reachability_target_buffer_size:
+                    self.shuffle_data()
+                    self.buffer.trim_at(self.params.reachability_target_buffer_size)
 
         if self.batch_num % 20 == 0:
             with timing.timeit('visualize'):

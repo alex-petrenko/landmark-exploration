@@ -5,8 +5,8 @@ import numpy as np
 
 from algorithms.algo_utils import num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer
+from algorithms.curiosity.ecr_map.ecr_map import ECRMapModule
 from algorithms.curiosity.icm.icm import IntrinsicCuriosityModule
-from algorithms.curiosity.ecr.ecr import ECRModule
 from algorithms.env_wrappers import main_observation_space
 from algorithms.tf_utils import placeholder_from_space
 from algorithms.trajectory import TrajectoryBuffer
@@ -33,7 +33,7 @@ class AgentCuriousPPO(AgentPPO):
     """PPO with a curiosity module (ICM or RND)"""
     class Params(
         AgentPPO.Params,
-        ECRModule.Params,  # find "episodic curiosity" params here
+        ECRMapModule.Params,  # find "episodic curiosity" params here
         IntrinsicCuriosityModule.Params,  # find "ICM" params here
     ):
         """Hyperparams for curious PPO"""
@@ -41,10 +41,10 @@ class AgentCuriousPPO(AgentPPO):
         def __init__(self, experiment_name):
             # calling all parent constructors
             AgentPPO.Params.__init__(self, experiment_name)
-            ECRModule.Params.__init__(self)
+            ECRMapModule.Params.__init__(self)
             IntrinsicCuriosityModule.Params.__init__(self)
 
-            self.curiosity_type = 'icm'  # icm or reachability
+            self.curiosity_type = 'icm'  # icm or ecr or ecr_map
             self.random_exploration = False
             self.extrinsic_reward_coeff = 1.0
 
@@ -65,8 +65,8 @@ class AgentCuriousPPO(AgentPPO):
             self.curiosity = IntrinsicCuriosityModule(
                 env, self.ph_observations, self.ph_next_observations, self.ph_actions, params.forward_fc, params,
             )
-        elif self.params.curiosity_type == 'reachability':
-            self.curiosity = ECRModule(env, params)
+        elif self.params.curiosity_type == 'ecr_map':
+            self.curiosity = ECRMapModule(env, params)
         else:
             raise Exception(f'Curiosity type {self.params.curiosity_type} not supported')
 

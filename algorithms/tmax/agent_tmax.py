@@ -12,8 +12,8 @@ from tensorflow.contrib import slim
 from algorithms.agent import AgentLearner, TrainStatus
 from algorithms.algo_utils import EPS, num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import PPOBuffer, AgentPPO
-from algorithms.curiosity.ecr.ecr import ECRModule
-from algorithms.curiosity.ecr.observation_encoder import ObservationEncoder
+from algorithms.curiosity.ecr_map.ecr_map import ECRMapModule
+from algorithms.reachability.observation_encoder import ObservationEncoder
 from algorithms.encoders import make_encoder, make_encoder_with_goal
 from algorithms.env_wrappers import main_observation_space, is_goal_based_env
 from algorithms.models import make_model
@@ -1017,7 +1017,7 @@ class AgentTMAX(AgentLearner):
 
     class Params(
         AgentPPO.Params,
-        ECRModule.Params,
+        ECRMapModule.Params,
     ):
         """Hyperparams for the algorithm and the training process."""
 
@@ -1025,7 +1025,7 @@ class AgentTMAX(AgentLearner):
             """Default parameter values set in ctor."""
             # calling all parent constructors
             AgentPPO.Params.__init__(self, experiment_name)
-            ECRModule.Params.__init__(self)
+            ECRMapModule.Params.__init__(self)
 
             # TMAX-specific parameters
             self.use_neighborhood_encoder = False
@@ -1097,7 +1097,7 @@ class AgentTMAX(AgentLearner):
         else:
             self.encoded_landmark_size = self.actor_critic.encoded_obs_size
 
-        self.curiosity = ECRModule(env, params)
+        self.curiosity = ECRMapModule(env, params)
         self.curiosity.reachability_buffer = TmaxReachabilityBuffer(params)
 
         env.close()
