@@ -1,3 +1,4 @@
+from algorithms.topological_maps.topological_map import hash_observation
 from utils.utils import log
 
 
@@ -17,7 +18,10 @@ class ObservationEncoder:
         """Discard all previous embeddings (e.g. after an interation of training)."""
         self.encoded_obs = {}
 
-    def encode(self, session, landmark_obs, landmark_hashes):
+    def encode(self, session, landmark_obs, landmark_hashes=None):
+        if landmark_hashes is None:
+            landmark_hashes = [hash_observation(o) for o in landmark_obs]
+
         assert len(landmark_obs) == len(landmark_hashes)
 
         if len(self.encoded_obs) > self.size_limit:

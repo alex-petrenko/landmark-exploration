@@ -153,7 +153,7 @@ class TopologicalMap:
 
         if landmark_idx not in self.neighborhood():
             # create new edges, we found a loop closure!
-            self._add_edge(self.curr_landmark_idx, landmark_idx, loop_closure=True)
+            self.add_edge(self.curr_landmark_idx, landmark_idx, loop_closure=True)
 
         self._log_verbose('Change current landmark to %d', landmark_idx)
         self.curr_landmark_idx = landmark_idx
@@ -161,7 +161,7 @@ class TopologicalMap:
 
     def add_landmark(self, obs, info=None, update_curr_landmark=False):
         new_landmark_idx = self._add_new_node(obs=obs, pos=get_position(info), angle=get_angle(info))
-        self._add_edge(self.curr_landmark_idx, new_landmark_idx)
+        self.add_edge(self.curr_landmark_idx, new_landmark_idx)
         self._log_verbose('Added new landmark %d', new_landmark_idx)
 
         if update_curr_landmark:
@@ -171,7 +171,7 @@ class TopologicalMap:
 
         return new_landmark_idx
 
-    def _add_edge(self, i1, i2, loop_closure=False):
+    def add_edge(self, i1, i2, loop_closure=False):
         initial_success = 0.01  # add to params?
 
         self.graph.add_edge(
@@ -318,7 +318,7 @@ class TopologicalMap:
                 obs_bgr_bigger = cv2.resize(obs_bgr, (420, 420), interpolation=cv2.INTER_NEAREST)
                 cv2.imwrite(join(map_extra, f'{node:03d}.jpg'), obs_bgr_bigger)
 
-            figure = plot_graph(self.graph, layout='pos', map_img=map_img, limits=coord_limits)
+            figure = plot_graph(self.graph, layout='pos', map_img=map_img, limits=coord_limits, topological_map=True)
             graph_filename = join(map_extra, 'graph.png')
             with open(graph_filename, 'wb') as graph_fobj:
                 plt.savefig(graph_fobj, format='png')

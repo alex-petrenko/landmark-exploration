@@ -62,10 +62,10 @@ class TestGraph(TestCase):
 
         m.graph.remove_edges_from(list(m.graph.edges))
 
-        m._add_edge(0, 1)
-        m._add_edge(0, 2)
-        m._add_edge(1, 3)
-        m._add_edge(2, 3)
+        m.add_edge(0, 1)
+        m.add_edge(0, 2)
+        m.add_edge(1, 3)
+        m.add_edge(2, 3)
 
         path_lengths = m.path_lengths(0)
         log.debug('Path lenghts from %d: %r', 0, path_lengths)
@@ -132,7 +132,7 @@ class TestGraph(TestCase):
                 for j in range(random.randint(1, 3)):
                     rand = random.randint(0, m.num_landmarks())
                     if rand != 0 and rand != i:
-                        m._add_edge(i, rand)
+                        m.add_edge(i, rand)
 
         shortest = nx.shortest_path(m.graph, 0)
         shortest = [len(path) for path in shortest.values()]

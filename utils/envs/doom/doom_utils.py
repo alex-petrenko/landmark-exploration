@@ -37,6 +37,7 @@ DOOM_ENVS = [
     DoomCfg('doom_maze_multi_goal', 'VizdoomMyWayHomeMultiGoal-v0', 1.0, 2100),
     DoomCfg('doom_maze_multi_goal_random', 'VizdoomMyWayHomeMultiGoalRandom-v0', 1.0, 2100),
     DoomCfg('doom_maze_no_goal', 'VizdoomMyWayHomeNoGoal-v0', 1.0, 2100),
+    DoomCfg('doom_maze_no_goal_random', 'VizdoomMyWayHomeNoGoalRandom-v0', 1.0, 40000),
 
     DoomCfg('doom_maze_goal', 'VizdoomMyWayHomeGoal-v0', 1.0, 2100),
 
@@ -59,7 +60,8 @@ def doom_env_by_name(name):
 
 
 def make_doom_env(doom_cfg, mode='train', skip_frames=True, human_input=False, show_automap=False):
-    env = gym.make(doom_cfg.env_id, show_automap=show_automap)
+    skip_frames = 4 if skip_frames else 1
+    env = gym.make(doom_cfg.env_id, show_automap=show_automap, skip_frames=skip_frames)
 
     if human_input:
         env = StepHumanInput(env)
@@ -76,9 +78,6 @@ def make_doom_env(doom_cfg, mode='train', skip_frames=True, human_input=False, s
     # randomly vary episode duration to somewhat decorrelate the experience
     timeout = doom_cfg.default_timeout - 100
     env = TimeLimitWrapper(env, limit=timeout, random_variation_steps=99)
-
-    if skip_frames:
-        env = SkipFramesWrapper(env, skip_frames=4)
 
     if doom_cfg.reward_scaling != 1.0:
         env = RewardScalingWrapper(env, doom_cfg.reward_scaling)

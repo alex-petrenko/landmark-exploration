@@ -100,6 +100,7 @@ def on_release(key):
         if action in current_actions:
             current_actions.remove(action)
 
+
 def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_automap=False):
     def make_env_func():
         e = create_env(env_id, mode='test', show_automap=show_automap)
@@ -195,14 +196,6 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
 
             env_obs, rew, done, info = env.step(action)
             next_obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
-
-            # if not done:
-            #     bonus, _ = agent.tmax_mgr.update([obs], [next_obs], [rew], [done], [info], num_frames, verbose=True)
-            #     bonus = bonus[0]
-            #     if bonus > 0:
-            #         log.info('Bonus %.3f received', bonus)
-            #     if abs(rew) >= 0.01:
-            #         log.info('Reward %.3f received', rew)
 
             obs = next_obs
 

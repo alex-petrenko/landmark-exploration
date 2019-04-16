@@ -1,6 +1,8 @@
+import copy
 import io
 from os.path import join
 
+import cv2
 import networkx as nx
 import tensorflow as tf
 from matplotlib import pyplot as plt
@@ -21,7 +23,7 @@ def parse_layout(nx_graph, layout):
     return pos
 
 
-def plot_graph(nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856, 1856)):
+def plot_graph(nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856, 1856), topological_map=False):
     """Plot the graph with a map image overlaid on it. Give coordinate limits of map in :limits:"""
     if layout == 'pos':
         for node_name in nx_graph.nodes:
@@ -35,9 +37,10 @@ def plot_graph(nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856,
     figure = plt.gcf()
     figure.clear()
     if map_img is not None:
-        map_img = np.array(map_img).astype(np.float) / 255
+        map_img = cv2.resize(map_img, dsize=None, fx=2, fy=2)
         width, height = map_img.shape[:2]
-        dpi = 80  # can be changed
+
+        dpi = 120  # can be changed
         plt.close('all')
         figure = plt.figure(num=2, figsize=(height / dpi, width / dpi), dpi=dpi, facecolor='none', edgecolor='k')
         figure.figimage(map_img, 0, 0)
@@ -46,13 +49,61 @@ def plot_graph(nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856,
     ax = plt.gca()
     ax.set_aspect('equal')
     ax.patch.set_facecolor('none')
-    nx.draw(
+
+    draw_func = draw_map if topological_map else nx.draw
+    draw_func(
         nx_graph, pos, node_size=node_size, node_color=list(range(len(nx_graph.nodes))), edge_color='#cccccc',
         cmap=plt.cm.get_cmap('plasma'), with_labels=True, font_color='#00ff00', font_size=7,
     )
     plt.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
 
     return figure
+
+
+def draw_map(g, pos=None, ax=None, **kwds):
+    if ax is None:
+        cf = plt.gcf()
+    else:
+        cf = ax.get_figure()
+    cf.set_facecolor('w')
+    if ax is None:
+        # noinspection PyProtectedMember
+        if cf._axstack() is None:
+            ax = cf.add_axes((0, 0, 1, 1))
+        else:
+            ax = cf.gca()
+
+    if 'with_labels' not in kwds:
+        kwds['with_labels'] = 'labels' in kwds
+
+    if pos is None:
+        pos = nx.drawing.spring_layout(g)  # default to spring layout
+
+    only_draw_edges = True
+
+    if not only_draw_edges:
+        nx.draw_networkx_nodes(g, pos, **kwds)
+
+    edges_normal = [(u, v) for (u, v, d) in g.edges(data=True) if not d['loop_closure']]
+    edges_shortcuts = [(u, v) for (u, v, d) in g.edges(data=True) if d['loop_closure']]
+
+    nx.draw_networkx_edges(g, pos, edgelist=edges_normal, arrows=False, **kwds)
+
+    shortcuts_kwargs = copy.deepcopy(kwds)
+    shortcuts_kwargs['alpha'] = 0.4
+    shortcuts_kwargs['edge_color'] = 'r'
+    shortcuts_kwargs['width'] = 2
+    nx.draw_networkx_edges(
+        g, pos, edgelist=edges_shortcuts, arrows=False, **shortcuts_kwargs,
+    )
+
+    with_labels = not only_draw_edges
+    if with_labels:
+        nx.draw_networkx_labels(g, pos, **kwds)
+
+    ax.set_axis_off()
+    # noinspection PyUnresolvedReferences
+    plt.draw_if_interactive()
 
 
 def visualize_graph_tensorboard(nx_graph, tag, layout='pos', map_img=None, coord_limits=None):

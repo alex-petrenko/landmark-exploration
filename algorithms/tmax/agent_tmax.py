@@ -516,7 +516,7 @@ class TmaxManager:
 
             if unique_id in m.graph:  # if was added before or just now
                 # noinspection PyProtectedMember
-                m._add_edge(i1, unique_id)
+                m.add_edge(i1, unique_id)
                 added_edges.append(((i1, unique_id), min_d))
 
         log.debug('Env %d, candidate edges %r, added_edges %r', env_i, candidate_edges, added_edges)
@@ -535,7 +535,7 @@ class TmaxManager:
                 if d < self.params.locomotion_reached_threshold:
                     other_node = non_neighbors[i]
                     # noinspection PyProtectedMember
-                    m._add_edge(node, other_node)
+                    m.add_edge(node, other_node)
                     added_edges.append(((node, other_node), d))
 
         log.debug('Finished loop closure checks, added edges: %r', added_edges)
