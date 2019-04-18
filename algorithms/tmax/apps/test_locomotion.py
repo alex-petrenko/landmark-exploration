@@ -72,6 +72,8 @@ class Localizer:
 
         self.paths = [None] * self.m.num_landmarks()
 
+        self.max_neighborhood_to_search = 1
+
     def _ensure_path_to_goal_calculated(self, curr_landmark, final_goal):
         if self.paths[curr_landmark] is not None:
             return self.paths[curr_landmark]
@@ -113,6 +115,8 @@ class Localizer:
 
         nearest_neighbor = path[min_d_idx]
         log.debug('Neighborhood search closest landmark is %d with dist %.3f', nearest_neighbor, min_d)
+        self.max_neighborhood_to_search //= 2
+        self.max_neighborhood_to_search = max(1, self.max_neighborhood_to_search)
         return nearest_neighbor
 
     def localize_global(self, obs):
@@ -120,19 +124,55 @@ class Localizer:
         distances = self._distances(obs, self.m, all_nodes)
         distances = np.asarray(distances)
 
-        neighborhood_dist = []
-        for i in range(self.m.num_landmarks()):
-            d = distances[self.neighbors[i]]
-            dist = 0.5 * (np.median(d) + distances[i])
-            neighborhood_dist.append(dist)
+        if self.current_landmark is None:
+            neighborhood_size = self.m.num_landmarks()
+        else:
+            neighborhood_size = 2
 
-        min_d, min_d_idx = min_with_idx(neighborhood_dist)
-        nearest_neighbor = all_nodes[min_d_idx]
-        d = distances[min_d_idx]
+        while True:
+            if self.current_landmark is None:
+                all_landmarks = list(self.m.graph.nodes)
+                prev_neighbors = all_landmarks
+            else:
+                prev_neighbors = self.m.topological_neighborhood(self.current_landmark, max_dist=neighborhood_size)
+
+            log.warning('Global search in neighborhood of size %d (%d)...', neighborhood_size, len(prev_neighbors))
+
+            candidates = []
+            max_distance = 1.0 if len(prev_neighbors) >= self.m.num_landmarks() else self.max_neighborhood_dist
+
+            for i in prev_neighbors:
+                if distances[i] > max_distance:
+                    continue
+
+                d = distances[self.neighbors[i]]
+                dist = 0.5 * (np.median(d) + distances[i])
+                candidates.append((dist, distances[i], i))
+
+            neighborhood_size *= 2
+            if len(candidates) <= 0:
+                continue
+
+            candidates.sort()
+            dist, d, nearest_neighbor = candidates[0]
+
+            log.info('Best candidate %d: %.3f %.3f', nearest_neighbor, dist, d)
+
+            if len(prev_neighbors) >= self.m.num_landmarks():
+                break
+
+            if d < self.max_neighborhood_dist:
+                break
+
+            if neighborhood_size > self.max_neighborhood_to_search:
+                nearest_neighbor = self.current_landmark
+                self.max_neighborhood_to_search *= 2
+                self.max_neighborhood_to_search = min(self.max_neighborhood_to_search, self.m.num_landmarks())
+                break
 
         log.warning(
             'Global search closest landmark is %d with neigh. dist %.3f and dist %.3f',
-            nearest_neighbor, min_d, d,
+            nearest_neighbor, dist, d,
         )
         return nearest_neighbor
 
@@ -153,7 +193,7 @@ class Localizer:
         target_node = path[0]
         target_d = distances[0]
 
-        confidently_reachable = np.random.random() * 0.2 + 0.05
+        confidently_reachable = np.random.random() * 0.1 + 0.05
 
         if len(path) > 1:
             target_node = path[1]
@@ -201,7 +241,7 @@ def test_locomotion(params, env_id):
     frame_repeat = 4
     action = 0
 
-    final_goal_idx = 152
+    final_goal_idx = 92
     m = loaded_persistent_map
     localizer = Localizer(m, agent)
 
@@ -218,14 +258,17 @@ def test_locomotion(params, env_id):
             env.render()
 
             if frame % frame_repeat == 0:
-                if random.random() < 0.9:
-                    deterministic = False
+                if random.random() < 0.05:
+                    action = env.action_space.sample()
                 else:
-                    deterministic = True
+                    if random.random() < 0.3:
+                        deterministic = False
+                    else:
+                        deterministic = True
 
-                action = agent.loco_actor_critic.best_action(
-                    agent.session, [obs], [next_target_obs], None, None, deterministic=deterministic,
-                )
+                    action = agent.loco_actor_critic.best_action(
+                        agent.session, [obs], [next_target_obs], None, None, deterministic=deterministic,
+                    )
 
             env_obs, rew, done, info = env.step(action)
 
