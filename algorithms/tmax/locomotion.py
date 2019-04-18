@@ -25,14 +25,22 @@ class LocomotionNetwork:
         self.ph_actions = placeholder_from_space(env.action_space)
 
         with tf.variable_scope('loco'):
+            # encoder = tf.make_template(
+            #     'siamese_enc_loco', make_encoder, create_scope_now_=True,
+            #     obs_space=obs_space, regularizer=None, params=params,
+            # )
+            #
+            # obs_curr_encoded = encoder(self.ph_obs_curr).encoded_input
+            # obs_goal_encoded = encoder(self.ph_obs_goal).encoded_input
+            # obs_encoded = tf.concat([obs_curr_encoded, obs_goal_encoded], axis=1)
+
             encoder = tf.make_template(
-                'siamese_enc_loco', make_encoder, create_scope_now_=True,
+                'joined_enc_loco', make_encoder, create_scope_now_=True,
                 obs_space=obs_space, regularizer=None, params=params,
             )
 
-            obs_curr_encoded = encoder(self.ph_obs_curr).encoded_input
-            obs_goal_encoded = encoder(self.ph_obs_goal).encoded_input
-            obs_encoded = tf.concat([obs_curr_encoded, obs_goal_encoded], axis=1)
+            obs_concat = tf.concat([self.ph_obs_curr, self.ph_obs_goal], axis=2)
+            obs_encoded = encoder(obs_concat).encoded_input
 
             fc_layers = [256, 256]
             x = obs_encoded

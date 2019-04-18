@@ -273,6 +273,9 @@ class TmaxManager:
         m.maybe_load_checkpoint(checkpoint_dir)
 
     def save(self):
+        if len(self.persistent_maps) <= 0:
+            return
+
         m = self.persistent_maps[-1]
         checkpoint_dir = model_dir(self.params.experiment_dir())
         m.save_checkpoint(
@@ -1041,11 +1044,11 @@ class AgentTMAX(AgentLearner):
             self.successful_traversal_frames = 50  # if we traverse an edge in less than that, we succeeded
 
             self.locomotion_experience_replay = True
-            self.locomotion_experience_replay_buffer = 40000
-            self.locomotion_experience_replay_epochs = 2
-            self.locomotion_experience_replay_batch = 512
-            self.locomotion_experience_replay_max_kl = 0.03
-            self.locomotion_max_trajectory = 20  # max trajectory length to be utilized training
+            self.locomotion_experience_replay_buffer = 50000
+            self.locomotion_experience_replay_epochs = 5
+            self.locomotion_experience_replay_batch = 256
+            self.locomotion_experience_replay_max_kl = 0.05
+            self.locomotion_max_trajectory = 5  # max trajectory length to be utilized during training
 
             self.stage_duration = 3000000
 
@@ -1092,10 +1095,9 @@ class AgentTMAX(AgentLearner):
         else:
             self.locomotion = LocomotionNetwork(env, params)
 
-        if self.params.use_neighborhood_encoder is None:
+        self.encoded_landmark_size = self.actor_critic.encoded_obs_size
+        if not self.params.use_neighborhood_encoder:
             self.encoded_landmark_size = 1
-        else:
-            self.encoded_landmark_size = self.actor_critic.encoded_obs_size
 
         self.curiosity = ECRMapModule(env, params)
         self.curiosity.reachability_buffer = TmaxReachabilityBuffer(params)
@@ -1725,7 +1727,7 @@ class AgentTMAX(AgentLearner):
     def _maybe_train_locomotion_experience_replay(self, data, env_steps):
         """Train locomotion using hindsight experience replay."""
         if not data.has_enough_data():
-            return
+            return 0
 
         num_epochs = self.params.locomotion_experience_replay_epochs
 
@@ -1791,6 +1793,8 @@ class AgentTMAX(AgentLearner):
                 )
 
                 loco_step += 1
+                self._maybe_save(loco_step, env_steps)
+
                 losses.append(result[0])
                 sample_kl.append(result[1])
 
@@ -1820,6 +1824,8 @@ class AgentTMAX(AgentLearner):
                 permutation = data.shuffle_data()
                 # rearrange actions and action_probs using the same permutation
                 old_actions, old_action_probs = old_actions[permutation], old_action_probs[permutation]
+
+        return loco_step
 
     def _train_tmax(self, step, buffer, locomotion_buffer, tmax_mgr, env_steps, timing):
         buffers = buffer.split_by_mode()

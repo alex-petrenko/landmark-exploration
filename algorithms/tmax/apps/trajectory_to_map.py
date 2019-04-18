@@ -116,15 +116,13 @@ def shortcuts_distance(pairwise_distances, num_landmarks, min_shortcut_dist, sho
 
 def trajectory_to_map(params, env_id):
     def make_env_func():
-        e = create_env(env_id, mode='test', skip_frames=True)
+        e = create_env(env_id)
         e.seed(0)
         return e
 
-    params.num_envs = 1  # during execution we're only using one env
     agent = AgentTMAX(make_env_func, params)
     agent.initialize()
 
-    env = make_env_func()
     map_img, coord_limits = generate_env_map(make_env_func)
 
     experiment_dir = params.experiment_dir()
@@ -256,7 +254,6 @@ def trajectory_to_map(params, env_id):
     log.debug('Timing: %s', t)
 
     agent.finalize()
-    env.close()
     return 0
 
 

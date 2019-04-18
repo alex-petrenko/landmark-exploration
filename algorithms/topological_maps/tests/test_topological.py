@@ -213,6 +213,9 @@ class TestGraph(TestCase):
             self.assertIn(reversed(e), m.graph.edges)
         self.assertEqual(m.num_edges(), 2 * len(undirected_edges))
 
+        self.assertEqual(sorted(m.topological_neighborhood(0, 1)), [0, 1, 2])
+        self.assertEqual(sorted(m.topological_neighborhood(0, 2)), [0, 1, 2, 3])
+
         new_map = copy.deepcopy(m)
 
         # constructing test "new map" (after exploration we have some new edges)

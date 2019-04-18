@@ -245,6 +245,12 @@ class TopologicalMap:
     def topological_distances(self, from_idx):
         return nx.shortest_path_length(self.graph, from_idx)
 
+    def topological_neighborhood(self, idx, max_dist):
+        """Return set of vertices that are within [0, max_dist] of idx."""
+        ego_graph = nx.ego_graph(self.graph, idx, max_dist)
+        neighbors = list(ego_graph.nodes)
+        return neighbors
+
     def distances_from(self, another_map):
         """
         Calculate topological distances from all nodes in another map (usually submap) to nodes in this map.

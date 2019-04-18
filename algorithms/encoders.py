@@ -137,6 +137,9 @@ class EncoderWithGoal:
 
             self.encoded_input = tf.concat([self.encoder_obs.encoded_input, self.encoder_goal.encoded_input], axis=1)
 
+            # obs_concat = tf.concat([ph_observations, ph_goal_obs], axis=3)
+            # self.encoder_obs = self.encoded_input = enc_template(obs_concat).encoded_input
+
 
 def make_encoder_with_goal(ph_observations, ph_goal_obs, obs_space, regularizer, params, name='enc_with_goal'):
     main_obs_space = goal_obs_space = obs_space

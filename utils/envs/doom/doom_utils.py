@@ -37,7 +37,7 @@ DOOM_ENVS = [
     DoomCfg('doom_maze_multi_goal', 'VizdoomMyWayHomeMultiGoal-v0', 1.0, 2100),
     DoomCfg('doom_maze_multi_goal_random', 'VizdoomMyWayHomeMultiGoalRandom-v0', 1.0, 2100),
     DoomCfg('doom_maze_no_goal', 'VizdoomMyWayHomeNoGoal-v0', 1.0, 2100),
-    DoomCfg('doom_maze_no_goal_random', 'VizdoomMyWayHomeNoGoalRandom-v0', 1.0, 40000),
+    DoomCfg('doom_maze_no_goal_random', 'VizdoomMyWayHomeNoGoalRandom-v0', 1.0, 4000),
 
     DoomCfg('doom_maze_goal', 'VizdoomMyWayHomeGoal-v0', 1.0, 2100),
 
