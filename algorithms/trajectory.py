@@ -11,6 +11,10 @@ class Trajectory:
     def add_frame(self, tr, i):
         self.add(tr.obs[i], tr.actions[i])
 
+    def add_trajectory(self, tr):
+        self.obs.extend(tr.obs)
+        self.actions.extend(tr.actions)
+
     def __len__(self):
         return len(self.obs)
 

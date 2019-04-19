@@ -31,12 +31,13 @@ def test_env_performance(test, env_type):
 
             start_reset = time.time()
             env.reset()
+
             t.reset += time.time() - start_reset
             num_resets += 1
 
             while not done and frames < total_num_frames:
                 start_step = time.time()
-                _, _, done, info = env.step(agent.best_action())
+                obs, rew, done, info = env.step(agent.best_action())
                 t.step += time.time() - start_step
                 frames += num_env_steps([info])
 
