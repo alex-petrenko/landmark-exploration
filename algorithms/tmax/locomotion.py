@@ -21,7 +21,7 @@ from utils.utils import log, vis_dir, ensure_dir_exists
 class LocomotionNetwork:
     def __init__(self, env, params):
         obs_space = main_observation_space(env)
-        self.ph_obs_curr, self.ph_obs_goal = placeholders_from_spaces(obs_space, obs_space)
+        self.ph_obs_prev, self.ph_obs_curr, self.ph_obs_goal = placeholders_from_spaces(obs_space, obs_space, obs_space)
         self.ph_actions = placeholder_from_space(env.action_space)
 
         with tf.variable_scope('loco'):
@@ -39,7 +39,7 @@ class LocomotionNetwork:
                 obs_space=obs_space, regularizer=None, params=params,
             )
 
-            obs_concat = tf.concat([self.ph_obs_curr, self.ph_obs_goal], axis=2)
+            obs_concat = tf.concat([self.ph_obs_prev, self.ph_obs_curr, self.ph_obs_goal], axis=2)
             obs_encoded = encoder(obs_concat).encoded_input
 
             fc_layers = [256, 256]
@@ -105,6 +105,7 @@ class LocomotionBuffer:
                 traj_buffer = Buffer()
                 for i in range(start_idx, goal_idx):
                     traj_buffer.add(
+                        obs_prev=trajectory.obs[max(0, i - 1)],
                         obs_curr=trajectory.obs[i],
                         obs_goal=trajectory.obs[goal_idx],
                         actions=trajectory.actions[i],

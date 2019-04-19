@@ -11,6 +11,7 @@ import numpy as np
 # noinspection PyProtectedMember
 from gym import spaces, RewardWrapper, ObservationWrapper
 
+from algorithms.algo_utils import num_env_steps
 from utils.utils import numpy_all_the_way
 
 
@@ -285,9 +286,9 @@ class TimeLimitWrapper(gym.core.Wrapper):
 
     def step(self, action):
         observation, reward, done, info = self.env.step(action)
-        self._num_steps += 1
+        self._num_steps += num_env_steps([info])
         if done:
-            # log.info('Completed in %d steps', self._num_steps)
+            log.info('Completed in %d steps', self._num_steps)
             pass
         else:
             if self._num_steps >= self._terminate_in:

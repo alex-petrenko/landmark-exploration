@@ -1036,7 +1036,7 @@ class AgentTMAX(AgentLearner):
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 128  # size of GRU layer in RNN neighborhood encoder
 
-            self.rl_locomotion = True
+            self.rl_locomotion = False
             self.locomotion_dense_reward = True
             self.locomotion_reached_threshold = 0.075  # if distance is less than that, we reached the target
             self.reliable_path_probability = 0.4  # product of probs along the path for it to be considered reliable
@@ -1044,9 +1044,9 @@ class AgentTMAX(AgentLearner):
             self.successful_traversal_frames = 50  # if we traverse an edge in less than that, we succeeded
 
             self.locomotion_experience_replay = True
-            self.locomotion_experience_replay_buffer = 50000
-            self.locomotion_experience_replay_epochs = 5
-            self.locomotion_experience_replay_batch = 256
+            self.locomotion_experience_replay_buffer = 100000
+            self.locomotion_experience_replay_epochs = 10
+            self.locomotion_experience_replay_batch = 128
             self.locomotion_experience_replay_max_kl = 0.05
             self.locomotion_max_trajectory = 5  # max trajectory length to be utilized during training
 
@@ -1074,6 +1074,8 @@ class AgentTMAX(AgentLearner):
             self.loco_actor_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_actor_step')
             self.loco_critic_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_critic_step')
             self.loco_her_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_her_step')
+        else:
+            self.loco_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_step')
 
         self.make_env_func = make_env_func
         env = make_env_func()  # we need the env to query observation shape, number of actions, etc.
@@ -1139,6 +1141,11 @@ class AgentTMAX(AgentLearner):
             self.train_loco_her = loco_her_opt.minimize(
                 self.loco_objectives.gt_actions_loss, global_step=self.loco_her_step,
             )
+        else:
+            loco_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='loco_opt')
+            self.train_loco = loco_opt.minimize(
+                self.locomotion.loss, global_step=self.loco_step,
+            )
 
         # summaries
         self.add_summaries()
@@ -1150,6 +1157,8 @@ class AgentTMAX(AgentLearner):
             self.loco_actor_summaries = merge_summaries(collections=['loco_actor'])
             self.loco_critic_summaries = merge_summaries(collections=['loco_critic'])
             self.loco_her_summaries = merge_summaries(collections=['loco_her'])
+        else:
+            self.loco_summaries = merge_summaries(collections=['loco'])
 
         self.saver = tf.train.Saver(max_to_keep=3)
 
@@ -1247,6 +1256,15 @@ class AgentTMAX(AgentLearner):
                 locomotion_scalar('actions_loss', self.loco_objectives.gt_actions_loss)
                 locomotion_scalar('entropy', tf.reduce_mean(self.loco_actor_critic.actions_distribution.entropy()))
                 locomotion_scalar('sample_kl', self.loco_objectives.sample_kl)
+        else:
+            image_summaries_rgb(self.locomotion.ph_obs_prev, name='loco_prev', collections=['loco'])
+            image_summaries_rgb(self.locomotion.ph_obs_curr, name='loco_curr', collections=['loco'])
+            image_summaries_rgb(self.locomotion.ph_obs_goal, name='loco_goal', collections=['loco'])
+
+            with tf.name_scope('loco'):
+                locomotion_scalar = partial(tf.summary.scalar, collections=['loco'])
+                locomotion_scalar('loss', self.locomotion.loss)
+                locomotion_scalar('entropy', tf.reduce_mean(self.locomotion.actions_distribution.entropy()))
 
     def add_ppo_summaries(self, actor_critic, obj, actor_step, critic_step, actor_scope='actor', critic_scope='critic'):
         with tf.name_scope(actor_scope):
