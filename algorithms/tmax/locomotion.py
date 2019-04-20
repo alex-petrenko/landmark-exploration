@@ -56,10 +56,14 @@ class LocomotionNetwork:
             self.actions_loss = tf.reduce_mean(actions_loss)
             self.loss = self.actions_loss
 
-    def navigate(self, session, obs_curr, obs_goal, deterministic=False):
+    def navigate(self, session, obs_prev, obs_curr, obs_goal, deterministic=False):
         actions = session.run(
             self.best_action_deterministic if deterministic else self.act,
-            feed_dict={self.ph_obs_curr: obs_curr, self.ph_obs_goal: obs_goal},
+            feed_dict={
+                self.ph_obs_prev: obs_prev,
+                self.ph_obs_curr: obs_curr,
+                self.ph_obs_goal: obs_goal,
+            },
         )
         return actions
 

@@ -229,7 +229,7 @@ def test_locomotion(params, env_id):
     map_img, coord_limits = generate_env_map(make_env_func)
 
     env_obs, info = reset_with_info(env)
-    obs = main_observation(env_obs)
+    obs_prev = obs = main_observation(env_obs)
     done = False
 
     loaded_persistent_map = TopologicalMap.create_empty()
@@ -241,7 +241,7 @@ def test_locomotion(params, env_id):
     frame_repeat = 4
     action = 0
 
-    final_goal_idx = 92
+    final_goal_idx = 669
     m = loaded_persistent_map
     localizer = Localizer(m, agent)
 
@@ -261,18 +261,19 @@ def test_locomotion(params, env_id):
                 if random.random() < 0.05:
                     action = env.action_space.sample()
                 else:
-                    if random.random() < 0.3:
+                    if random.random() < 0.1:
                         deterministic = False
                     else:
                         deterministic = True
 
-                    action = agent.loco_actor_critic.best_action(
-                        agent.session, [obs], [next_target_obs], None, None, deterministic=deterministic,
+                    action = agent.locomotion.navigate(
+                        agent.session, [obs_prev], [obs], [next_target_obs], deterministic=deterministic,
                     )
 
             env_obs, rew, done, info = env.step(action)
 
             if frame % frame_repeat == 0:
+                obs_prev = obs
                 obs = main_observation(env_obs)
                 next_target = localizer.get_next_target(obs, final_goal_idx)
                 next_target_obs = m.get_observation(next_target)

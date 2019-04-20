@@ -288,7 +288,6 @@ class TimeLimitWrapper(gym.core.Wrapper):
         observation, reward, done, info = self.env.step(action)
         self._num_steps += num_env_steps([info])
         if done:
-            log.info('Completed in %d steps', self._num_steps)
             pass
         else:
             if self._num_steps >= self._terminate_in:
