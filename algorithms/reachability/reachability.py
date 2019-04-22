@@ -8,11 +8,14 @@ from os.path import join
 import cv2
 import numpy as np
 import tensorflow as tf
+from keras import Input, Model
+from keras.layers import Lambda, concatenate
 
 from algorithms.buffer import Buffer
 from algorithms.reachability.observation_encoder import ObservationEncoder
 from algorithms.encoders import make_encoder
 from algorithms.env_wrappers import main_observation_space
+from algorithms.resnet_keras import ResnetBuilder, _top_network
 from algorithms.tf_utils import dense, placeholders_from_spaces
 from algorithms.topological_maps.topological_map import hash_observation
 from utils.timing import Timing
@@ -102,6 +105,84 @@ class ReachabilityNetwork:
 
     def encode_observation(self, session, obs):
         return session.run(self.encoded_observation, feed_dict={self.ph_obs: obs})
+
+
+class ReachabilityNetworkResnet:
+    def __init__(self, env, params):
+        width, height, channels = main_observation_space(env)
+        size_embedding = 512
+
+        with tf.variable_scope('reach'):
+            branch = ResnetBuilder.build_resnet_18([channels, height, width], size_embedding, is_classification=False)
+
+            obs_first = Input(shape=(height, width, channels))
+            obs_second = Input(shape=(height, width, channels))
+
+            # sharing weights
+            self.first_encoded = branch(Lambda(lambda x_: x_[:, :, :, :channels])(obs_first))
+            self.second_encoded = branch(Lambda(lambda x_: x_[:, :, :, channels:])(obs_second))
+
+            raw_result = concatenate([self.first_encoded, self.second_encoded])
+            self.probabilities = _top_network(raw_result)
+
+            self.model = Model(inputs=[obs_first, obs_second], outputs=self.probabilities)
+            optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, name='distance_opt')
+            self.model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
+
+            # helpers to encode observations (saves time)
+            # does not matter if we use first vs second here
+            self.ph_obs = obs_first
+            self.encoded_observation = self.first_encoded
+
+        # other stuff not related to computation graph
+        self.obs_encoder = ObservationEncoder(encode_func=self.encode_observation)
+
+    def get_probabilities(self, session, obs_first_encoded, obs_second_encoded):
+        assert len(obs_first_encoded) == len(obs_second_encoded)
+        if len(obs_first_encoded) <= 0:
+            return []
+
+        probabilities = session.run(
+            self.probabilities,
+            feed_dict={self.first_encoded: obs_first_encoded, self.second_encoded: obs_second_encoded},
+        )
+        return probabilities
+
+    def distances(self, session, obs_first_encoded, obs_second_encoded):
+        probs = self.get_probabilities(session, obs_first_encoded, obs_second_encoded)
+        return [p[1] for p in probs]
+
+    def distances_from_obs(self, session, obs_first, obs_second, hashes_first=None, hashes_second=None):
+        """Use encoder to get embedding vectors first."""
+        obs_encoder = self.obs_encoder
+
+        if hashes_first is None:
+            hashes_first = [hash_observation(obs) for obs in obs_first]
+        if hashes_second is None:
+            hashes_second = [hash_observation(obs) for obs in obs_second]
+
+        obs_encoder.encode(session, obs_first + obs_second, hashes_first + hashes_second)
+
+        obs_first_encoded = [obs_encoder.encoded_obs[h] for h in hashes_first]
+        obs_second_encoded = [obs_encoder.encoded_obs[h] for h in hashes_second]
+
+        d = self.distances(session, obs_first_encoded, obs_second_encoded)
+        return d
+
+    def encode_observation(self, session, obs):
+        return session.run(self.encoded_observation, feed_dict={self.ph_obs: obs})
+
+    def train(self, agent, buffer, params):
+        summary = None
+        prev_loss = 1e10
+        num_epochs = params.reachability_train_epochs
+        batch_size = params.reachability_batch_size
+
+        log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
+
+        obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
+
+
 
 
 class ReachabilityBuffer:

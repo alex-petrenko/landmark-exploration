@@ -80,9 +80,7 @@ def generate_training_data(trajectories, params):
     return buffer
 
 
-def train_distance_net(agent, trajectories, params, env_steps):
-    buffer = generate_training_data(trajectories, params)
-
+def train_distance_net(agent, buffer, params, env_steps):
     reachability = agent.curiosity.reachability
     reach_step = agent.curiosity.step.eval(session=agent.session)
 
@@ -171,10 +169,12 @@ def train_loop(agent, multi_env):
 
             with t.timeit('train'):
                 while len(complete_trajectories) > num_to_process:
-                    training_steps = train_distance_net(
-                        agent, complete_trajectories[:num_to_process], params, num_steps,
-                    )
+                    buffer = generate_training_data(complete_trajectories[:num_to_process], params)
                     complete_trajectories = complete_trajectories[num_to_process:]
+
+                    training_steps = train_distance_net(
+                        agent, buffer, params, num_steps,
+                    )
 
         loop_time.append(t.loop)
         advanced_steps.append(num_steps_delta)
