@@ -5,7 +5,6 @@ import pickle as pkl
 import random
 import shutil
 import datetime
-import time
 from collections import deque
 from hashlib import sha1
 from os.path import join, isfile
@@ -17,7 +16,7 @@ from matplotlib import pyplot as plt
 
 import networkx as nx
 
-from algorithms.algo_utils import EPS
+from algorithms.utils.algo_utils import EPS
 from utils.graph import visualize_graph_tensorboard, plot_graph
 from utils.utils import ensure_contigious, log, ensure_dir_exists, AttrDict
 

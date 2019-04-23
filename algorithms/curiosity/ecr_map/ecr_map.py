@@ -1,36 +1,26 @@
 import copy
 import time
 from collections import deque
-from functools import partial
 
 import numpy as np
 import tensorflow as tf
 
 from algorithms.curiosity.curiosity_module import CuriosityModule
-from algorithms.reachability.reachability import ReachabilityNetwork, ReachabilityBuffer
-from algorithms.tf_utils import merge_summaries
+from algorithms.distance.distance import DistanceNetwork, DistanceNetworkParams, DistanceBuffer
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
-from utils.timing import Timing
 from utils.utils import log, model_dir
 
 
 class ECRMapModule(CuriosityModule):
-    class Params:
+    class Params(DistanceNetworkParams):
         def __init__(self):
-            self.reachable_threshold = 5  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
-            self.reachability_target_buffer_size = 200000  # target number of training examples to store
-            self.reachability_train_epochs = 8
-            self.reachability_batch_size = 128
-            self.reachability_bootstrap = 2000000
-            self.reachability_train_interval = 1000000
-            self.reachability_symmetric = True  # useful in 3D environments like Doom and DMLab
+            DistanceNetworkParams.__init__(self)
 
             self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
             self.loop_closure_threshold = 0.6  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.2  # reward for finding new vertex
-            self.reachability_dense_reward = False
+            self.ecr_dense_reward = False
 
             self.expand_explored_region = False
             self.expand_explored_region_frames = 4000000
@@ -40,17 +30,10 @@ class ECRMapModule(CuriosityModule):
 
         self.initialized = False
 
-        self.reachability = ReachabilityNetwork(env, params)
-
-        self._add_summaries()
-        self.summaries = merge_summaries(collections=['reachability'])
-
-        self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='reach_step')
-        reach_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='reach_opt')
-        self.train_reachability = reach_opt.minimize(self.reachability.loss, global_step=self.step)
+        self.distance = DistanceNetwork(env, params)
 
         self.trajectory_buffer = None
-        self.reachability_buffer = ReachabilityBuffer(self.params)
+        self.distance_buffer = DistanceBuffer(self.params)
 
         self.episodic_maps = None
         self.current_episode_bonus = None
@@ -59,74 +42,11 @@ class ECRMapModule(CuriosityModule):
         self.localizer = Localizer(self.params)
 
         self.past_maps = deque([], maxlen=200)
-        # TODO: this does not support training re-start
-        self.last_explored_region_update = self.params.reachability_bootstrap
+        self.last_explored_region_update = self.params.distance_bootstrap
         self.explored_region_map = None
 
         self._last_trained = 0
         self._last_map_summary = 0
-
-    def _add_summaries(self):
-        with tf.name_scope('reachability'):
-            reachability_scalar = partial(tf.summary.scalar, collections=['reachability'])
-            reachability_scalar('reach_loss', self.reachability.reach_loss)
-            reachability_scalar('reach_correct', self.reachability.correct)
-            reachability_scalar('reg_loss', self.reachability.reg_loss)
-
-    # noinspection PyProtectedMember
-    def _train_reachability(self, data, env_steps, agent):
-        timing = Timing()
-
-        with timing.timeit('get_buffer'):
-            buffer = data.get_buffer()
-        assert len(buffer) <= self.params.reachability_target_buffer_size
-
-        batch_size = self.params.reachability_batch_size
-        summary = None
-        reach_step = self.step.eval(session=agent.session)
-
-        prev_loss = 1e10
-        num_epochs = self.params.reachability_train_epochs
-
-        log.info('Training reachability %d pairs, batch %d, epochs %d, %s', len(buffer), batch_size, num_epochs, timing)
-
-        for epoch in range(num_epochs):
-            losses = []
-            buffer.shuffle_data()
-            obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
-
-            for i in range(0, len(obs_first) - 1, batch_size):
-                with_summaries = agent._should_write_summaries(reach_step) and summary is None
-                summaries = [self.summaries] if with_summaries else []
-
-                start, end = i, i + batch_size
-
-                result = agent.session.run(
-                    [self.reachability.loss, self.train_reachability] + summaries,
-                    feed_dict={
-                        self.reachability.ph_obs_first: obs_first[start:end],
-                        self.reachability.ph_obs_second: obs_second[start:end],
-                        self.reachability.ph_labels: labels[start:end],
-                    }
-                )
-
-                reach_step += 1
-                agent._maybe_save(reach_step, env_steps)
-                losses.append(result[0])
-
-                if with_summaries:
-                    summary = result[-1]
-                    agent.summary_writer.add_summary(summary, global_step=env_steps)
-
-            # check loss improvement at the end of each epoch, early stop if necessary
-            avg_loss = np.mean(losses)
-            if avg_loss >= prev_loss:
-                log.info('Early stopping after %d epochs because reachability did not improve', epoch + 1)
-                log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
-                break
-            prev_loss = avg_loss
-
-        self._last_trained = env_steps
 
     def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos):
         if self.episodic_maps is None:
@@ -163,7 +83,7 @@ class ECRMapModule(CuriosityModule):
                 bonuses[env_i] += self.params.map_expansion_reward
 
             distances_to_memory = self.localizer.localize(
-                session, next_obs, infos, self.episodic_maps, self.reachability, on_new_landmark=on_new_landmark,
+                session, next_obs, infos, self.episodic_maps, self.distance, on_new_landmark=on_new_landmark,
             )
             assert len(distances_to_memory) == len(next_obs)
             threshold = 0.5
@@ -172,26 +92,27 @@ class ECRMapModule(CuriosityModule):
             ])
             dense_rewards *= 0.1  # scaling factor
 
-            if self.params.reachability_dense_reward:
+            if self.params.ecr_dense_reward:
                 bonuses += dense_rewards
 
         self.current_episode_bonus += bonuses
         return bonuses
 
     def train(self, buffer, env_steps, agent):
-        self.reachability_buffer.extract_data(self.trajectory_buffer.complete_trajectories)
+        self.distance_buffer.extract_data(self.trajectory_buffer.complete_trajectories)
 
-        if env_steps - self._last_trained > self.params.reachability_train_interval:
-            if self.reachability_buffer.has_enough_data():
-                self._train_reachability(self.reachability_buffer, env_steps, agent)
+        if env_steps - self._last_trained > self.params.distance_train_interval:
+            if self.distance_buffer.has_enough_data():
+                self.distance.train(self.distance_buffer, env_steps, agent)
+                self._last_trained = env_steps
 
                 # discard old experience
-                self.reachability_buffer.reset()
+                self.distance_buffer.reset()
 
-                # invalidate observation features because reachability network has changed
-                self.reachability.obs_encoder.reset()
+                # invalidate observation features because distance network has changed
+                self.distance.obs_encoder.reset()
 
-        if env_steps > self.params.reachability_bootstrap and not self.is_initialized():
+        if env_steps > self.params.distance_bootstrap and not self.is_initialized():
             log.debug('Curiosity is initialized @ %d steps!', env_steps)
             self.initialized = True
 
@@ -230,7 +151,7 @@ class ECRMapModule(CuriosityModule):
             return
 
         summary = tf.Summary()
-        section = 'curiosity_reachability'
+        section = 'ecr_map'
 
         def curiosity_summary(tag, value):
             summary.value.add(tag=f'{section}/{tag}', simple_value=float(value))

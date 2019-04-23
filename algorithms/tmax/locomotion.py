@@ -7,10 +7,10 @@ from os.path import join
 
 import tensorflow as tf
 
-from algorithms.buffer import Buffer
-from algorithms.encoders import make_encoder
-from algorithms.env_wrappers import main_observation_space
-from algorithms.tf_utils import placeholders_from_spaces, placeholder_from_space, dense
+from algorithms.utils.buffer import Buffer
+from algorithms.utils.encoders import make_encoder
+from algorithms.utils.env_wrappers import main_observation_space
+from algorithms.utils.tf_utils import placeholders_from_spaces, placeholder_from_space, dense
 from algorithms.tmax.tmax_utils import TmaxMode
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.gifs import encode_gif

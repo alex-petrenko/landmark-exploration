@@ -1,4 +1,4 @@
-from algorithms.env_wrappers import TimeLimitWrapper
+from algorithms.utils.env_wrappers import TimeLimitWrapper
 from utils.envs.dmlab.dmlab_gym import DmlabGymEnv
 
 

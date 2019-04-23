@@ -1,6 +1,6 @@
 import time
 
-from algorithms.algo_utils import EPS
+from algorithms.utils.algo_utils import EPS
 from utils.utils import AttrDict
 
 

@@ -6,8 +6,8 @@ from threading import Thread
 import cv2
 from pynput.keyboard import Key, Listener, KeyCode
 
-from algorithms.algo_utils import main_observation, goal_observation
-from algorithms.env_wrappers import reset_with_info
+from algorithms.utils.algo_utils import main_observation, goal_observation
+from algorithms.utils.env_wrappers import reset_with_info
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax, TmaxMode
 from algorithms.topological_maps.topological_map import TopologicalMap
@@ -220,10 +220,10 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
 
             print_distance = num_frames % 3 == 0
             if print_distance:
-                distance = agent.curiosity.reachability.distances_from_obs(
+                distance = agent.curiosity.distance.distances_from_obs(
                     agent.session, [current_landmark], [obs],
                 )[0]
-                distance_to_self = agent.curiosity.reachability.distances_from_obs(
+                distance_to_self = agent.curiosity.distance.distances_from_obs(
                     agent.session, [obs], [obs],
                 )[0]
                 log.info('Distance %.3f, to self: %.3f', distance, distance_to_self)

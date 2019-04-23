@@ -7,7 +7,7 @@ from queue import Queue, Empty
 
 import numpy as np
 
-from algorithms.algo_utils import list_to_string
+from algorithms.utils.algo_utils import list_to_string
 from utils.utils import log, AttrDict
 
 

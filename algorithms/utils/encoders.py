@@ -5,8 +5,8 @@ Tensorflow encoders used in different trainable models.
 import numpy as np
 import tensorflow as tf
 
-from algorithms.env_wrappers import has_image_observations
-from algorithms.tf_utils import dense, conv, put_kernels_on_grid, tf_shape
+from algorithms.utils.env_wrappers import has_image_observations
+from algorithms.utils.tf_utils import dense, conv, put_kernels_on_grid, tf_shape
 
 
 class Encoder:

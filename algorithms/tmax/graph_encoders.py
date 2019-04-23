@@ -1,7 +1,6 @@
 import tensorflow as tf
 
-from algorithms.encoders import Encoder
-from algorithms.tf_utils import tf_shape
+from algorithms.utils.encoders import Encoder
 
 
 class NeighborhoodEncoderRNN(Encoder):

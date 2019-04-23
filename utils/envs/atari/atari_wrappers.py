@@ -6,7 +6,7 @@ import cv2
 import gym
 import numpy as np
 
-from algorithms.env_wrappers import unwrap_env
+from algorithms.utils.env_wrappers import unwrap_env
 
 
 class StickyActionWrapper(gym.Wrapper):

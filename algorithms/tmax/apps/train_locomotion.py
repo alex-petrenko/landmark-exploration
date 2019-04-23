@@ -3,7 +3,7 @@ from collections import deque
 
 import numpy as np
 
-from algorithms.algo_utils import main_observation, num_env_steps
+from algorithms.utils.algo_utils import main_observation, num_env_steps
 from algorithms.multi_env import MultiEnv
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.locomotion import LocomotionBuffer

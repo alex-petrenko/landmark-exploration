@@ -12,7 +12,7 @@ from algorithms.tmax.enjoy_tmax import enjoy
 from algorithms.tmax.locomotion import LocomotionNetwork
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.tmax.train_tmax import train
-from algorithms.trajectory import TrajectoryBuffer
+from algorithms.utils.trajectory import TrajectoryBuffer
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
 from utils.utils import experiments_dir, ensure_dir_exists
 
@@ -31,7 +31,7 @@ class TestTMAX(TestCase):
         params.initial_save_rate = 20
         params.batch_size = 32
         params.ppo_epochs = 2
-        params.reachability_bootstrap = 10
+        params.distance_bootstrap = 10
         params.stage_duration = 100
 
         tmax_train_dir = join(experiments_dir(), params.experiments_root)
@@ -69,7 +69,7 @@ class TestTMAX(TestCase):
         with tf.Session(graph=g) as sess:
             sess.run(tf.global_variables_initializer())
 
-            action = locomotion_net.navigate(sess, [obs], [obs])[0]
+            action = locomotion_net.navigate(sess, [obs], [obs], [obs])[0]
             self.assertGreaterEqual(action, 0)
             self.assertLess(action, env.action_space.n)
 

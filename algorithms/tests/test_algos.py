@@ -7,13 +7,13 @@ import tensorflow as tf
 from unittest import TestCase
 
 from algorithms.agent import AgentLearner, AgentRandom
-from algorithms.algo_utils import RunningMeanStd, extract_keys
-from algorithms.buffer import Buffer
-from algorithms.encoders import is_normalized, tf_normalize
-from algorithms.env_wrappers import TimeLimitWrapper, main_observation_space
-from algorithms.exploit import run_policy_loop
+from algorithms.utils.algo_utils import RunningMeanStd, extract_keys
+from algorithms.utils.buffer import Buffer
+from algorithms.utils.encoders import is_normalized, tf_normalize
+from algorithms.utils.env_wrappers import TimeLimitWrapper, main_observation_space
+from algorithms.utils.exploit import run_policy_loop
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
-from algorithms.tf_utils import placeholder_from_space
+from algorithms.utils.tf_utils import placeholder_from_space
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
 from utils.timing import Timing
 from utils.utils import log

@@ -5,15 +5,14 @@ from functools import partial
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.contrib import slim
 
 from algorithms.agent import AgentLearner, TrainStatus
-from algorithms.algo_utils import calculate_gae, EPS, num_env_steps, main_observation, goal_observation
-from algorithms.encoders import make_encoder, make_encoder_with_goal
-from algorithms.env_wrappers import main_observation_space, is_goal_based_env
-from algorithms.models import make_model
+from algorithms.utils.algo_utils import calculate_gae, EPS, num_env_steps, main_observation, goal_observation
+from algorithms.utils.encoders import make_encoder, make_encoder_with_goal
+from algorithms.utils.env_wrappers import main_observation_space, is_goal_based_env
+from algorithms.utils.models import make_model
 from algorithms.multi_env import MultiEnv
-from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
+from algorithms.utils.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     image_summaries_rgb, summary_avg_min_max, merge_summaries
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.envs.generate_env_map import generate_env_map

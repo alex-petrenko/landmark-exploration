@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from algorithms.tf_utils import conv_t, dense
+from algorithms.utils.tf_utils import conv_t, dense
 
 
 class DecoderCNN:

@@ -4,7 +4,7 @@ from unittest import TestCase
 import numpy as np
 import tensorflow as tf
 
-from algorithms.resnet_keras import ResnetBuilder
+from algorithms.architectures.resnet_keras import ResnetBuilder
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name
 from utils.utils import log

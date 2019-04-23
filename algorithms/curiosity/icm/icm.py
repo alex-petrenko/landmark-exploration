@@ -3,9 +3,9 @@ from functools import partial
 import tensorflow as tf
 
 from algorithms.curiosity.curiosity_module import CuriosityModule
-from algorithms.encoders import make_encoder
-from algorithms.env_wrappers import main_observation_space
-from algorithms.tf_utils import dense, merge_summaries
+from algorithms.utils.encoders import make_encoder
+from algorithms.utils.env_wrappers import main_observation_space
+from algorithms.utils.tf_utils import dense, merge_summaries
 from utils.utils import log, AttrDict
 
 

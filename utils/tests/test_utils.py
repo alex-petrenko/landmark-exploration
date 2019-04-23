@@ -3,7 +3,7 @@ from unittest import TestCase
 
 import numpy as np
 
-from algorithms.algo_utils import EPS
+from algorithms.utils.algo_utils import EPS
 from utils.decay import LinearDecay
 from utils.tensorboard import image_summary
 from utils.timing import Timing

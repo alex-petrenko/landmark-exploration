@@ -1,10 +1,8 @@
-from algorithms.arguments import parse_args
+from algorithms.utils.arguments import parse_args
+from algorithms.utils.trajectory import Trajectory, TrajectoryBuffer
 
 # values to use if not specified in the command line
-from algorithms.reachability.reachability import ReachabilityBuffer
-from algorithms.trajectory import Trajectory, TrajectoryBuffer
-
-DEFAULT_EXPERIMENT_NAME = 'tmax_v026'
+DEFAULT_EXPERIMENT_NAME = 'tmax_v028'
 DEFAULT_ENV = 'doom_maze_very_sparse'
 
 
@@ -35,17 +33,6 @@ class TmaxMode:
             TmaxMode.IDLE_EXPLORATION: 'idle_exploration',
         }
         return names[mode]
-
-
-class TmaxReachabilityBuffer(ReachabilityBuffer):
-    def skip(self, trajectory, i):
-        """Override base class method."""
-        train_on_everything = True
-        if train_on_everything:
-            return False
-        else:
-            # train reachability only on samples from exploration stage
-            return trajectory.stage[i] != TmaxMode.EXPLORATION
 
 
 class TmaxTrajectory(Trajectory):

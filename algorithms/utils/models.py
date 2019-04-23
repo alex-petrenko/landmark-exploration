@@ -5,7 +5,7 @@ Tensorflow models used in different RL algorithms.
 
 import tensorflow as tf
 
-from algorithms.tf_utils import dense
+from algorithms.utils.tf_utils import dense
 
 
 class Model:

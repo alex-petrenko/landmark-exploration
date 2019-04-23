@@ -5,7 +5,7 @@ import cv2
 from algorithms.baselines.ppo.agent_ppo import AgentPPO
 from algorithms.baselines.ppo.ppo_utils import parse_args_ppo
 from utils.envs.envs import create_env
-from algorithms.exploit import run_policy_loop
+from algorithms.utils.exploit import run_policy_loop
 from utils.utils import log
 
 

@@ -4,7 +4,7 @@ from unittest import TestCase
 import numpy as np
 
 from algorithms.agent import AgentRandom
-from algorithms.algo_utils import num_env_steps
+from algorithms.utils.algo_utils import num_env_steps
 from algorithms.multi_env import MultiEnv
 from utils.envs.atari.atari_utils import make_atari_env, atari_env_by_name
 from utils.envs.doom.doom_utils import make_doom_env, doom_env_by_name

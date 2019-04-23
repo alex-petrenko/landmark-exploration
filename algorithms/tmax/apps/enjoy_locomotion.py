@@ -7,8 +7,8 @@ import cv2
 import numpy as np
 from pynput.keyboard import Key, Listener
 
-from algorithms.algo_utils import main_observation, EPS
-from algorithms.env_wrappers import reset_with_info
+from algorithms.utils.algo_utils import main_observation, EPS
+from algorithms.utils.env_wrappers import reset_with_info
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.topological_maps.topological_map import TopologicalMap
@@ -89,7 +89,7 @@ class Localizer:
         assert len(to_obs) == len(to_nodes)
         assert len(from_obs) == len(to_nodes)
 
-        distances = self.agent.curiosity.reachability.distances_from_obs(
+        distances = self.agent.curiosity.distance.distances_from_obs(
             self.agent.session, obs_first=from_obs, obs_second=to_obs,
         )
         assert len(distances) == len(to_nodes)

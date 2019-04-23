@@ -10,19 +10,20 @@ import tensorflow as tf
 from tensorflow.contrib import slim
 
 from algorithms.agent import AgentLearner, TrainStatus
-from algorithms.algo_utils import EPS, num_env_steps, main_observation, goal_observation
+from algorithms.distance.distance import DistanceBuffer
+from algorithms.utils.algo_utils import EPS, num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import PPOBuffer, AgentPPO
 from algorithms.curiosity.ecr_map.ecr_map import ECRMapModule
-from algorithms.reachability.observation_encoder import ObservationEncoder
-from algorithms.encoders import make_encoder, make_encoder_with_goal
-from algorithms.env_wrappers import main_observation_space, is_goal_based_env
-from algorithms.models import make_model
+from algorithms.utils.observation_encoder import ObservationEncoder
+from algorithms.utils.encoders import make_encoder, make_encoder_with_goal
+from algorithms.utils.env_wrappers import main_observation_space, is_goal_based_env
+from algorithms.utils.models import make_model
 from algorithms.multi_env import MultiEnv
-from algorithms.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
+from algorithms.utils.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     image_summaries_rgb, summary_avg_min_max, merge_summaries, tf_shape, placeholder
 from algorithms.tmax.graph_encoders import make_graph_encoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer
-from algorithms.tmax.tmax_utils import TmaxMode, TmaxTrajectoryBuffer, TmaxReachabilityBuffer
+from algorithms.tmax.tmax_utils import TmaxMode, TmaxTrajectoryBuffer
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
 from utils.distributions import CategoricalProbabilityDistribution
@@ -232,7 +233,7 @@ class TmaxManager:
         self.locomotion_traversal_length = deque([], maxlen=300)
 
         self.global_stage = TmaxMode.EXPLORATION
-        self.last_stage_change = self.params.reachability_bootstrap
+        self.last_stage_change = self.params.distance_bootstrap
 
         self.mode = [TmaxMode.EXPLORATION] * self.num_envs
         self.env_stage = [TmaxMode.EXPLORATION] * self.num_envs
@@ -759,7 +760,7 @@ class TmaxManager:
                 maps[env_i] = self.current_maps[env_i]
 
         self.localizer.localize(
-            self.agent.session, next_obs, infos, maps, self.curiosity.reachability,
+            self.agent.session, next_obs, infos, maps, self.curiosity.distance,
         )
 
     def _node_distances(self, from_map, from_node, to_map, to_nodes):
@@ -769,7 +770,7 @@ class TmaxManager:
         assert len(to_obs) == len(to_nodes)
         assert len(from_obs) == len(to_nodes)
 
-        distances = self.curiosity.reachability.distances_from_obs(
+        distances = self.curiosity.distance.distances_from_obs(
             self.agent.session, obs_first=from_obs, obs_second=to_obs,
         )
         assert len(distances) == len(to_nodes)
@@ -788,7 +789,7 @@ class TmaxManager:
 
         locomotion_targets, target_hashes = self.get_locomotion_targets(loco_env_indices)
 
-        distances = self.curiosity.reachability.distances_from_obs(
+        distances = self.curiosity.distance.distances_from_obs(
             self.agent.session,
             obs_first=loco_curr_obs, obs_second=locomotion_targets,
             hashes_first=None, hashes_second=target_hashes,
@@ -1102,7 +1103,7 @@ class AgentTMAX(AgentLearner):
             self.encoded_landmark_size = 1
 
         self.curiosity = ECRMapModule(env, params)
-        self.curiosity.reachability_buffer = TmaxReachabilityBuffer(params)
+        self.curiosity.distance_buffer = DistanceBuffer(params)
 
         env.close()
 
@@ -1324,7 +1325,7 @@ class AgentTMAX(AgentLearner):
         if self.params.distance_network_checkpoint is not None:
             log.debug('Restoring distance net variables from %s', self.params.distance_network_checkpoint)
             variables = slim.get_variables_to_restore()
-            distance_net_variables = [v for v in variables if v.name.split('/')[0] == 'reach']
+            distance_net_variables = [v for v in variables if v.name.split('/')[0] == 'distance']
             distance_net_saver = tf.train.Saver(distance_net_variables)
             distance_net_saver.restore(
                 self.session, tf.train.latest_checkpoint(self.params.distance_network_checkpoint),
@@ -1512,7 +1513,7 @@ class AgentTMAX(AgentLearner):
                 actions[env_index] = 0  # NOOP
                 tmax_mgr.idle_frames[env_index] -= 1
                 if tmax_mgr.idle_frames[env_index] <= 0:
-                    tmax_mgr.action_frames[env_index] = np.random.randint(1, self.params.unreachable_threshold)
+                    tmax_mgr.action_frames[env_index] = np.random.randint(1, self.params.far_threshold)
             else:
                 tmax_mgr.deliberate_action[env_index] = True
                 non_idle_i.append(env_index)
@@ -1520,7 +1521,7 @@ class AgentTMAX(AgentLearner):
                 tmax_mgr.action_frames[env_index] -= 1
                 if tmax_mgr.action_frames[env_index] <= 0:
                     if random.random() < 0.5:
-                        tmax_mgr.idle_frames[env_index] = np.random.randint(1, self.params.unreachable_threshold)
+                        tmax_mgr.idle_frames[env_index] = np.random.randint(1, self.params.far_threshold)
                     else:
                         tmax_mgr.idle_frames[env_index] = np.random.randint(1, 500)
 
@@ -1875,7 +1876,9 @@ class AgentTMAX(AgentLearner):
                         self.loco_critic_step, self.loco_critic_summaries,
                     )
             else:
-                raise NotImplementedError  # train locomotion with self imitation from trajectories
+                # train locomotion with self imitation from trajectories
+                # TODO: implement!
+                pass
 
             with timing.timeit('loco_her'):
                 if self.params.locomotion_experience_replay and tmax_mgr.global_stage == TmaxMode.LOCOMOTION:

@@ -3,13 +3,13 @@ import time
 
 import numpy as np
 
-from algorithms.algo_utils import num_env_steps, main_observation, goal_observation
+from algorithms.utils.algo_utils import num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer
 from algorithms.curiosity.ecr_map.ecr_map import ECRMapModule
 from algorithms.curiosity.icm.icm import IntrinsicCuriosityModule
-from algorithms.env_wrappers import main_observation_space
-from algorithms.tf_utils import placeholder_from_space
-from algorithms.trajectory import TrajectoryBuffer
+from algorithms.utils.env_wrappers import main_observation_space
+from algorithms.utils.tf_utils import placeholder_from_space
+from algorithms.utils.trajectory import TrajectoryBuffer
 from utils.timing import Timing
 
 

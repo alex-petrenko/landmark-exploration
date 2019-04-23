@@ -25,8 +25,8 @@ class TestPPO(TestCase):
         params.batch_size = 32
         params.ppo_epochs = 2
         params.curiosity_type = 'ecr_map'
-        params.reachability_bootstrap = 10
-        params.reachability_train_interval = 5
+        params.distance_bootstrap = 10
+        params.distance_train_interval = 5
         params.use_env_map = False
         status = train(params, args.env)
         self.assertEqual(status, TrainStatus.SUCCESS)

@@ -4,12 +4,12 @@ from collections import deque
 
 import numpy as np
 
-from algorithms.algo_utils import main_observation, num_env_steps
-from algorithms.buffer import Buffer
+from algorithms.utils.algo_utils import main_observation, num_env_steps
+from algorithms.utils.buffer import Buffer
 from algorithms.multi_env import MultiEnv
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax
-from algorithms.trajectory import TrajectoryBuffer, Trajectory
+from algorithms.utils.trajectory import TrajectoryBuffer, Trajectory
 from utils.envs.envs import create_env
 from utils.timing import Timing
 from utils.utils import log
@@ -18,7 +18,7 @@ from utils.utils import log
 def generate_training_data(trajectories, params):
     timing = Timing()
     with timing.timeit('trajectories'):
-        close, far = params.reachable_threshold, params.unreachable_threshold
+        close, far = params.close_threshold, params.far_threshold
 
         trajectory_joined = Trajectory(0)
 
@@ -44,7 +44,7 @@ def generate_training_data(trajectories, params):
             second_idx = np.random.randint(i, close_i)
 
             if trajectory_idx[first_idx] == trajectory_idx[second_idx]:
-                if params.reachability_symmetric and random.random() < 0.5:
+                if params.distance_symmetric and random.random() < 0.5:
                     first_idx, second_idx = second_idx, first_idx
 
                 buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=0)
@@ -66,7 +66,7 @@ def generate_training_data(trajectories, params):
             if far_i < max_len:
                 first_idx = i
                 second_idx = np.random.randint(far_i, max_len)
-                if params.reachability_symmetric and random.random() < 0.5:
+                if params.distance_symmetric and random.random() < 0.5:
                     first_idx, second_idx = second_idx, first_idx
 
                 buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=1)
@@ -78,58 +78,6 @@ def generate_training_data(trajectories, params):
     )
 
     return buffer
-
-
-def train_distance_net(agent, buffer, params, env_steps):
-    reachability = agent.curiosity.reachability
-    reach_step = agent.curiosity.step.eval(session=agent.session)
-
-    summary = None
-    prev_loss = 1e10
-    num_epochs = params.reachability_train_epochs
-    batch_size = params.reachability_batch_size
-
-    log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
-
-    for epoch in range(num_epochs):
-        losses = []
-        buffer.shuffle_data()
-        obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
-
-        for i in range(0, len(obs_first) - 1, batch_size):
-            # noinspection PyProtectedMember
-            with_summaries = agent._should_write_summaries(reach_step) and summary is None
-            summaries = [agent.curiosity.summaries] if with_summaries else []
-
-            start, end = i, i + batch_size
-
-            result = agent.session.run(
-                [reachability.loss, agent.curiosity.train_reachability] + summaries,
-                feed_dict={
-                    reachability.ph_obs_first: obs_first[start:end],
-                    reachability.ph_obs_second: obs_second[start:end],
-                    reachability.ph_labels: labels[start:end],
-                }
-            )
-
-            reach_step += 1
-            # noinspection PyProtectedMember
-            agent._maybe_save(reach_step, env_steps)
-            losses.append(result[0])
-
-            if with_summaries:
-                summary = result[-1]
-                agent.summary_writer.add_summary(summary, global_step=env_steps)
-
-        # check loss improvement at the end of each epoch, early stop if necessary
-        avg_loss = np.mean(losses)
-        if avg_loss >= prev_loss:
-            log.info('Early stopping after %d epochs because reachability did not improve', epoch + 1)
-            log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
-            break
-        prev_loss = avg_loss
-
-    return reach_step
 
 
 def train_loop(agent, multi_env):
@@ -172,8 +120,8 @@ def train_loop(agent, multi_env):
                     buffer = generate_training_data(complete_trajectories[:num_to_process], params)
                     complete_trajectories = complete_trajectories[num_to_process:]
 
-                    training_steps = train_distance_net(
-                        agent, buffer, params, num_steps,
+                    training_steps = agent.curiosity.distance.train(
+                        buffer, num_steps, agent,
                     )
 
         loop_time.append(t.loop)

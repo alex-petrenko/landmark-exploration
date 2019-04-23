@@ -5,7 +5,7 @@ import cv2
 from algorithms.baselines.curious_ppo.curious_ppo_utils import parse_args_curious_ppo
 from algorithms.baselines.curious_ppo.agent_curious_ppo import AgentCuriousPPO
 from utils.envs.envs import create_env
-from algorithms.exploit import run_policy_loop
+from algorithms.utils.exploit import run_policy_loop
 from utils.utils import log
 
 

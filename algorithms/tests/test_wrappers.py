@@ -6,8 +6,8 @@ from unittest import TestCase
 from gym import spaces
 
 from algorithms.agent import AgentRandom
-from algorithms.algo_utils import EPS
-from algorithms.env_wrappers import NormalizeWrapper, StackFramesWrapper, unwrap_env, ResizeWrapper, \
+from algorithms.utils.algo_utils import EPS
+from algorithms.utils.env_wrappers import NormalizeWrapper, StackFramesWrapper, unwrap_env, ResizeWrapper, \
     SkipAndStackFramesWrapper, TimeLimitWrapper, RemainingTimeWrapper
 from algorithms.multi_env import MultiEnv
 from utils.envs.doom.doom_utils import make_doom_env, DOOM_W, DOOM_H, doom_env_by_name

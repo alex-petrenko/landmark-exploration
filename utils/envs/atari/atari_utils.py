@@ -1,7 +1,7 @@
 import gym
 from gym.envs.atari.atari_env import ACTION_MEANING
 
-from algorithms.env_wrappers import ResizeWrapper, ClipRewardWrapper
+from algorithms.utils.env_wrappers import ResizeWrapper, ClipRewardWrapper
 from utils.envs.atari.atari_wrappers import StickyActionWrapper, MaxAndSkipWrapper, AtariVisitedRoomsInfoWrapper, \
     RenderWrapper, OneLifeWrapper
 from utils.utils import log

@@ -1,8 +1,9 @@
 import os
 import random
-import time
 import shutil
+import time
 from collections import deque
+from functools import partial
 from os.path import join
 
 import cv2
@@ -11,24 +12,38 @@ import tensorflow as tf
 from keras import Input, Model
 from keras.layers import Lambda, concatenate
 
-from algorithms.buffer import Buffer
-from algorithms.reachability.observation_encoder import ObservationEncoder
-from algorithms.encoders import make_encoder
-from algorithms.env_wrappers import main_observation_space
-from algorithms.resnet_keras import ResnetBuilder, _top_network
-from algorithms.tf_utils import dense, placeholders_from_spaces
+from algorithms.architectures.resnet_keras import ResnetBuilder, _top_network
 from algorithms.topological_maps.topological_map import hash_observation
+from algorithms.utils.buffer import Buffer
+from algorithms.utils.encoders import make_encoder
+from algorithms.utils.env_wrappers import main_observation_space
+from algorithms.utils.observation_encoder import ObservationEncoder
+from algorithms.utils.tf_utils import dense, placeholders_from_spaces, merge_summaries
 from utils.timing import Timing
 from utils.utils import log, vis_dir, ensure_dir_exists
 
 
-class ReachabilityNetwork:
+class DistanceNetworkParams:
+    def __init__(self):
+        self.close_threshold = 5  # num. of frames between obs, such that one is close to the other
+        self.far_threshold = 25  # num. of frames between obs, such that one is far from the other
+        self.distance_target_buffer_size = 200000  # target number of training examples to store
+        self.distance_train_epochs = 10
+        self.distance_batch_size = 128
+        self.distance_bootstrap = 4000000
+        self.distance_train_interval = 1000000
+        self.distance_symmetric = True  # useful in 3D environments like Doom and DMLab
+
+
+class DistanceNetwork:
     def __init__(self, env, params):
         obs_space = main_observation_space(env)
         self.ph_obs_first, self.ph_obs_second = placeholders_from_spaces(obs_space, obs_space)
         self.ph_labels = tf.placeholder(dtype=tf.int32, shape=(None,))
 
-        with tf.variable_scope('reach') as scope:
+        with tf.variable_scope('distance') as scope:
+            self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='dist_step')
+
             reg = tf.contrib.layers.l2_regularizer(scale=1e-5)
 
             encoder = tf.make_template(
@@ -55,21 +70,34 @@ class ReachabilityNetwork:
                 tf.to_float(tf.equal(self.ph_labels, tf.cast(tf.argmax(logits, axis=1), tf.int32))),
             )
 
-            self.reach_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=self.ph_labels)
-            self.reach_loss = tf.reduce_mean(self.reach_loss)
+            self.dist_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=self.ph_labels)
+            self.dist_loss = tf.reduce_mean(self.dist_loss)
 
             reg_losses = tf.losses.get_regularization_losses(scope=scope.name)
             self.reg_loss = tf.reduce_sum(reg_losses)
 
-            self.loss = self.reach_loss + self.reg_loss
+            self.loss = self.dist_loss + self.reg_loss
 
             # helpers to encode observations (saves time)
             # does not matter if we use first vs second here
             self.ph_obs = self.ph_obs_first
             self.encoded_observation = self.first_encoded
 
+            self._add_summaries()
+            self.summaries = merge_summaries(collections=['distance'])
+
+            opt = tf.train.AdamOptimizer(learning_rate=params.learning_rate, name='dist_opt')
+            self.train = opt.minimize(self.loss, global_step=self.step)
+
         # other stuff not related to computation graph
         self.obs_encoder = ObservationEncoder(encode_func=self.encode_observation)
+
+    def _add_summaries(self):
+        with tf.name_scope('distance'):
+            distance_scalar = partial(tf.summary.scalar, collections=['distance'])
+            distance_scalar('dist_loss', self.dist_loss)
+            distance_scalar('dist_correct', self.correct)
+            distance_scalar('dist_reg_loss', self.reg_loss)
 
     def get_probabilities(self, session, obs_first_encoded, obs_second_encoded):
         assert len(obs_first_encoded) == len(obs_second_encoded)
@@ -106,13 +134,70 @@ class ReachabilityNetwork:
     def encode_observation(self, session, obs):
         return session.run(self.encoded_observation, feed_dict={self.ph_obs: obs})
 
+    def train(self, data, env_steps, agent):
+        params = agent.params
+        timing = Timing()
 
-class ReachabilityNetworkResnet:
+        with timing.timeit('get_buffer'):
+            buffer = data.get_buffer()
+        assert len(buffer) <= params.distance_target_buffer_size
+
+        batch_size = params.distance_batch_size
+        summary = None
+        dist_step = self.step.eval(session=agent.session)
+
+        prev_loss = 1e10
+        num_epochs = params.distance_train_epochs
+
+        log.info('Train distance net %d pairs, batch %d, epochs %d, %s', len(buffer), batch_size, num_epochs, timing)
+
+        for epoch in range(num_epochs):
+            losses = []
+            buffer.shuffle_data()
+            obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
+
+            for i in range(0, len(obs_first) - 1, batch_size):
+                # noinspection PyProtectedMember
+                with_summaries = agent._should_write_summaries(dist_step) and summary is None
+                summaries = [self.summaries] if with_summaries else []
+
+                start, end = i, i + batch_size
+
+                result = agent.session.run(
+                    [self.loss, self.train] + summaries,
+                    feed_dict={
+                        self.ph_obs_first: obs_first[start:end],
+                        self.ph_obs_second: obs_second[start:end],
+                        self.ph_labels: labels[start:end],
+                    }
+                )
+
+                dist_step += 1
+                # noinspection PyProtectedMember
+                agent._maybe_save(dist_step, env_steps)
+                losses.append(result[0])
+
+                if with_summaries:
+                    summary = result[-1]
+                    agent.summary_writer.add_summary(summary, global_step=env_steps)
+
+            # check loss improvement at the end of each epoch, early stop if necessary
+            avg_loss = np.mean(losses)
+            if avg_loss >= prev_loss:
+                log.info('Early stopping after %d epochs because distance net did not improve', epoch + 1)
+                log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
+                break
+            prev_loss = avg_loss
+
+        return dist_step
+
+
+class DistanceNetworkResnet:
     def __init__(self, env, params):
         width, height, channels = main_observation_space(env)
         size_embedding = 512
 
-        with tf.variable_scope('reach'):
+        with tf.variable_scope('distance'):
             branch = ResnetBuilder.build_resnet_18([channels, height, width], size_embedding, is_classification=False)
 
             obs_first = Input(shape=(height, width, channels))
@@ -172,21 +257,9 @@ class ReachabilityNetworkResnet:
     def encode_observation(self, session, obs):
         return session.run(self.encoded_observation, feed_dict={self.ph_obs: obs})
 
-    def train(self, agent, buffer, params):
-        summary = None
-        prev_loss = 1e10
-        num_epochs = params.reachability_train_epochs
-        batch_size = params.reachability_batch_size
 
-        log.info('Training reachability %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
-
-        obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
-
-
-
-
-class ReachabilityBuffer:
-    """Training data for the reachability network (observation pairs and labels)."""
+class DistanceBuffer:
+    """Training data for the distance network (observation pairs and labels)."""
 
     def __init__(self, params):
         self.buffer = Buffer()
@@ -195,16 +268,15 @@ class ReachabilityBuffer:
 
         self._vis_dirs = deque([])
 
-        self.params = params
+        self.num_trajectories_to_process = 20
+        self.complete_trajectories = deque([])
 
-    # noinspection PyMethodMayBeStatic,PyUnusedLocal
-    def skip(self, trajectory, i):
-        return False
+        self.params = params
 
     def extract_data(self, trajectories):
         timing = Timing()
 
-        close, far = self.params.reachable_threshold, self.params.unreachable_threshold
+        close, far = self.params.close_threshold, self.params.far_threshold
 
         num_close, num_far = 0, 0
         data_added = 0
@@ -217,7 +289,7 @@ class ReachabilityBuffer:
                 np.random.shuffle(indices)
 
                 for i in indices:
-                    if data_added > self.params.reachability_target_buffer_size // 3:  # to limit memory usage
+                    if data_added > self.params.distance_target_buffer_size // 4:  # to limit memory usage
                         break
 
                     close_i = min(i + close, len(trajectory))
@@ -226,52 +298,50 @@ class ReachabilityBuffer:
                     # sample close observation pair
                     first_idx = i
                     second_idx = np.random.randint(i, close_i)
-                    if self.params.reachability_symmetric and random.random() < 0.5:
+                    if self.params.distance_symmetric and random.random() < 0.5:
                         first_idx, second_idx = second_idx, first_idx
 
-                    if not self.skip(trajectory, first_idx) and not self.skip(trajectory, second_idx):
-                        self.buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=0)
-                        data_added += 1
-                        num_close += 1
+                    self.buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=0)
+                    data_added += 1
+                    num_close += 1
 
                     # sample far observation pair
                     if far_i < len(trajectory):
                         first_idx = i
                         second_idx = np.random.randint(far_i, len(trajectory))
-                        if self.params.reachability_symmetric and random.random() < 0.5:
+                        if self.params.distance_symmetric and random.random() < 0.5:
                             first_idx, second_idx = second_idx, first_idx
 
-                        if not self.skip(trajectory, first_idx) and not self.skip(trajectory, second_idx):
-                            self.buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=1)
-                            data_added += 1
-                            num_far += 1
+                        self.buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=1)
+                        data_added += 1
+                        num_far += 1
 
         with timing.timeit('shuffle'):
             # This is to avoid shuffling data every time. We grow the buffer a little more (up to 1.5 size of max
             # buffer) and shuffle and trim only then (or when we need it for training).
             # Adjust this 1.5 parameter for memory consumption.
-            if len(self.buffer) > 1.5 * self.params.reachability_target_buffer_size:
+            if len(self.buffer) > 1.5 * self.params.distance_target_buffer_size:
                 self.shuffle_data()
-                self.buffer.trim_at(self.params.reachability_target_buffer_size)
+                self.buffer.trim_at(self.params.distance_target_buffer_size)
 
         if self.batch_num % 20 == 0:
             with timing.timeit('visualize'):
                 self._visualize_data()
 
         self.batch_num += 1
-        log.info('num close %d, num far %d, reachability timing %s', num_close, num_far, timing)
+        log.info('num close %d, num far %d, distance net timing %s', num_close, num_far, timing)
 
     def has_enough_data(self):
-        len_data, min_data = len(self.buffer), self.params.reachability_target_buffer_size // 40
+        len_data, min_data = len(self.buffer), self.params.distance_target_buffer_size // 40
         if len_data < min_data:
-            log.info('Need to gather more data to train reachability net, %d/%d', len_data, min_data)
+            log.info('Need to gather more data to train distance net, %d/%d', len_data, min_data)
             return False
         return True
 
     def get_buffer(self):
-        if len(self.buffer) > self.params.reachability_target_buffer_size:
+        if len(self.buffer) > self.params.distance_target_buffer_size:
             self.shuffle_data()
-            self.buffer.trim_at(self.params.reachability_target_buffer_size)
+            self.buffer.trim_at(self.params.distance_target_buffer_size)
         return self.buffer
 
     def shuffle_data(self):
@@ -299,8 +369,8 @@ class ReachabilityBuffer:
             return
 
         img_folder = vis_dir(self.params.experiment_dir())
-        img_folder = ensure_dir_exists(join(img_folder, 'reach'))
-        img_folder = ensure_dir_exists(join(img_folder, f'reach_{time.time()}'))
+        img_folder = ensure_dir_exists(join(img_folder, 'dist'))
+        img_folder = ensure_dir_exists(join(img_folder, f'dist_{time.time()}'))
 
         def save_images(examples, close_or_far):
             for visualize_i in range(len(examples)):

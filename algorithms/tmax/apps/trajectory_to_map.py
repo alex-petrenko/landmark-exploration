@@ -7,7 +7,7 @@ from os.path import join
 
 import numpy as np
 
-from algorithms.reachability.observation_encoder import ObservationEncoder
+from algorithms.utils.observation_encoder import ObservationEncoder
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.topological_maps.topological_map import TopologicalMap, hash_observation

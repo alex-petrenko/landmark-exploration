@@ -2,7 +2,7 @@ import gym
 # noinspection PyUnresolvedReferences
 import vizdoomgym
 
-from algorithms.env_wrappers import ResizeWrapper, RewardScalingWrapper, TimeLimitWrapper
+from algorithms.utils.env_wrappers import ResizeWrapper, RewardScalingWrapper, TimeLimitWrapper
 from utils.envs.doom.wrappers.observation_space import SetResolutionWrapper
 from utils.envs.doom.wrappers.step_human_input import StepHumanInput
 

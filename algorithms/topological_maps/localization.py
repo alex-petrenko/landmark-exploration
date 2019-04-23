@@ -23,14 +23,14 @@ class Localizer:
 
     def _log_distances(self, env_i, neighbor_indices, distance):
         """Optional diagnostic logging."""
-        log_reachability = True
-        if self._verbose and log_reachability:
+        enable_logging = True
+        if self._verbose and enable_logging:
             neighbor_distance = {}
             for i, neighbor_idx in enumerate(neighbor_indices):
                 neighbor_distance[neighbor_idx] = '{:.3f}'.format(distance[i])
             self._log_verbose('Env %d distance: %r', env_i, neighbor_distance)
 
-    def localize(self, session, obs, info, maps, reachability, on_new_landmark=None, on_new_edge=None, timing=None):
+    def localize(self, session, obs, info, maps, distance_net, on_new_landmark=None, on_new_edge=None, timing=None):
         closest_landmark_idx = [-1] * self.num_envs
         # closest distance to the landmark in the existing graph (excluding new landmarks)
         closest_landmark_dist = [math.inf] * self.num_envs
@@ -61,7 +61,7 @@ class Localizer:
         assert len(current_obs) == total_num_neighbors
 
         with timing.add_time('neighbor_dist'):
-            distances = reachability.distances_from_obs(
+            distances = distance_net.distances_from_obs(
                 session,
                 obs_first=neighborhood_obs, obs_second=current_obs,
                 hashes_first=neighborhood_hashes, hashes_second=None,  # calculate curr obs hashes on the fly
@@ -144,13 +144,13 @@ class Localizer:
         assert len(non_neighborhood_obs) == len(non_neighborhood_hashes)
 
         with timing.add_time('non_neigh'):
-            # calculate reachability for all non-neighbors
+            # calculate distance for all non-neighbors
             distances = []
             batch_size = 1024
             for i in range(0, len(non_neighborhood_obs), batch_size):
                 start, end = i, i + batch_size
 
-                distances_batch = reachability.distances_from_obs(
+                distances_batch = distance_net.distances_from_obs(
                     session,
                     obs_first=non_neighborhood_obs[start:end], obs_second=current_obs[start:end],
                     hashes_first=non_neighborhood_hashes[start:end], hashes_second=None,

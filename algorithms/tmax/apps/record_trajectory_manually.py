@@ -5,11 +5,10 @@ import time
 from os.path import join
 from threading import Thread
 
-import cv2
 from pynput.keyboard import Key, Listener
 
-from algorithms.algo_utils import main_observation
-from algorithms.env_wrappers import reset_with_info
+from algorithms.utils.algo_utils import main_observation
+from algorithms.utils.env_wrappers import reset_with_info
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.topological_maps.topological_map import TopologicalMap

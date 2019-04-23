@@ -11,7 +11,7 @@ import numpy as np
 # noinspection PyProtectedMember
 from gym import spaces, RewardWrapper, ObservationWrapper
 
-from algorithms.algo_utils import num_env_steps
+from algorithms.utils.algo_utils import num_env_steps
 from utils.utils import numpy_all_the_way
 
 
