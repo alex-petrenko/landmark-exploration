@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "d37c422f33831fefc4bdb9b039b711572c1350c9eb4377716dee5b93e02f5dff"
+            "sha256": "cee4bb34553f1eaa9c5d0c58ea12021ea6b481a67afa073a0f8315f83a777bac"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -202,6 +202,7 @@
                 "sha256:b038baa489c38f6d853a3cfc4c635b0cda66f2864d136fe8f40c1a6e334e2a6b",
                 "sha256:f5102c1cd67e399ec8ea66bcebe6e3968ea25a8977e53f012963e5affeb1fe38"
             ],
+            "markers": "python_version >= '3.4'",
             "version": "==7.4.0"
         },
         "ipython-genutils": {
@@ -224,6 +225,14 @@
                 "sha256:14dd6caf1527abb21f08f86c784eac40853ba93edb79552aa1e4b8aef1b61c7b"
             ],
             "version": "==2.10.1"
+        },
+        "keras": {
+            "hashes": [
+                "sha256:794d0c92c6c4122f1f0fcf3a7bc2f49054c6a54ddbef8d8ffafca62795d760b6",
+                "sha256:90b610a3dbbf6d257b20a079eba3fdf2eed2158f64066a7c6f7227023fd60bc9"
+            ],
+            "index": "pypi",
+            "version": "==2.2.4"
         },
         "keras-applications": {
             "hashes": [
@@ -699,7 +708,7 @@
         "vizdoomgym": {
             "editable": true,
             "git": "https://github.com/alex-petrenko/vizdoomgym",
-            "ref": "788f3967f4ed547bdde813da13d64b38e9ac1369"
+            "ref": "38e0258f8d3f7cf33336e8890f8c55b75d89115b"
         },
         "wcwidth": {
             "hashes": [
