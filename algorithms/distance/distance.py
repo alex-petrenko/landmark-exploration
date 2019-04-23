@@ -12,10 +12,11 @@ import tensorflow as tf
 from keras import Input, Model
 from keras.layers import Lambda, concatenate
 
+# noinspection PyProtectedMember
 from algorithms.architectures.resnet_keras import ResnetBuilder, _top_network
 from algorithms.topological_maps.topological_map import hash_observation
 from algorithms.utils.buffer import Buffer
-from algorithms.utils.encoders import make_encoder
+from algorithms.utils.encoders import make_encoder, EncoderParams
 from algorithms.utils.env_wrappers import main_observation_space
 from algorithms.utils.observation_encoder import ObservationEncoder
 from algorithms.utils.tf_utils import dense, placeholders_from_spaces, merge_summaries
@@ -34,21 +35,33 @@ class DistanceNetworkParams:
         self.distance_train_interval = 1000000
         self.distance_symmetric = True  # useful in 3D environments like Doom and DMLab
 
+        self.distance_encoder = 'convnet_84px'
+        self.distance_use_batch_norm = True
+        self.distance_fc_num = 2
+        self.distance_fc_size = 256
+
 
 class DistanceNetwork:
     def __init__(self, env, params):
         obs_space = main_observation_space(env)
         self.ph_obs_first, self.ph_obs_second = placeholders_from_spaces(obs_space, obs_space)
         self.ph_labels = tf.placeholder(dtype=tf.int32, shape=(None,))
+        self.ph_is_training = tf.placeholder(dtype=tf.bool, shape=[])
 
         with tf.variable_scope('distance') as scope:
             self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='dist_step')
-
             reg = tf.contrib.layers.l2_regularizer(scale=1e-5)
+            summary_collections = ['dist']
+
+            enc_params = EncoderParams()
+            enc_params.enc_name = params.distance_encoder
+            enc_params.batch_norm = params.distance_use_batch_norm
+            enc_params.ph_is_training = self.ph_is_training
+            enc_params.summary_collections = summary_collections
 
             encoder = tf.make_template(
                 'siamese_enc', make_encoder, create_scope_now_=True,
-                obs_space=obs_space, regularizer=reg, params=params,
+                obs_space=obs_space, regularizer=reg, enc_params=enc_params,
             )
 
             obs_first_enc = encoder(self.ph_obs_first)
@@ -59,10 +72,12 @@ class DistanceNetwork:
 
             observations_encoded = tf.concat([self.first_encoded, self.second_encoded], axis=1)
 
-            fc_layers = [256, 256]
+            fc_layers = [params.distance_fc_size] * params.distance_fc_num
             x = observations_encoded
             for fc_layer_size in fc_layers:
-                x = dense(x, fc_layer_size, reg)
+                x = dense(
+                    x, fc_layer_size, reg, batch_norm=params.distance_use_batch_norm, is_training=self.ph_is_training,
+                )
 
             logits = tf.contrib.layers.fully_connected(x, 2, activation_fn=None)
             self.probabilities = tf.nn.softmax(logits)
@@ -83,18 +98,19 @@ class DistanceNetwork:
             self.ph_obs = self.ph_obs_first
             self.encoded_observation = self.first_encoded
 
-            self._add_summaries()
-            self.summaries = merge_summaries(collections=['distance'])
+            self._add_summaries(summary_collections)
+            self.summaries = merge_summaries(collections=summary_collections)
 
             opt = tf.train.AdamOptimizer(learning_rate=params.learning_rate, name='dist_opt')
-            self.train = opt.minimize(self.loss, global_step=self.step)
+            with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+                self.train_op = opt.minimize(self.loss, global_step=self.step)
 
         # other stuff not related to computation graph
         self.obs_encoder = ObservationEncoder(encode_func=self.encode_observation)
 
-    def _add_summaries(self):
+    def _add_summaries(self, collections):
         with tf.name_scope('distance'):
-            distance_scalar = partial(tf.summary.scalar, collections=['distance'])
+            distance_scalar = partial(tf.summary.scalar, collections=collections)
             distance_scalar('dist_loss', self.dist_loss)
             distance_scalar('dist_correct', self.correct)
             distance_scalar('dist_reg_loss', self.reg_loss)
@@ -106,7 +122,11 @@ class DistanceNetwork:
 
         probabilities = session.run(
             self.probabilities,
-            feed_dict={self.first_encoded: obs_first_encoded, self.second_encoded: obs_second_encoded},
+            feed_dict={
+                self.first_encoded: obs_first_encoded,
+                self.second_encoded: obs_second_encoded,
+                self.ph_is_training: False,
+            },
         )
         return probabilities
 
@@ -132,15 +152,12 @@ class DistanceNetwork:
         return d
 
     def encode_observation(self, session, obs):
-        return session.run(self.encoded_observation, feed_dict={self.ph_obs: obs})
+        return session.run(
+            self.encoded_observation, feed_dict={self.ph_obs: obs, self.ph_is_training: False},
+        )
 
-    def train(self, data, env_steps, agent):
+    def train(self, buffer, env_steps, agent):
         params = agent.params
-        timing = Timing()
-
-        with timing.timeit('get_buffer'):
-            buffer = data.get_buffer()
-        assert len(buffer) <= params.distance_target_buffer_size
 
         batch_size = params.distance_batch_size
         summary = None
@@ -149,7 +166,7 @@ class DistanceNetwork:
         prev_loss = 1e10
         num_epochs = params.distance_train_epochs
 
-        log.info('Train distance net %d pairs, batch %d, epochs %d, %s', len(buffer), batch_size, num_epochs, timing)
+        log.info('Train distance net %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
 
         for epoch in range(num_epochs):
             losses = []
@@ -164,11 +181,12 @@ class DistanceNetwork:
                 start, end = i, i + batch_size
 
                 result = agent.session.run(
-                    [self.loss, self.train] + summaries,
+                    [self.loss, self.train_op] + summaries,
                     feed_dict={
                         self.ph_obs_first: obs_first[start:end],
                         self.ph_obs_second: obs_second[start:end],
                         self.ph_labels: labels[start:end],
+                        self.ph_is_training: True,
                     }
                 )
 
@@ -193,6 +211,7 @@ class DistanceNetwork:
 
 
 class DistanceNetworkResnet:
+    # noinspection PyUnusedLocal
     def __init__(self, env, params):
         width, height, channels = main_observation_space(env)
         size_embedding = 512

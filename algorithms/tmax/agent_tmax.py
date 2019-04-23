@@ -15,7 +15,7 @@ from algorithms.utils.algo_utils import EPS, num_env_steps, main_observation, go
 from algorithms.baselines.ppo.agent_ppo import PPOBuffer, AgentPPO
 from algorithms.curiosity.ecr_map.ecr_map import ECRMapModule
 from algorithms.utils.observation_encoder import ObservationEncoder
-from algorithms.utils.encoders import make_encoder, make_encoder_with_goal
+from algorithms.utils.encoders import make_encoder, make_encoder_with_goal, get_enc_params
 from algorithms.utils.env_wrappers import main_observation_space, is_goal_based_env
 from algorithms.utils.models import make_model
 from algorithms.multi_env import MultiEnv
@@ -60,9 +60,10 @@ class ActorCritic:
             reg = None  # don't use L2 regularization
 
             # actor computation graph
+            act_enc_params = get_enc_params(params, 'actor')
             act_encoder = tf.make_template(
                 'act_obs_enc', make_encoder_func, create_scope_now_=True,
-                obs_space=obs_space, regularizer=reg, params=params,
+                obs_space=obs_space, regularizer=reg, enc_params=act_enc_params,
             )
 
             # use actor encoder as main observation encoder (including landmarks, etc.)
@@ -97,10 +98,12 @@ class ActorCritic:
             self.action_prob = self.actions_distribution.probability(self.act)
 
             # critic computation graph
+            value_enc_params = get_enc_params(params, 'critic')
             value_encoder = tf.make_template(
                 'val_obs_enc', make_encoder_func, create_scope_now_=True,
-                obs_space=obs_space, regularizer=reg, params=params,
+                obs_space=obs_space, regularizer=reg, enc_params=value_enc_params,
             )
+
             if self.has_goal:
                 value_encoded_obs = value_encoder(self.ph_observations, self.ph_goal_obs).encoded_input
             else:
@@ -1104,6 +1107,9 @@ class AgentTMAX(AgentLearner):
 
         self.curiosity = ECRMapModule(env, params)
         self.curiosity.distance_buffer = DistanceBuffer(params)
+
+        # reuse distance network from the curiosity module
+        self.distance = self.curiosity.distance
 
         env.close()
 

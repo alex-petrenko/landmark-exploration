@@ -3,7 +3,7 @@ from functools import partial
 import tensorflow as tf
 
 from algorithms.curiosity.curiosity_module import CuriosityModule
-from algorithms.utils.encoders import make_encoder
+from algorithms.utils.encoders import make_encoder, get_enc_params
 from algorithms.utils.env_wrappers import main_observation_space
 from algorithms.utils.tf_utils import dense, merge_summaries
 from utils.utils import log, AttrDict
@@ -37,9 +37,10 @@ class IntrinsicCuriosityModule(CuriosityModule):
             obs_space = main_observation_space(env)
             num_actions = env.action_space.n
 
+            enc_params = get_enc_params(params, 'icm_enc')
             encoder_template = tf.make_template(
                 'obs_encoder', make_encoder, create_scope_now_=True,
-                obs_space=obs_space, regularizer=reg, params=params,
+                obs_space=obs_space, regularizer=reg, enc_params=enc_params,
             )
 
             encoder_obs = encoder_template(ph_obs)

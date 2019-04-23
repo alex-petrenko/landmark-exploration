@@ -9,26 +9,43 @@ from utils.utils import log
 
 # general tensorflow utils
 
-def dense(x, layer_size, regularizer=None, activation=tf.nn.relu):
-    return tf.contrib.layers.fully_connected(
+def dense(x, layer_size, regularizer=None, activation=tf.nn.relu, batch_norm=False, is_training=None):
+    x = tf.contrib.layers.fully_connected(
         x,
         layer_size,
-        activation_fn=activation,
+        activation_fn=None,
         weights_regularizer=regularizer,
         biases_regularizer=regularizer,
     )
 
+    if batch_norm:
+        assert is_training is not None
+        x = tf.contrib.layers.batch_norm(x, is_training=is_training)
 
-def conv(x, num_filters, kernel_size, stride=1, regularizer=None, scope=None):
-    return tf.contrib.layers.conv2d(
+    if activation is not None:
+        x = activation(x)
+
+    return x
+
+
+def conv(x, num_filters, kernel_size, stride=1, regularizer=None, batch_norm=False, is_training=None, scope=None):
+    x = tf.contrib.layers.conv2d(
         x,
         num_filters,
         kernel_size,
         stride=stride,
         weights_regularizer=regularizer,
         biases_regularizer=regularizer,
+        activation_fn=None,
         scope=scope,
     )
+
+    if batch_norm:
+        assert is_training is not None
+        x = tf.contrib.layers.batch_norm(x, is_training=is_training)
+
+    x = tf.nn.relu(x)
+    return x
 
 
 def conv_t(x, num_filters, kernel_size, strides=1, padding='SAME', regularizer=None, activation=tf.nn.relu):

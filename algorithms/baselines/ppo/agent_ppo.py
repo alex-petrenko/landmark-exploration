@@ -7,11 +7,11 @@ import numpy as np
 import tensorflow as tf
 
 from algorithms.agent import AgentLearner, TrainStatus
+from algorithms.multi_env import MultiEnv
 from algorithms.utils.algo_utils import calculate_gae, EPS, num_env_steps, main_observation, goal_observation
-from algorithms.utils.encoders import make_encoder, make_encoder_with_goal
+from algorithms.utils.encoders import make_encoder, make_encoder_with_goal, get_enc_params
 from algorithms.utils.env_wrappers import main_observation_space, is_goal_based_env
 from algorithms.utils.models import make_model
-from algorithms.multi_env import MultiEnv
 from algorithms.utils.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     image_summaries_rgb, summary_avg_min_max, merge_summaries
 from utils.distributions import CategoricalProbabilityDistribution
@@ -38,14 +38,18 @@ class ActorCritic:
 
         regularizer = None  # don't use L2 regularization
 
+        actor_enc_params = get_enc_params(params, 'actor')
+
         # actor computation graph
         # use actor encoder as main observation encoder (including landmarks, etc.)
         if self.is_goal_env:
             actor_encoder = make_encoder_func(
-                self.ph_observations, self.ph_goal_obs, obs_space, regularizer, params, name='act_enc',
+                self.ph_observations, self.ph_goal_obs, obs_space, regularizer, actor_enc_params, name='act_enc',
             )
         else:
-            actor_encoder = make_encoder_func(self.ph_observations, obs_space, regularizer, params, name='act_enc')
+            actor_encoder = make_encoder_func(
+                self.ph_observations, obs_space, regularizer, actor_enc_params, name='act_enc',
+            )
 
         actor_model = make_model(actor_encoder.encoded_input, regularizer, params, 'act_mdl')
 
@@ -56,13 +60,18 @@ class ActorCritic:
         self.act = self.actions_distribution.sample()
         self.action_prob = self.actions_distribution.probability(self.act)
 
+        critic_enc_params = get_enc_params(params, 'critic')
+
         # critic computation graph
         if self.is_goal_env:
             value_encoder = make_encoder_func(
-                self.ph_observations, self.ph_goal_obs, obs_space, regularizer, params, 'val_enc',
+                self.ph_observations, self.ph_goal_obs, obs_space, regularizer, critic_enc_params, 'val_enc',
             )
         else:
-            value_encoder = make_encoder_func(self.ph_observations, obs_space, regularizer, params, 'val_enc')
+            value_encoder = make_encoder_func(
+                self.ph_observations, obs_space, regularizer, critic_enc_params, 'val_enc',
+            )
+
         value_model = make_model(value_encoder.encoded_input, regularizer, params, 'val_mdl')
 
         value_fc = dense(value_model.latent, params.model_fc_size // 2, regularizer)
@@ -71,7 +80,6 @@ class ActorCritic:
         log.info('Total parameters in the model: %d', count_total_parameters())
 
     def invoke(self, session, observations, goals=None, deterministic=False):
-        # TODO RECURRENT
         ops = [
             self.best_action_deterministic if deterministic else self.act,
             self.action_prob,
@@ -171,11 +179,9 @@ class AgentPPO(AgentLearner):
             self.num_workers = 16  # number of workers used to run the environments
 
             # actor-critic (encoders and models)
-            self.image_enc_name = 'convnet_84px_8x8'
+            self.image_enc_name = 'convnet_84px'
             self.model_fc_layers = 1
             self.model_fc_size = 256
-            self.model_recurrent = False
-            self.rnn_rollout = 16
 
             # ppo-specific
             self.ppo_clip_ratio = 1.1  # we use clip(x, e, 1/e) instead of clip(x, 1+e, 1-e) in the paper

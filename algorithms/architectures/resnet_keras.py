@@ -26,9 +26,6 @@ TOP_HIDDEN = 4  # 1 #4
 NORMALIZATION_ON = False  # True #False #True
 
 
-def test_123():
-    pass
-
 def _bn_relu(input_):
     """Helper to build a BN -> relu block
     """

@@ -103,7 +103,7 @@ class ECRMapModule(CuriosityModule):
 
         if env_steps - self._last_trained > self.params.distance_train_interval:
             if self.distance_buffer.has_enough_data():
-                self.distance.train(self.distance_buffer, env_steps, agent)
+                self.distance.train(self.distance_buffer.get_buffer(), env_steps, agent)
                 self._last_trained = env_steps
 
                 # discard old experience

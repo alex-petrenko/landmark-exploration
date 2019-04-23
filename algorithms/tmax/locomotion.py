@@ -8,7 +8,7 @@ from os.path import join
 import tensorflow as tf
 
 from algorithms.utils.buffer import Buffer
-from algorithms.utils.encoders import make_encoder
+from algorithms.utils.encoders import make_encoder, get_enc_params
 from algorithms.utils.env_wrappers import main_observation_space
 from algorithms.utils.tf_utils import placeholders_from_spaces, placeholder_from_space, dense
 from algorithms.tmax.tmax_utils import TmaxMode
@@ -34,9 +34,11 @@ class LocomotionNetwork:
             # obs_goal_encoded = encoder(self.ph_obs_goal).encoded_input
             # obs_encoded = tf.concat([obs_curr_encoded, obs_goal_encoded], axis=1)
 
+            enc_params = get_enc_params(params, summary_collection=None)  # TODO
+
             encoder = tf.make_template(
                 'joined_enc_loco', make_encoder, create_scope_now_=True,
-                obs_space=obs_space, regularizer=None, params=params,
+                obs_space=obs_space, regularizer=None, enc_params=enc_params,
             )
 
             obs_concat = tf.concat([self.ph_obs_prev, self.ph_obs_curr, self.ph_obs_goal], axis=2)
