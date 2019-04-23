@@ -7,15 +7,29 @@ from os.path import join
 
 import tensorflow as tf
 
+from algorithms.tmax.tmax_utils import TmaxMode
 from algorithms.utils.buffer import Buffer
-from algorithms.utils.encoders import make_encoder, get_enc_params
+from algorithms.utils.encoders import make_encoder, EncoderParams
 from algorithms.utils.env_wrappers import main_observation_space
 from algorithms.utils.tf_utils import placeholders_from_spaces, placeholder_from_space, dense
-from algorithms.tmax.tmax_utils import TmaxMode
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.gifs import encode_gif
 from utils.timing import Timing
 from utils.utils import log, vis_dir, ensure_dir_exists
+
+
+class LocomotionNetworkParams:
+    def __init__(self):
+        self.locomotion_experience_replay_buffer = 100000
+        self.locomotion_experience_replay_epochs = 10
+        self.locomotion_experience_replay_batch = 128
+        self.locomotion_experience_replay_max_kl = 0.05
+        self.locomotion_max_trajectory = 5  # max trajectory length to be utilized during training
+
+        self.locomotion_encoder = 'convnet_84px'
+        self.locomotion_use_batch_norm = True
+        self.locomotion_fc_num = 2
+        self.locomotion_fc_size = 256
 
 
 class LocomotionNetwork:
@@ -23,8 +37,11 @@ class LocomotionNetwork:
         obs_space = main_observation_space(env)
         self.ph_obs_prev, self.ph_obs_curr, self.ph_obs_goal = placeholders_from_spaces(obs_space, obs_space, obs_space)
         self.ph_actions = placeholder_from_space(env.action_space)
+        self.ph_is_training = tf.placeholder(dtype=tf.bool, shape=[])
 
         with tf.variable_scope('loco'):
+            self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_step')
+
             # encoder = tf.make_template(
             #     'siamese_enc_loco', make_encoder, create_scope_now_=True,
             #     obs_space=obs_space, regularizer=None, params=params,
@@ -34,7 +51,11 @@ class LocomotionNetwork:
             # obs_goal_encoded = encoder(self.ph_obs_goal).encoded_input
             # obs_encoded = tf.concat([obs_curr_encoded, obs_goal_encoded], axis=1)
 
-            enc_params = get_enc_params(params, summary_collection=None)  # TODO
+            enc_params = EncoderParams()
+            enc_params.enc_name = params.locomotion_encoder
+            enc_params.batch_norm = params.locomotion_use_batch_norm
+            enc_params.ph_is_training = self.ph_is_training
+            enc_params.summary_collections = ['loco']
 
             encoder = tf.make_template(
                 'joined_enc_loco', make_encoder, create_scope_now_=True,
@@ -44,10 +65,13 @@ class LocomotionNetwork:
             obs_concat = tf.concat([self.ph_obs_prev, self.ph_obs_curr, self.ph_obs_goal], axis=2)
             obs_encoded = encoder(obs_concat).encoded_input
 
-            fc_layers = [256, 256]
+            fc_layers = [params.locomotion_fc_size] * params.locomotion_fc_num
             x = obs_encoded
             for fc_layer_size in fc_layers:
-                x = dense(x, fc_layer_size)
+                x = dense(
+                    x, fc_layer_size,
+                    batch_norm=params.locomotion_use_batch_norm, is_training=self.ph_is_training,
+                )
 
             action_logits = tf.layers.dense(x, env.action_space.n, activation=None)
             self.actions_distribution = CategoricalProbabilityDistribution(action_logits)
@@ -58,6 +82,11 @@ class LocomotionNetwork:
             self.actions_loss = tf.reduce_mean(actions_loss)
             self.loss = self.actions_loss
 
+            loco_opt = tf.train.AdamOptimizer(learning_rate=params.learning_rate, name='loco_opt')
+
+            with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+                self.train_loco = loco_opt.minimize(self.loss, global_step=self.step)
+
     def navigate(self, session, obs_prev, obs_curr, obs_goal, deterministic=False):
         actions = session.run(
             self.best_action_deterministic if deterministic else self.act,
@@ -65,6 +94,7 @@ class LocomotionNetwork:
                 self.ph_obs_prev: obs_prev,
                 self.ph_obs_curr: obs_curr,
                 self.ph_obs_goal: obs_goal,
+                self.ph_is_training: False,
             },
         )
         return actions

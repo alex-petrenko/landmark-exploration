@@ -22,7 +22,7 @@ from algorithms.multi_env import MultiEnv
 from algorithms.utils.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
     image_summaries_rgb, summary_avg_min_max, merge_summaries, tf_shape, placeholder
 from algorithms.tmax.graph_encoders import make_graph_encoder
-from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer
+from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer, LocomotionNetworkParams
 from algorithms.tmax.tmax_utils import TmaxMode, TmaxTrajectoryBuffer
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
@@ -1025,6 +1025,7 @@ class AgentTMAX(AgentLearner):
     class Params(
         AgentPPO.Params,
         ECRMapModule.Params,
+        LocomotionNetworkParams,
     ):
         """Hyperparams for the algorithm and the training process."""
 
@@ -1033,6 +1034,7 @@ class AgentTMAX(AgentLearner):
             # calling all parent constructors
             AgentPPO.Params.__init__(self, experiment_name)
             ECRMapModule.Params.__init__(self)
+            LocomotionNetworkParams.__init__(self)
 
             # TMAX-specific parameters
             self.use_neighborhood_encoder = False
@@ -1048,11 +1050,6 @@ class AgentTMAX(AgentLearner):
             self.successful_traversal_frames = 50  # if we traverse an edge in less than that, we succeeded
 
             self.locomotion_experience_replay = True
-            self.locomotion_experience_replay_buffer = 100000
-            self.locomotion_experience_replay_epochs = 10
-            self.locomotion_experience_replay_batch = 128
-            self.locomotion_experience_replay_max_kl = 0.05
-            self.locomotion_max_trajectory = 5  # max trajectory length to be utilized during training
 
             self.stage_duration = 3000000
 
@@ -1079,6 +1076,7 @@ class AgentTMAX(AgentLearner):
             self.loco_critic_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_critic_step')
             self.loco_her_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_her_step')
         else:
+            # TODO remove
             self.loco_step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_step')
 
         self.make_env_func = make_env_func
@@ -1149,6 +1147,7 @@ class AgentTMAX(AgentLearner):
                 self.loco_objectives.gt_actions_loss, global_step=self.loco_her_step,
             )
         else:
+            # TODO remove
             loco_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='loco_opt')
             self.train_loco = loco_opt.minimize(
                 self.locomotion.loss, global_step=self.loco_step,

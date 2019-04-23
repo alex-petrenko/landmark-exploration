@@ -37,7 +37,7 @@ def train_locomotion_net(agent, data, params, env_steps):
 
             start, end = i, i + batch_size
 
-            objectives = [locomotion.loss, agent.train_loco]
+            objectives = [locomotion.loss, locomotion.train_loco]
 
             result = agent.session.run(
                 objectives + summaries,
@@ -46,6 +46,7 @@ def train_locomotion_net(agent, data, params, env_steps):
                     locomotion.ph_obs_curr: obs_curr[start:end],
                     locomotion.ph_obs_goal: obs_goal[start:end],
                     locomotion.ph_actions: actions[start:end],
+                    locomotion.ph_is_training: True,
                 }
             )
 
