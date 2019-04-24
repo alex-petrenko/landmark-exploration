@@ -557,10 +557,13 @@ class TmaxManager:
             # we don't have any trajectories yet, need more exploration
             return False
 
-        # self.last_exploration_trajectories[]
-
-        trajectory_to_sparse_map()
-
+        # For each trajectory:
+        # - clone sparse persistent map
+        # - use mapbuilder to add trajectory to map
+        # - truncate trajectories to remove all long distances between novel locations (>50 frames)
+        # - select top 50% of trajectories according to novel landmark count
+        # - out of those choose the one that has the shortest distance between landmarks
+        # TODO
 
     def _prepare_persistent_map_for_exploration(self):
         """Keep only edges with high probability of success, delete inaccessible vertices."""
@@ -1844,13 +1847,11 @@ class AgentTMAX(AgentLearner):
 
                     # wait for all the workers to complete an environment step
                     with timing.add_time('env_step'):
-                        env_obs, rewards, dones, infos = multi_env.step(actions)
+                        env_obs, rewards, dones, new_infos = multi_env.step(actions)
 
-                    self.process_infos(infos)
+                    trajectory_buffer.add(observations, actions, infos, dones, tmax_mgr=tmax_mgr)
 
                     new_obs, new_goals = self._get_observations(env_obs)
-
-                    trajectory_buffer.add(observations, actions, dones, tmax_mgr=tmax_mgr)
 
                     with timing.add_time('tmax'):
                         rewards, dones = tmax_mgr.update(
@@ -1863,8 +1864,9 @@ class AgentTMAX(AgentLearner):
                         rewards, dones, values,
                         None, None, modes, masks,
                     )
-                    observations, goals = new_obs, new_goals
+                    observations, goals, infos = new_obs, new_goals, new_infos
 
+                    self.process_infos(infos)
                     num_steps_delta = num_env_steps(infos)
                     num_steps += num_steps_delta
                     env_steps += num_steps_delta

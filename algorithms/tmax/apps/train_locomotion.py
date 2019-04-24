@@ -76,6 +76,7 @@ def train_loop(agent, multi_env):
     params = agent.params
 
     observations = main_observation(multi_env.reset())
+    infos = multi_env.info()
 
     trajectory_buffer = TmaxTrajectoryBuffer(multi_env.num_envs)
     locomotion_buffer = LocomotionBuffer(params)
@@ -92,12 +93,13 @@ def train_loop(agent, multi_env):
         with t.timeit('loop'):
             with t.timeit('step'):
                 actions = np.random.randint(0, agent.actor_critic.num_actions, params.num_envs)
-                new_obs, rewards, dones, infos = multi_env.step(actions)
+                new_obs, rewards, dones, new_infos = multi_env.step(actions)
 
             with t.timeit('misc'):
-                trajectory_buffer.add(observations, actions, dones, tmax_mgr=agent.tmax_mgr)
+                trajectory_buffer.add(observations, actions, infos, dones, tmax_mgr=agent.tmax_mgr)
 
                 observations = main_observation(new_obs)
+                infos = new_infos
 
                 num_steps_delta = num_env_steps(infos)
                 num_steps += num_steps_delta

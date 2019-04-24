@@ -41,13 +41,13 @@ class TmaxTrajectory(Trajectory):
         self.mode = []
         self.stage = []
 
-    def add(self, obs, action, **kwargs):
-        super().add(obs, action, **kwargs)
+    def add(self, obs, action, info, **kwargs):
+        super().add(obs, action, info, **kwargs)
         self.mode.append(kwargs['mode'])
         self.stage.append(kwargs['stage'])
 
     def add_frame(self, tr, i):
-        self.add(tr.obs[i], tr.actions[i], mode=tr.mode[i], stage=tr.stage[i])
+        self.add(tr.obs[i], tr.actions[i], tr.infos[i], mode=tr.mode[i], stage=tr.stage[i])
 
 
 class TmaxTrajectoryBuffer(TrajectoryBuffer):
@@ -57,15 +57,16 @@ class TmaxTrajectoryBuffer(TrajectoryBuffer):
         self.current_trajectories = [TmaxTrajectory(env_idx) for env_idx in range(num_envs)]
         self.complete_trajectories = []
 
-    def add(self, obs, actions, dones, **kwargs):
+    def add(self, obs, actions, infos, dones, **kwargs):
         assert len(obs) == len(actions)
         tmax_mgr = kwargs['tmax_mgr']
         for env_idx in range(len(obs)):
+            self.current_trajectories[env_idx].add(
+                obs[env_idx], actions[env_idx], infos[env_idx],
+                mode=tmax_mgr.mode[env_idx], stage=tmax_mgr.env_stage[env_idx],
+            )
+
             if dones[env_idx]:
                 # finalize the trajectory and put it into a separate buffer
                 self.complete_trajectories.append(self.current_trajectories[env_idx])
                 self.current_trajectories[env_idx] = TmaxTrajectory(env_idx)
-            else:
-                self.current_trajectories[env_idx].add(
-                    obs[env_idx], actions[env_idx], mode=tmax_mgr.mode[env_idx], stage=tmax_mgr.env_stage[env_idx],
-                )

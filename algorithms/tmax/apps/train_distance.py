@@ -84,14 +84,15 @@ def train_loop(agent, multi_env):
     params = agent.params
 
     observations = main_observation(multi_env.reset())
+    infos = multi_env.info()
 
     trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)
 
     num_steps = 0
     training_steps = 0
 
-    loop_time = deque([], maxlen=1000)
-    advanced_steps = deque([], maxlen=1000)
+    loop_time = deque([], maxlen=2500)
+    advanced_steps = deque([], maxlen=2500)
 
     t = Timing()
 
@@ -102,12 +103,13 @@ def train_loop(agent, multi_env):
         with t.timeit('loop'):
             with t.timeit('step'):
                 actions = np.random.randint(0, agent.actor_critic.num_actions, params.num_envs)
-                new_obs, rewards, dones, infos = multi_env.step(actions)
+                new_obs, rewards, dones, new_infos = multi_env.step(actions)
 
             with t.timeit('misc'):
-                trajectory_buffer.add(observations, actions, dones)
+                trajectory_buffer.add(observations, actions, infos, dones)
 
                 observations = main_observation(new_obs)
+                infos = new_infos
 
                 num_steps_delta = num_env_steps(infos)
                 num_steps += num_steps_delta

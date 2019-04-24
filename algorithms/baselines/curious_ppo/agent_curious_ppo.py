@@ -101,6 +101,7 @@ class AgentCuriousPPO(AgentPPO):
 
         env_obs = multi_env.reset()
         obs, goals = main_observation(env_obs), goal_observation(env_obs)
+        infos = multi_env.info()
 
         buffer = CuriousPPOBuffer()
         trajectory_buffer = TrajectoryBuffer(self.params.num_envs)
@@ -122,11 +123,10 @@ class AgentCuriousPPO(AgentPPO):
                     actions, action_probs, values = self._policy_step(obs, goals)
 
                     # wait for all the workers to complete an environment step
-                    env_obs, rewards, dones, infos = multi_env.step(actions)
-                    self.process_infos(infos)
-                    next_obs, new_goals = main_observation(env_obs), goal_observation(env_obs)
+                    env_obs, rewards, dones, new_infos = multi_env.step(actions)
 
-                    trajectory_buffer.add(obs, actions, dones)
+                    trajectory_buffer.add(obs, actions, infos, dones)
+                    next_obs, new_goals = main_observation(env_obs), goal_observation(env_obs)
 
                     # calculate curiosity bonus
                     with timing.add_time('curiosity'):
@@ -138,7 +138,8 @@ class AgentCuriousPPO(AgentPPO):
                     # add experience from environment to the current buffer
                     buffer.add(obs, next_obs, actions, action_probs, rewards, dones, values, goals)
 
-                    obs, goals = next_obs, new_goals
+                    obs, goals, infos = next_obs, new_goals, new_infos
+                    self.process_infos(infos)
                     num_steps += num_env_steps(infos)
 
                 # last step values are required for TD-return calculation
