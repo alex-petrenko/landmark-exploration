@@ -27,7 +27,7 @@ class LocomotionNetworkParams:
         self.locomotion_max_trajectory = 5  # max trajectory length to be utilized during training
 
         self.locomotion_encoder = 'convnet_84px'
-        self.locomotion_use_batch_norm = True
+        self.locomotion_use_batch_norm = False
         self.locomotion_fc_num = 2
         self.locomotion_fc_size = 256
 

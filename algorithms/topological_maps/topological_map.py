@@ -60,6 +60,9 @@ class TopologicalMap:
         self.new_landmark_candidate_frames = 0
         self.closest_landmarks = []
 
+        # number of trajectories that were used to build the map (used in TMAX)
+        self.num_trajectories = 0
+
         self.reset(initial_obs, initial_info)
 
     @staticmethod

@@ -36,7 +36,7 @@ class DistanceNetworkParams:
         self.distance_symmetric = True  # useful in 3D environments like Doom and DMLab
 
         self.distance_encoder = 'convnet_84px'
-        self.distance_use_batch_norm = True
+        self.distance_use_batch_norm = False
         self.distance_fc_num = 2
         self.distance_fc_size = 256
 

@@ -10,22 +10,21 @@ import tensorflow as tf
 from tensorflow.contrib import slim
 
 from algorithms.agent import AgentLearner, TrainStatus
-from algorithms.distance.distance import DistanceBuffer
-from algorithms.utils.algo_utils import EPS, num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import PPOBuffer, AgentPPO
 from algorithms.curiosity.ecr_map.ecr_map import ECRMapModule
-from algorithms.utils.observation_encoder import ObservationEncoder
-from algorithms.utils.encoders import make_encoder, make_encoder_with_goal, get_enc_params
-from algorithms.utils.env_wrappers import main_observation_space, is_goal_based_env
-from algorithms.utils.models import make_model
+from algorithms.distance.distance import DistanceBuffer
 from algorithms.multi_env import MultiEnv
-from algorithms.utils.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
-    image_summaries_rgb, summary_avg_min_max, merge_summaries, tf_shape, placeholder
 from algorithms.tmax.graph_encoders import make_graph_encoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer, LocomotionNetworkParams
 from algorithms.tmax.tmax_utils import TmaxMode, TmaxTrajectoryBuffer
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
+from algorithms.utils.algo_utils import EPS, num_env_steps, main_observation, goal_observation
+from algorithms.utils.encoders import make_encoder, make_encoder_with_goal, get_enc_params
+from algorithms.utils.env_wrappers import main_observation_space, is_goal_based_env
+from algorithms.utils.models import make_model
+from algorithms.utils.tf_utils import dense, count_total_parameters, placeholder_from_space, placeholders, \
+    image_summaries_rgb, summary_avg_min_max, merge_summaries, tf_shape, placeholder
 from utils.distributions import CategoricalProbabilityDistribution
 from utils.envs.generate_env_map import generate_env_map
 from utils.tensorboard import image_summary
@@ -220,9 +219,6 @@ class TmaxManager:
         self.map_size_before_exploration = self.map_size_before_locomotion = 0
         self.accessible_region = None
 
-        # need this only for neighborhood encoders (might not work now)
-        self.landmarks_encoder = ObservationEncoder(agent.actor_critic.encode_landmarks)
-
         self.env_steps = 0
         self.episode_frames = [0] * self.num_envs
         self.episode_locomotion_reward = [0] * self.num_envs
@@ -251,6 +247,8 @@ class TmaxManager:
 
         # if persistent map is provided, then we can skip the entire exploration stage
         self.stage_change_required = self.params.persistent_map_checkpoint is not None
+
+        self.last_trajectories = [None] * self.num_envs
 
     def initialize(self, obs, info, env_steps):
         if self.initialized:
@@ -289,6 +287,11 @@ class TmaxManager:
     def _log_verbose(self, s, *args):
         if self._verbose:
             log.debug(s, *args)
+
+    def save_trajectories(self, trajectories):
+        """Save the last trajectory for every env_idx to potentially later use as a demonstration."""
+        for t in trajectories:
+            self.last_trajectories[t.env_idx] = t
 
     def get_locomotion_targets(self, env_indices):
         assert len(env_indices) > 0
@@ -548,59 +551,12 @@ class TmaxManager:
         log.debug('Finished loop closure checks, added edges: %r', added_edges)
 
     def _prepare_persistent_map_for_locomotion(self):
-        # 1) take the latest persistent map
-        # 2) for every env, add edges that are at most 1 edge away from the existing map, add no more than K edges
-        # 3) only add an edge if the vertex on the other side is at least L units away from everything in the graph
-
-        m = copy.deepcopy(self.persistent_maps[-1])
-
-        new_maps = self.current_maps
-
-        if self.params.persistent_map_checkpoint is not None:
-            # override exploration with what we load from file
-            log.debug('Loading map from file %s', self.params.persistent_map_checkpoint)
-            loaded_persistent_map = TopologicalMap.create_empty()
-            loaded_persistent_map.maybe_load_checkpoint(self.params.persistent_map_checkpoint)
-            new_maps = [loaded_persistent_map] * self.num_envs
-
-        max_edges_to_add = 5
-        added = 0
-
-        check_envs = range(self.num_envs)
-        if self.params.persistent_map_checkpoint is not None:
-            # all maps are the same (loaded from file), so it's enough to just check the 1st one
-            check_envs = [0]
-
-        for env_i in check_envs:
-            added += self._expand_map(m, new_maps[env_i], env_i)
-            if added >= max_edges_to_add:
-                break
-        log.debug('Finished adding new exploration edges after %d edges added', added)
-
-        self._check_loop_closures(m)
-
-        m.new_episode()
-
-        if self.params.persistent_map_checkpoint is None:
-            # if persistent map is provided, never relabel nodes to keep the exact correspondence
-            m.relabel_nodes()
-
-        for edge in m.graph.edges:
-            i1, i2 = edge
-            m.graph[i1][i2]['attempted_traverse'] = 0
-
-        self.map_size_before_locomotion = m.num_landmarks()
-        log.debug(
-            'Expanded map before locomotion, nodes %r, distances %r, num persistent maps %d',
-            m.graph.nodes, m.topological_distances(from_idx=0), len(self.persistent_maps),
-        )
-
-        if m.num_landmarks() < 2:
+        """Pick an exploration trajectory and turn it into a dense persistent map."""
+        if all(t is None for t in self.last_trajectories):
+            # we don't have any trajectories yet, need more exploration
             return False
-        else:
-            # good enough to start learning locomotion
-            self.persistent_maps.append(m)
-            return True
+
+
 
     def _prepare_persistent_map_for_exploration(self):
         """Keep only edges with high probability of success, delete inaccessible vertices."""
@@ -969,54 +925,6 @@ class TmaxManager:
                 done_flags[env_i] = dones[env_i] or locomotion_dones[env_i]
 
         return augmented_rewards, done_flags
-
-    # not used, may contain errors
-    # noinspection PyUnresolvedReferences
-    def get_neighbors(self):
-        """Not used now."""
-        if not self.params.use_neighborhood_encoder:
-            return None, None
-
-        neighbors_buffer = self.neighbors_buffer
-        maps = self.current_maps
-
-        neighbors_buffer.fill(0)
-        num_neighbors = [0] * len(maps)
-        landmark_env_idx = []
-
-        neighbor_landmarks, neighbor_hashes = [], []
-
-        for env_idx, m in enumerate(maps):
-            n_indices = m.neighborhood()
-            current_landmark_idx = n_indices[0]  # always keep the "current landmark"
-            n_indices = n_indices[1:]
-
-            # order of neighbors does not matter
-            random.shuffle(n_indices)
-            n_indices = [current_landmark_idx] + n_indices
-
-            for i, n_idx in enumerate(n_indices):
-                if i >= self.params.max_neighborhood_size:
-                    log.warning(
-                        'Too many neighbors %d, max encoded is %d. Had to ignore some neighbors.',
-                        len(n_indices), self.params.max_neighborhood_size,
-                    )
-                    break
-
-                neighbor_landmarks.append(m.get_observation(n_idx))
-                neighbor_hashes.append(m.get_hash(n_idx))
-                landmark_env_idx.append((env_idx, i))
-            num_neighbors[env_idx] = min(len(n_indices), self.params.max_neighborhood_size)
-
-        # calculate embeddings in one big batch
-        self.landmarks_encoder.encode(self.agent.session, neighbor_landmarks, neighbor_hashes)
-
-        # populate the buffer using cached embeddings
-        for i, neighbor_hash in enumerate(neighbor_hashes):
-            env_idx, neighbor_idx = landmark_env_idx[i]
-            neighbors_buffer[env_idx, neighbor_idx] = self.landmarks_encoder.encoded_landmarks[neighbor_hash]
-
-        return neighbors_buffer, num_neighbors
 
 
 class AgentTMAX(AgentLearner):
@@ -1491,9 +1399,8 @@ class AgentTMAX(AgentLearner):
         raise NotImplementedError('Use best_action_tmax instead')
 
     def best_action_tmax(self, observations, goals, deterministic=False):
-        neighbors, num_neighbors = self.tmax_mgr.get_neighbors()
         actions = self.actor_critic.best_action(
-            self.session, observations, goals, neighbors, num_neighbors, deterministic,
+            self.session, observations, goals, None, None, deterministic,
         )
         return actions[0]
 
@@ -1926,11 +1833,9 @@ class AgentTMAX(AgentLearner):
             with timing.timeit('experience'):
                 buffer.reset()
                 for rollout_step in range(self.params.rollout):
-                    neighbors, num_neigh = self.tmax_mgr.get_neighbors()
-
                     with timing.add_time('policy'):
                         actions, action_probs, values, masks, policy_goals, modes = self.policy_step(
-                            observations, goals, neighbors, num_neigh,
+                            observations, goals, None, None,
                         )
 
                     # wait for all the workers to complete an environment step
@@ -1952,7 +1857,7 @@ class AgentTMAX(AgentLearner):
                     buffer.add(
                         observations, policy_goals, actions, action_probs,
                         rewards, dones, values,
-                        neighbors, num_neigh, modes, masks,
+                        None, None, modes, masks,
                     )
                     observations, goals = new_obs, new_goals
 
@@ -1961,8 +1866,7 @@ class AgentTMAX(AgentLearner):
                     env_steps += num_steps_delta
 
                 # last step values are required for TD-return calculation
-                neighbors, num_neigh = tmax_mgr.get_neighbors()
-                _, _, values, _, _, _ = self.policy_step(observations, goals, neighbors, num_neigh)
+                _, _, values, _, _, _ = self.policy_step(observations, goals, None, None)
                 buffer.values.append(values)
 
             tmax_mgr.print_map_summary()
@@ -1993,9 +1897,8 @@ class AgentTMAX(AgentLearner):
             self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
             self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps)
 
+            tmax_mgr.save_trajectories(trajectory_buffer.complete_trajectories)
             trajectory_buffer.reset_trajectories()
-            # encoder changed, so we need to re-encode all landmarks
-            tmax_mgr.landmarks_encoder.reset()
 
     def learn(self):
         status = TrainStatus.SUCCESS

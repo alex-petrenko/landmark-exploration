@@ -19,8 +19,8 @@ def train_locomotion_net(agent, data, params, env_steps):
     summary = None
     prev_loss = 1e10
     batch_size = params.locomotion_experience_replay_batch
-    loco_step = agent.loco_step.eval(session=agent.session)
     locomotion = agent.locomotion
+    loco_step = locomotion.step.eval(session=agent.session)
 
     log.info('Training loco_her %d pairs, batch %d, epochs %d', len(data.buffer), batch_size, num_epochs)
 

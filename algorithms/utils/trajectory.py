@@ -2,18 +2,21 @@ class Trajectory:
     def __init__(self, env_idx):
         self.obs = []
         self.actions = []
+        self.infos = []
         self.env_idx = env_idx
 
-    def add(self, obs, action, **kwargs):
+    def add(self, obs, action, info, **kwargs):
         self.obs.append(obs)
         self.actions.append(action)
+        self.infos.append(info)
 
     def add_frame(self, tr, i):
-        self.add(tr.obs[i], tr.actions[i])
+        self.add(tr.obs[i], tr.actions[i], tr.infos[i])
 
     def add_trajectory(self, tr):
         self.obs.extend(tr.obs)
         self.actions.extend(tr.actions)
+        self.infos.extend(tr.infos)
 
     def __len__(self):
         return len(self.obs)
@@ -36,15 +39,15 @@ class TrajectoryBuffer:
         """Discard old trajectories and start collecting new ones."""
         self.complete_trajectories = []
 
-    def add(self, obs, actions, dones):
+    def add(self, obs, actions, infos, dones):
         assert len(obs) == len(actions)
         for env_idx in range(len(obs)):
+            self.current_trajectories[env_idx].add(obs[env_idx], actions[env_idx], infos[env_idx])
+
             if dones[env_idx]:
                 # finalize the trajectory and put it into a separate buffer
                 self.complete_trajectories.append(self.current_trajectories[env_idx])
                 self.current_trajectories[env_idx] = Trajectory(env_idx)
-            else:
-                self.current_trajectories[env_idx].add(obs[env_idx], actions[env_idx])
 
     def obs_size(self):
         total_len = total_nbytes = 0

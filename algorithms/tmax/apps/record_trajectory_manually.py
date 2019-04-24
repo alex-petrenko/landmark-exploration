@@ -12,6 +12,7 @@ from algorithms.utils.env_wrappers import reset_with_info
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.topological_maps.topological_map import TopologicalMap
+from algorithms.utils.trajectory import Trajectory
 from utils.envs.atari import atari_utils
 from utils.envs.doom import doom_utils
 from utils.envs.envs import create_env
@@ -63,7 +64,7 @@ def record_trajectory(params, env_id):
 
     m = TopologicalMap(obs, directed_graph=False, initial_info=info, verbose=True)
 
-    trajectory = []
+    trajectory = Trajectory(env_idx=-1)
     frame = 0
     frame_repeat = 4
     action = 0
@@ -80,7 +81,7 @@ def record_trajectory(params, env_id):
                 else:
                     action = 0
 
-                trajectory.append({'obs': obs, 'action': action, 'info': info})
+                trajectory.add(obs, action, info)
                 m.add_landmark(obs, info, update_curr_landmark=True)
 
             env_obs, rew, done, info = env.step(action)
@@ -105,7 +106,7 @@ def record_trajectory(params, env_id):
     log.info('Saving to %s...', trajectory_dir)
 
     with open(join(trajectory_dir, 'trajectory.pickle'), 'wb') as traj_file:
-        pickle.dump(trajectory, traj_file)
+        pickle.dump(trajectory.__dict__, traj_file)
 
     m.save_checkpoint(trajectory_dir, map_img=map_img, coord_limits=coord_limits, verbose=True)
 
