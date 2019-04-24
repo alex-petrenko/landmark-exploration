@@ -300,7 +300,9 @@ class TopologicalMap:
         g = nx.relabel_nodes(g, labels)
         return g
 
-    def save_checkpoint(self, checkpoint_dir, map_img=None, coord_limits=None, num_to_keep=5, verbose=False):
+    def save_checkpoint(
+            self, checkpoint_dir, map_img=None, coord_limits=None, num_to_keep=5, is_sparse=False, verbose=False,
+    ):
         """Verbose mode also dumps all the landmark observations and the graph structure into the directory."""
         results = AttrDict()
 
@@ -326,7 +328,10 @@ class TopologicalMap:
                 obs_bgr_bigger = cv2.resize(obs_bgr, (420, 420), interpolation=cv2.INTER_NEAREST)
                 cv2.imwrite(join(map_extra, f'{node:03d}.jpg'), obs_bgr_bigger)
 
-            figure = plot_graph(self.graph, layout='pos', map_img=map_img, limits=coord_limits, topological_map=True)
+            figure = plot_graph(
+                self.graph,
+                layout='pos', map_img=map_img, limits=coord_limits, topological_map=True, is_sparse=is_sparse,
+            )
             graph_filename = join(map_extra, 'graph.png')
             with open(graph_filename, 'wb') as graph_fobj:
                 plt.savefig(graph_fobj, format='png')

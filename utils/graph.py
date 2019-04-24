@@ -23,7 +23,9 @@ def parse_layout(nx_graph, layout):
     return pos
 
 
-def plot_graph(nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856, 1856), topological_map=False):
+def plot_graph(
+        nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856, 1856), topological_map=False, **kwargs,
+):
     """Plot the graph with a map image overlaid on it. Give coordinate limits of map in :limits:"""
     if layout == 'pos':
         for node_name in nx_graph.nodes:
@@ -53,7 +55,7 @@ def plot_graph(nx_graph, layout, map_img=None, node_size=80, limits=(0, 0, 1856,
     draw_func = draw_map if topological_map else nx.draw
     draw_func(
         nx_graph, pos, node_size=node_size, node_color=list(range(len(nx_graph.nodes))), edge_color='#cccccc',
-        cmap=plt.cm.get_cmap('plasma'), with_labels=True, font_color='#00ff00', font_size=7,
+        cmap=plt.cm.get_cmap('plasma'), with_labels=True, font_color='#00ff00', font_size=7, **kwargs,
     )
     plt.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
 
@@ -79,7 +81,8 @@ def draw_map(g, pos=None, ax=None, **kwds):
     if pos is None:
         pos = nx.drawing.spring_layout(g)  # default to spring layout
 
-    only_draw_edges = True
+    sparse_map = kwds.get('is_sparse', False)
+    only_draw_edges = not sparse_map
 
     if not only_draw_edges:
         nx.draw_networkx_nodes(g, pos, **kwds)

@@ -15,8 +15,6 @@ class Localizer:
         # noise-filtering parameter, how many frames we need to wait before we change localization
         self.localize_frames = 3
 
-        self.num_envs = self.params.num_envs
-
     def _log_verbose(self, s, *args):
         if self._verbose:
             log.debug(s, *args)
@@ -31,9 +29,10 @@ class Localizer:
             self._log_verbose('Env %d distance: %r', env_i, neighbor_distance)
 
     def localize(self, session, obs, info, maps, distance_net, on_new_landmark=None, on_new_edge=None, timing=None):
-        closest_landmark_idx = [-1] * self.num_envs
+        num_envs = len(obs)
+        closest_landmark_idx = [-1] * num_envs
         # closest distance to the landmark in the existing graph (excluding new landmarks)
-        closest_landmark_dist = [math.inf] * self.num_envs
+        closest_landmark_dist = [math.inf] * num_envs
 
         if all(m is None for m in maps):
             return closest_landmark_dist
@@ -198,7 +197,7 @@ class Localizer:
                     m.new_landmark_candidate_frames += 1
 
         # update localization info
-        for env_i in range(self.num_envs):
+        for env_i in range(num_envs):
             m = maps[env_i]
             if m is None:
                 continue

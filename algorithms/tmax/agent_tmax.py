@@ -248,7 +248,7 @@ class TmaxManager:
         # if persistent map is provided, then we can skip the entire exploration stage
         self.stage_change_required = self.params.persistent_map_checkpoint is not None
 
-        self.last_trajectories = [None] * self.num_envs
+        self.last_exploration_trajectories = [None] * self.num_envs
 
     def initialize(self, obs, info, env_steps):
         if self.initialized:
@@ -289,9 +289,10 @@ class TmaxManager:
             log.debug(s, *args)
 
     def save_trajectories(self, trajectories):
-        """Save the last trajectory for every env_idx to potentially later use as a demonstration."""
+        """Save the last exploration trajectory for every env_idx to potentially later use as a demonstration."""
         for t in trajectories:
-            self.last_trajectories[t.env_idx] = t
+            if all(stage == TmaxMode.EXPLORATION for stage in t.stage):
+                self.last_exploration_trajectories[t.env_idx] = t
 
     def get_locomotion_targets(self, env_indices):
         assert len(env_indices) > 0
@@ -552,10 +553,13 @@ class TmaxManager:
 
     def _prepare_persistent_map_for_locomotion(self):
         """Pick an exploration trajectory and turn it into a dense persistent map."""
-        if all(t is None for t in self.last_trajectories):
+        if all(t is None for t in self.last_exploration_trajectories):
             # we don't have any trajectories yet, need more exploration
             return False
 
+        # self.last_exploration_trajectories[]
+
+        trajectory_to_sparse_map()
 
 
     def _prepare_persistent_map_for_exploration(self):

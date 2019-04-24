@@ -1,8 +1,10 @@
 import math
 import random
+from functools import partial
 
 import numpy as np
 
+from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import hash_observation, TopologicalMap
 from utils.timing import Timing
 from utils.utils import log
@@ -229,7 +231,7 @@ class MapBuilder:
             risk, i1, i2, d, coord_dist = shortcut
             m.add_edge(i1, i2, loop_closure=True)
 
-    def add_trajectory_to_map(self, existing_map, traj):
+    def add_trajectory_to_dense_map(self, existing_map, traj):
         t = Timing()
 
         m = existing_map
@@ -260,3 +262,21 @@ class MapBuilder:
 
         log.debug('Add trajectory to map, timing: %s', t)
         return m
+
+    def add_trajectory_to_sparse_map(self, existing_map, traj):
+        m = existing_map
+        localizer = Localizer(self.agent.params)
+        is_new_landmark = [False] * len(traj)  # is frame a novel landmark
+
+        def new_landmark(_, frame_idx):
+            is_new_landmark[frame_idx] = True
+
+        for i in range(len(traj)):
+            new_landmark_func = partial(new_landmark, frame_idx=i)
+            obs = traj.obs[i]
+            info = traj.infos[i]
+            localizer.localize(
+                self.agent.session, [obs], [info], [m], self.distance_net, on_new_landmark=new_landmark_func,
+            )
+
+        return is_new_landmark
