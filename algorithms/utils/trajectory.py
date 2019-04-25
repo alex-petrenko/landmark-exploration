@@ -18,6 +18,11 @@ class Trajectory:
         self.actions.extend(tr.actions)
         self.infos.extend(tr.infos)
 
+    def trim_at(self, idx):
+        for key, value in self.__dict__.items():
+            if isinstance(value, (list, tuple)):
+                self.__dict__[key] = value[:idx]
+
     def __len__(self):
         return len(self.obs)
 

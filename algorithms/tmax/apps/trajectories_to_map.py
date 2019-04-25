@@ -16,7 +16,7 @@ from utils.utils import ensure_dir_exists, log
 
 
 def trajectories_to_sparse_map(init_map, trajectories, trajectories_dir, agent, map_img, coord_limits):
-    # this is just a test
+    """This is just a test."""
     m = init_map()
     map_builder = MapBuilder(agent, agent.distance.obs_encoder)
     for t in trajectories:
@@ -26,6 +26,19 @@ def trajectories_to_sparse_map(init_map, trajectories, trajectories_dir, agent, 
         log.info('Landmark frames %r', landmark_frames)
     sparse_map_dir = ensure_dir_exists(join(trajectories_dir, 'sparse_map'))
     m.save_checkpoint(sparse_map_dir, map_img=map_img, coord_limits=coord_limits, verbose=True, is_sparse=True)
+    sys.exit(0)
+
+
+def pick_best_trajectory(init_map, agent, trajectories):
+    """This is just a test."""
+    m = init_map()
+    map_builder = MapBuilder(agent, agent.distance.obs_encoder)
+    map_builder.add_trajectory_to_sparse_map(m, trajectories[1])
+
+    # noinspection PyProtectedMember
+    best_t_idx = agent.tmax_mgr._pick_best_exploration_trajectory(agent, trajectories, m)
+    log.info('Best traj index %d', best_t_idx)
+    sys.exit(0)
 
 
 def trajectory_to_map(params, env_id):
@@ -64,6 +77,10 @@ def trajectory_to_map(params, env_id):
     test_sparse_map = False
     if test_sparse_map:
         trajectories_to_sparse_map(init_map, trajectories, trajectories_dir, agent, map_img, coord_limits)
+
+    test_pick_best_trajectory = True
+    if test_pick_best_trajectory:
+        pick_best_trajectory(init_map, agent, trajectories)
 
     m = init_map()
     map_builder = MapBuilder(agent, agent.distance.obs_encoder)

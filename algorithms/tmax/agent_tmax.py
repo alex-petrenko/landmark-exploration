@@ -18,6 +18,7 @@ from algorithms.tmax.graph_encoders import make_graph_encoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer, LocomotionNetworkParams
 from algorithms.tmax.tmax_utils import TmaxMode, TmaxTrajectoryBuffer
 from algorithms.topological_maps.localization import Localizer
+from algorithms.topological_maps.map_builder import MapBuilder
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
 from algorithms.utils.algo_utils import EPS, num_env_steps, main_observation, goal_observation
 from algorithms.utils.encoders import make_encoder, make_encoder_with_goal, get_enc_params
@@ -29,7 +30,7 @@ from utils.distributions import CategoricalProbabilityDistribution
 from utils.envs.generate_env_map import generate_env_map
 from utils.tensorboard import image_summary
 from utils.timing import Timing
-from utils.utils import log, AttrDict, numpy_all_the_way, model_dir
+from utils.utils import log, AttrDict, numpy_all_the_way, model_dir, max_with_idx
 
 
 class ActorCritic:
@@ -551,19 +552,74 @@ class TmaxManager:
 
         log.debug('Finished loop closure checks, added edges: %r', added_edges)
 
+    @staticmethod
+    def _pick_best_exploration_trajectory(agent, trajectories, curr_sparse_map):
+        map_builder = MapBuilder(agent, agent.distance.obs_encoder)
+
+        max_dist_between_landmarks = 40
+
+        trajectory_landmarks = [[] for _ in range(len(trajectories))]
+        num_landmarks = [0] * len(trajectories)
+
+        for i, t in enumerate(trajectories):
+            log.debug('Processing trajectory %d with %d frames', i, len(t))
+            m = copy.deepcopy(curr_sparse_map)
+            is_frame_a_landmark = map_builder.add_trajectory_to_sparse_map(m, t)
+            landmark_frames = np.nonzero(is_frame_a_landmark)[0]
+
+            trim_at = 0 if len(landmark_frames) <= 0 else landmark_frames[0]
+            trim_at_landmark = 0
+            for j in range(1, len(landmark_frames)):
+                if landmark_frames[j] - landmark_frames[j - 1] < max_dist_between_landmarks:
+                    trim_at = landmark_frames[j]
+                    trim_at_landmark = j
+                else:
+                    break
+
+            trajectories[i].trim_at(trim_at + 1)
+            trajectory_landmarks[i] = landmark_frames[:trim_at_landmark + 1]
+            num_landmarks[i] = len(trajectory_landmarks[i])
+
+            log.debug(
+                'Truncated trajectory %d to %d frames and %d landmarks',
+                i, len(trajectories[i]), num_landmarks[i],
+            )
+
+        max_landmarks, best_trajectory_idx = max_with_idx(num_landmarks)
+        log.debug(
+            'Selected traj %d with %d landmarks and avg. distance of %.3f',
+            best_trajectory_idx, max_landmarks, len(trajectories[best_trajectory_idx]) / max_landmarks,
+        )
+
+        return best_trajectory_idx, max_landmarks
+
     def _prepare_persistent_map_for_locomotion(self):
         """Pick an exploration trajectory and turn it into a dense persistent map."""
+        log.warning('Prepare persistent map for locomotion!')
+
         if all(t is None for t in self.last_exploration_trajectories):
             # we don't have any trajectories yet, need more exploration
             return False
 
-        # For each trajectory:
-        # - clone sparse persistent map
-        # - use mapbuilder to add trajectory to map
-        # - truncate trajectories to remove all long distances between novel locations (>50 frames)
-        # - select top 50% of trajectories according to novel landmark count
-        # - out of those choose the one that has the shortest distance between landmarks
-        # TODO
+        curr_sparse_map = None  # TODO!!!
+        best_trajectory_idx, max_landmarks = self._pick_best_exploration_trajectory(
+            self.agent, self.last_exploration_trajectories, curr_sparse_map,
+        )
+
+        if max_landmarks == 0:
+            log.debug('Could not find any trajectory with nonzero novel landmarks')
+            return False
+
+        best_trajectory = self.last_exploration_trajectories[best_trajectory_idx]
+
+        # reset exploration trajectories
+        self.last_exploration_trajectories = [None] * self.num_envs
+
+        # TODO:
+        # - add trajectory to sparse map (to initialize curiosity)
+        # - add trajectory to dense map (for locomotion)
+
+        return True
 
     def _prepare_persistent_map_for_exploration(self):
         """Keep only edges with high probability of success, delete inaccessible vertices."""
