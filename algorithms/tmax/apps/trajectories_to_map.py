@@ -18,7 +18,7 @@ from utils.utils import ensure_dir_exists, log
 def trajectories_to_sparse_map(init_map, trajectories, trajectories_dir, agent, map_img, coord_limits):
     """This is just a test."""
     m = init_map()
-    map_builder = MapBuilder(agent, agent.distance.obs_encoder)
+    map_builder = MapBuilder(agent)
     for t in trajectories:
         m.new_episode()
         is_frame_a_landmark = map_builder.add_trajectory_to_sparse_map(m, t)
@@ -26,13 +26,13 @@ def trajectories_to_sparse_map(init_map, trajectories, trajectories_dir, agent, 
         log.info('Landmark frames %r', landmark_frames)
     sparse_map_dir = ensure_dir_exists(join(trajectories_dir, 'sparse_map'))
     m.save_checkpoint(sparse_map_dir, map_img=map_img, coord_limits=coord_limits, verbose=True, is_sparse=True)
-    sys.exit(0)
+    return m
 
 
 def pick_best_trajectory(init_map, agent, trajectories):
     """This is just a test."""
     m = init_map()
-    map_builder = MapBuilder(agent, agent.distance.obs_encoder)
+    map_builder = MapBuilder(agent)
     map_builder.add_trajectory_to_sparse_map(m, trajectories[1])
 
     # noinspection PyProtectedMember
@@ -74,22 +74,41 @@ def trajectory_to_map(params, env_id):
             verbose=True,
         )
 
-    test_sparse_map = False
-    if test_sparse_map:
-        trajectories_to_sparse_map(init_map, trajectories, trajectories_dir, agent, map_img, coord_limits)
+    sparse_map = trajectories_to_sparse_map(
+        init_map, trajectories, trajectories_dir, agent, map_img, coord_limits,
+    )
 
-    test_pick_best_trajectory = True
+    test_pick_best_trajectory = False
     if test_pick_best_trajectory:
         pick_best_trajectory(init_map, agent, trajectories)
 
     m = init_map()
-    map_builder = MapBuilder(agent, agent.distance.obs_encoder)
+    map_builder = MapBuilder(agent)
 
-    for t in trajectories:
-        m = map_builder.add_trajectory_to_dense_map(m, t)
+    for i, t in enumerate(trajectories):
+        keep_frames = []
+        if i == 0:
+            keep_frames = [15, 20, 26, 32, 38, 43, 50, 57]
+        m = map_builder.add_trajectory_to_dense_map(m, t, keep_frames=keep_frames)
 
     dense_map_dir = ensure_dir_exists(join(trajectories_dir, 'dense_map'))
     m.save_checkpoint(dense_map_dir, map_img=map_img, coord_limits=coord_limits, verbose=True)
+
+    # check if landmark correspondence between dense and sparse map is correct
+    for node, data in sparse_map.graph.nodes.data():
+        traj_idx = data['traj_idx']
+        frame_idx = data['frame_idx']
+
+        dense_map_landmark = m.frame_to_node_idx[traj_idx][frame_idx]
+        log.info('Sparse map node %d corresponds to dense map node %d', node, dense_map_landmark)
+
+        obs_sparse = sparse_map.get_observation(node)
+        obs_dense = m.get_observation(dense_map_landmark)
+
+        import cv2
+        cv2.imshow('sparse', obs_sparse)
+        cv2.imshow('dense', obs_dense)
+        cv2.waitKey()
 
     agent.finalize()
     return 0

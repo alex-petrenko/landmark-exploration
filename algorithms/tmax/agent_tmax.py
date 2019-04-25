@@ -210,15 +210,22 @@ class TmaxManager:
         self.neighbors_buffer = np.zeros([
             self.params.num_envs, self.params.max_neighborhood_size, agent.encoded_landmark_size,
         ])
-        self.current_maps = None
+
+        # needed for exploration
+        self.current_sparse_maps = None
+
         # we need to potentially preserve a few most recent copies of the persistent map
         # because when we update the persistent map not all of the environments switch to it right away,
         # we might need to wait until the episode end in all of them
-        self.persistent_maps = deque([])
-        self.current_persistent_maps = None  # latest persistent map associated with the environment
+        self.dense_persistent_maps = deque([])
+        self.sparse_persistent_maps = deque([])
 
-        self.map_size_before_exploration = self.map_size_before_locomotion = 0
-        self.accessible_region = None
+        # latest persistent map associated with the environment
+        self.current_dense_persistent_maps = None
+        self.current_sparse_persistent_maps = None
+
+        self.dense_map_size_before_locomotion = 0
+        self.sparse_map_size_before_locomotion = 0
 
         self.env_steps = 0
         self.episode_frames = [0] * self.num_envs
@@ -554,7 +561,7 @@ class TmaxManager:
 
     @staticmethod
     def _pick_best_exploration_trajectory(agent, trajectories, curr_sparse_map):
-        map_builder = MapBuilder(agent, agent.distance.obs_encoder)
+        map_builder = MapBuilder(agent)
 
         max_dist_between_landmarks = 40
 
@@ -601,7 +608,7 @@ class TmaxManager:
             # we don't have any trajectories yet, need more exploration
             return False
 
-        curr_sparse_map = None  # TODO!!!
+        curr_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
         best_trajectory_idx, max_landmarks = self._pick_best_exploration_trajectory(
             self.agent, self.last_exploration_trajectories, curr_sparse_map,
         )
@@ -615,32 +622,29 @@ class TmaxManager:
         # reset exploration trajectories
         self.last_exploration_trajectories = [None] * self.num_envs
 
-        # TODO:
-        # - add trajectory to sparse map (to initialize curiosity)
-        # - add trajectory to dense map (for locomotion)
+        curr_dense_map = copy.deepcopy(self.dense_persistent_maps[-1])
+        curr_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
+
+        map_builder = MapBuilder(self.agent)
+
+        is_frame_a_landmark = map_builder.add_trajectory_to_sparse_map(curr_sparse_map, best_trajectory)
+        landmark_frames = np.nonzero(is_frame_a_landmark)[0]
+
+        self.sparse_persistent_maps.append(curr_sparse_map)
+        self.sparse_map_size_before_locomotion = self.sparse_persistent_maps[-1].num_landmarks()
+
+        new_dense_map = map_builder.add_trajectory_to_dense_map(
+            curr_dense_map, best_trajectory, keep_frames=landmark_frames,
+        )
+        self.dense_persistent_maps.append(new_dense_map)
+        self.dense_map_size_before_locomotion = self.dense_persistent_maps[-1].num_landmarks()
 
         return True
 
     def _prepare_persistent_map_for_exploration(self):
         """Keep only edges with high probability of success, delete inaccessible vertices."""
-        m = copy.deepcopy(self.persistent_maps[-1])  # copy newest persistent map
-
-        # remove individual edges with low probability
-        remove_edges = set()  # unique edges, to avoid deleting the same edge twice
-        g = m.graph
-        for e in g.edges():
-            i1, i2 = e
-            if i2 > i1:
-                # consider only "forward" edges
-                continue
-
-            unreliable_edge = g[i1][i2]['success'] < self.params.reliable_edge_probability
-            if unreliable_edge and e not in remove_edges:
-                remove_edges.add(e)
-                log.debug(
-                    'Removing unreliable edge %r, probabilities: %.3f %.3f',
-                    e, g[i1][i2]['success'], g[i2][i1]['success'],
-                )
+        curr_dense_map = copy.deepcopy(self.dense_persistent_maps[-1])
+        curr_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
 
         # reset UCB statistics
         for node in m.graph.nodes:

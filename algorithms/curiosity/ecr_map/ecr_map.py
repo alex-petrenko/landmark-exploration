@@ -79,7 +79,8 @@ class ECRMapModule(CuriosityModule):
         bonuses = np.zeros(self.params.num_envs)
 
         if self.initialized:
-            def on_new_landmark(env_i):
+            # noinspection PyUnusedLocal
+            def on_new_landmark(env_i, new_landmark_idx):
                 bonuses[env_i] += self.params.map_expansion_reward
 
             distances_to_memory = self.localizer.localize(

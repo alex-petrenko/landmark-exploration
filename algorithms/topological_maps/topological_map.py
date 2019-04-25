@@ -62,6 +62,8 @@ class TopologicalMap:
 
         # number of trajectories that were used to build the map (used in TMAX)
         self.num_trajectories = 0
+        # index map from frame index in a trajectory to node index in the resulting map
+        self.frame_to_node_idx = dict()
 
         self.reset(initial_obs, initial_info)
 

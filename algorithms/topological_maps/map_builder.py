@@ -11,10 +11,10 @@ from utils.utils import log
 
 
 class MapBuilder:
-    def __init__(self, agent, obs_encoder):
+    def __init__(self, agent):
         self.agent = agent
         self.distance_net = self.agent.distance
-        self.obs_encoder = obs_encoder
+        self.obs_encoder = self.distance_net.obs_encoder
 
         # map generation parameters
         self.max_duplicate_dist = 20
@@ -32,9 +32,11 @@ class MapBuilder:
         obs, infos = traj.obs, traj.infos
         trajectory_idx = m.num_trajectories
 
-        m.graph.nodes[0]['info'] = infos[0]
-        m.graph.nodes[0]['embedding'] = None
-        m.graph.nodes[0]['traj_idx'] = 0
+        nodes = m.graph.nodes
+        nodes[0]['info'] = infos[0]
+        nodes[0]['embedding'] = None
+        nodes[0]['traj_idx'] = 0
+        nodes[0]['frame_idx'] = 0
 
         for i in range(1, len(traj)):
             idx = m.add_landmark(obs[i], infos[i], update_curr_landmark=True)
@@ -42,10 +44,12 @@ class MapBuilder:
             assert idx >= i
             node_idx[i] = idx
 
-            m.graph.nodes[idx]['info'] = infos[i]
-            m.graph.nodes[idx]['embedding'] = None
-            m.graph.nodes[idx]['traj_idx'] = trajectory_idx
+            nodes[idx]['info'] = infos[i]
+            nodes[idx]['embedding'] = None
+            nodes[idx]['traj_idx'] = trajectory_idx
+            nodes[idx]['frame_idx'] = i
 
+        m.frame_to_node_idx[m.num_trajectories] = node_idx
         m.num_trajectories += 1
 
     def _calc_feature_vectors(self, m, traj, node_idx):
@@ -83,8 +87,10 @@ class MapBuilder:
 
         return pairwise_distances
 
-    def _sparsify_trajectory_map(self, m, traj, node_idx, pairwise_distances):
+    def _sparsify_trajectory_map(self, m, traj, node_idx, pairwise_distances, keep_frames):
         to_delete = []
+        duplicates = [[] for _ in range(m.num_landmarks())]
+
         for i in range(len(traj)):
             i_node = node_idx[i]
             if i_node in to_delete:
@@ -92,7 +98,7 @@ class MapBuilder:
 
             for j in range(i + 1, min(len(traj), i + 1 + self.max_duplicate_dist)):
                 j_node = node_idx[j]
-                if j_node in to_delete:
+                if j_node in to_delete or j in keep_frames:
                     continue
 
                 d = pairwise_distances[i_node][j_node]
@@ -111,8 +117,11 @@ class MapBuilder:
                     neighbor_dist.append(pairwise_distances[node_idx[shifted_i]][j_node])
 
                 if np.percentile(neighbor_dist, 50) < self.duplicate_threshold:
-                    log.info('Duplicate landmark %d-%d', i_node, j_node)
+                    log.info('Duplicate landmark %d-%d (frames %d-%d)', i_node, j_node, i, j)
                     to_delete.append(j_node)
+                    duplicates[i_node].append(j)
+                    print(keep_frames)
+                    assert j not in keep_frames
                 else:
                     break
 
@@ -120,30 +129,43 @@ class MapBuilder:
             m.get_observation(0), directed_graph=False, initial_info=m.graph.nodes[0]['info'],
         )
         new_map.num_trajectories = m.num_trajectories
+        new_map.frame_to_node_idx = m.frame_to_node_idx
         new_map.new_episode()
 
         prev_traj_idx = 0
         prev_node = 0
         for node, data in m.graph.nodes.data():
             if node in to_delete:
+                assert len(duplicates[node]) <= 0
                 continue
 
-            traj_idx = m.graph.nodes[node].get('traj_idx', 0)
+            traj_idx = data.get('traj_idx', 0)
             assert traj_idx >= prev_traj_idx
 
-            idx = 0
+            new_node = 0
             if node > 0:
-                idx = new_map.add_landmark(data['obs'], data['info'], update_curr_landmark=True)
+                new_node = new_map.add_landmark(data['obs'], data['info'], update_curr_landmark=True)
                 add_edge = traj_idx == prev_traj_idx
                 if not add_edge:
-                    new_map.remove_edges_from([(prev_node, idx)])
-                    log.info('Remove edge %r between different trajectories', [(prev_node, idx)])
+                    new_map.remove_edges_from([(prev_node, new_node)])
+                    log.info('Remove edge %r between different trajectories', [(prev_node, new_node)])
 
             for key, value in data.items():
-                new_map.graph.nodes[idx][key] = value
+                new_map.graph.nodes[new_node][key] = value
+
+            # maintain correct frame to node correspondence
+            if traj_idx == m.num_trajectories - 1:
+                frame_idx = data['frame_idx']
+                node_idx[frame_idx] = new_node
+
+            for duplicate_idx in duplicates[node]:
+                log.info('Node for frame %d is %d', duplicate_idx, new_node)
+                node_idx[duplicate_idx] = new_node
 
             prev_traj_idx = traj_idx
             prev_node = node
+
+        new_map.frame_to_node_idx[new_map.num_trajectories - 1] = node_idx
 
         log.debug('%d landmarks in the map after duplicate removal...', new_map.num_landmarks())
         return new_map
@@ -162,7 +184,7 @@ class MapBuilder:
                 j_traj_idx = nodes[j].get('traj_idx', 0)
 
                 if j - i < min_shortcut_dist and i_traj_idx == j_traj_idx:
-                    # skip trivial shorcuts (close and time and from the same trajectory)
+                    # skip trivial shorcuts (close in time and from the same trajectory)
                     continue
 
                 neighbors_dist = []
@@ -231,7 +253,7 @@ class MapBuilder:
             risk, i1, i2, d, coord_dist = shortcut
             m.add_edge(i1, i2, loop_closure=True)
 
-    def add_trajectory_to_dense_map(self, existing_map, traj):
+    def add_trajectory_to_dense_map(self, existing_map, traj, keep_frames):
         t = Timing()
 
         m = existing_map
@@ -252,7 +274,7 @@ class MapBuilder:
 
         # delete very close (duplicate) landmarks from the map
         with t.timeit('sparsify'):
-            m = self._sparsify_trajectory_map(m, traj, node_idx, pairwise_distances)
+            m = self._sparsify_trajectory_map(m, traj, node_idx, pairwise_distances, keep_frames)
 
         with t.add_time('pairwise_distances'):
             pairwise_distances = self._calc_pairwise_distances(m)
@@ -268,8 +290,14 @@ class MapBuilder:
         localizer = Localizer(self.agent.params)
         is_new_landmark = [False] * len(traj)  # is frame a novel landmark
 
-        def new_landmark(_, frame_idx):
+        nodes = m.graph.nodes
+        nodes[0]['traj_idx'] = 0
+        nodes[0]['frame_idx'] = 0
+
+        def new_landmark(_, new_landmark_idx, frame_idx):
             is_new_landmark[frame_idx] = True
+            nodes[new_landmark_idx]['traj_idx'] = m.num_trajectories
+            nodes[new_landmark_idx]['frame_idx'] = frame_idx
 
         for i in range(len(traj)):
             new_landmark_func = partial(new_landmark, frame_idx=i)
@@ -279,4 +307,5 @@ class MapBuilder:
                 self.agent.session, [obs], [info], [m], self.distance_net, on_new_landmark=new_landmark_func,
             )
 
+        m.num_trajectories += 1
         return is_new_landmark

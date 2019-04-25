@@ -192,7 +192,7 @@ class Localizer:
                     m.new_landmark_candidate_frames = 0
 
                     if on_new_landmark is not None:
-                        on_new_landmark(env_i)
+                        on_new_landmark(env_i, new_landmark_idx)
                 else:
                     m.new_landmark_candidate_frames += 1
 
