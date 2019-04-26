@@ -106,7 +106,7 @@ class TopologicalMap:
     def new_episode(self):
         self.new_landmark_candidate_frames = 0
         self.closest_landmarks = []
-        self.curr_landmark_idx = 0  # assuming we're being put into the exact same spot every time
+        self.curr_landmark_idx = 0  # assuming we're being put into the exact same starting spot every time
         self.path_so_far = [0]
 
     def relabel_nodes(self):

@@ -36,9 +36,8 @@ def pick_best_trajectory(init_map, agent, trajectories):
     map_builder.add_trajectory_to_sparse_map(m, trajectories[1])
 
     # noinspection PyProtectedMember
-    best_t_idx = agent.tmax_mgr._pick_best_exploration_trajectory(agent, trajectories, m)
-    log.info('Best traj index %d', best_t_idx)
-    sys.exit(0)
+    best_t_idx, max_landmarks = agent.tmax_mgr._pick_best_exploration_trajectory(agent, trajectories, m)
+    log.info('Best traj index %d with landmarks %d', best_t_idx, max_landmarks)
 
 
 def trajectory_to_map(params, env_id):
@@ -81,7 +80,7 @@ def trajectory_to_map(params, env_id):
         init_map, trajectories, trajectories_dir, agent, map_img, coord_limits,
     )
 
-    test_pick_best_trajectory = False
+    test_pick_best_trajectory = True
     if test_pick_best_trajectory:
         pick_best_trajectory(init_map, agent, trajectories)
 
@@ -106,10 +105,12 @@ def trajectory_to_map(params, env_id):
 
         assert np.array_equal(obs_sparse, obs_dense)
 
-        import cv2
-        cv2.imshow('sparse', obs_sparse)
-        cv2.imshow('dense', obs_dense)
-        cv2.waitKey()
+        show_landmarks = False
+        if show_landmarks:
+            import cv2
+            cv2.imshow('sparse', obs_sparse)
+            cv2.imshow('dense', obs_dense)
+            cv2.waitKey()
 
     agent.finalize()
     return 0
