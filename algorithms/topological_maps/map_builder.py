@@ -5,7 +5,7 @@ from functools import partial
 import numpy as np
 
 from algorithms.topological_maps.localization import Localizer
-from algorithms.topological_maps.topological_map import hash_observation, TopologicalMap
+from algorithms.topological_maps.topological_map import hash_observation
 from utils.timing import Timing
 from utils.utils import log
 
@@ -27,10 +27,91 @@ class MapBuilder:
         self.shortcut_window = 10
         self.shortcuts_to_keep_fraction = 0.25  # fraction of the number of all nodes
 
+    def _calc_pairwise_distances(self, obs_embeddings):
+        num_embeddings = len(obs_embeddings)
+
+        pairwise_distances = np.empty([num_embeddings, num_embeddings], np.float32)
+
+        for i in range(num_embeddings):
+            if i % 10 == 0:
+                log.debug('Pairwise distances for %05d...', i)
+
+            curr_obs = [obs_embeddings[i]] * num_embeddings
+            d = self.distance_net.distances(self.agent.session, curr_obs, obs_embeddings)
+            pairwise_distances[i, :] = d
+
+        # induce symmetry
+        for i in range(num_embeddings):
+            for j in range(i + 1, num_embeddings):
+                d = (pairwise_distances[i][j] + pairwise_distances[j][i]) * 0.5
+                pairwise_distances[i][j] = pairwise_distances[j][i] = d
+
+        return pairwise_distances
+
+    def _calc_embeddings(self, observations):
+        obs_hashes = [hash_observation(o) for o in observations]
+        self.obs_encoder.encode(self.agent.session, observations)
+
+        assert len(observations) == len(obs_hashes)
+
+        embeddings = [None] * len(observations)
+        for i in range(len(observations)):
+            obs_hash = obs_hashes[i]
+            embeddings[i] = self.obs_encoder.encoded_obs[obs_hash]
+
+        return embeddings
+
+    def sparsify_trajectory(self, traj):
+        obs = traj.obs
+        obs_embeddings = self._calc_embeddings(obs)
+        pairwise_distances = self._calc_pairwise_distances(obs_embeddings)
+
+        to_delete = set()
+
+        for i in range(len(traj)):
+            if i in to_delete:
+                continue
+
+            for j in range(i + 1, min(len(traj), i + 1 + self.max_duplicate_dist)):
+                if j in to_delete:
+                    continue
+
+                d = pairwise_distances[i][j]
+                if d > self.duplicate_threshold:
+                    break
+
+                neighbor_dist = []
+                for shift in range(-self.duplicate_neighborhood, self.duplicate_neighborhood + 1):
+                    shifted_i, shifted_j = i + shift, j + shift
+                    if shifted_i < 0 or shifted_i >= len(traj):
+                        continue
+                    if shifted_j < 0 or shifted_j >= len(traj):
+                        continue
+
+                    neighbor_dist.append(pairwise_distances[i][shifted_j])
+                    neighbor_dist.append(pairwise_distances[shifted_i][j])
+
+                if np.percentile(neighbor_dist, 50) < self.duplicate_threshold:
+                    log.info('Duplicate landmark frames %d-%d', i, j)
+                    to_delete.add(j)
+                else:
+                    break
+
+        log.debug('Removing duplicate frames %r from trajectory...', to_delete)
+
+        trajectory_class = traj.__class__
+        new_trajectory = trajectory_class(traj.env_idx)
+
+        for i in range(len(traj)):
+            if i not in to_delete:
+                new_trajectory.add_frame(traj, i)
+
+        return new_trajectory
+
     @staticmethod
     def _add_simple_path_to_map(m, traj, node_idx):
         obs, infos = traj.obs, traj.infos
-        trajectory_idx = m.num_trajectories
+        curr_trajectory_idx = m.num_trajectories
 
         nodes = m.graph.nodes
         nodes[0]['info'] = infos[0]
@@ -46,129 +127,11 @@ class MapBuilder:
 
             nodes[idx]['info'] = infos[i]
             nodes[idx]['embedding'] = None
-            nodes[idx]['traj_idx'] = trajectory_idx
+            nodes[idx]['traj_idx'] = curr_trajectory_idx
             nodes[idx]['frame_idx'] = i
 
-        m.frame_to_node_idx[m.num_trajectories] = node_idx
+        m.frame_to_node_idx[curr_trajectory_idx] = node_idx
         m.num_trajectories += 1
-
-    def _calc_feature_vectors(self, m, traj, node_idx):
-        obs = traj.obs
-
-        obs_hashes = [hash_observation(o) for o in obs]
-        self.obs_encoder.encode(self.agent.session, obs)
-
-        assert len(traj) == len(obs_hashes)
-
-        for i in range(len(traj)):
-            obs_hash = obs_hashes[i]
-            node = node_idx[i]
-            m.graph.nodes[node]['embedding'] = self.obs_encoder.encoded_obs[obs_hash]
-
-    def _calc_pairwise_distances(self, m):
-        num_landmarks = m.num_landmarks()
-
-        pairwise_distances = np.empty([num_landmarks, num_landmarks], np.float32)
-        all_encoded_obs = [data['embedding'] for node, data in m.graph.nodes.data()]
-
-        for i in range(num_landmarks):
-            if i % 10 == 0:
-                log.debug('Pairwise distances for %05d...', i)
-
-            curr_obs = [all_encoded_obs[i]] * num_landmarks
-            d = self.distance_net.distances(self.agent.session, curr_obs, all_encoded_obs)
-            pairwise_distances[i, :] = d
-
-        # induce symmetry
-        for i in range(num_landmarks):
-            for j in range(i + 1, num_landmarks):
-                d = (pairwise_distances[i][j] + pairwise_distances[j][i]) * 0.5
-                pairwise_distances[i][j] = pairwise_distances[j][i] = d
-
-        return pairwise_distances
-
-    def _sparsify_trajectory_map(self, m, traj, node_idx, pairwise_distances, keep_frames):
-        to_delete = []
-        duplicates = [[] for _ in range(m.num_landmarks())]
-
-        for i in range(len(traj)):
-            i_node = node_idx[i]
-            if i_node in to_delete:
-                continue
-
-            for j in range(i + 1, min(len(traj), i + 1 + self.max_duplicate_dist)):
-                j_node = node_idx[j]
-                if j_node in to_delete or j in keep_frames:
-                    continue
-
-                d = pairwise_distances[i_node][j_node]
-                if d > self.duplicate_threshold:
-                    continue
-
-                neighbor_dist = []
-                for shift in range(-self.duplicate_neighborhood, self.duplicate_neighborhood + 1):
-                    shifted_i, shifted_j = i + shift, j + shift
-                    if shifted_i < 0 or shifted_i >= len(traj):
-                        continue
-                    if shifted_j < 0 or shifted_j >= len(traj):
-                        continue
-
-                    neighbor_dist.append(pairwise_distances[i_node][node_idx[shifted_j]])
-                    neighbor_dist.append(pairwise_distances[node_idx[shifted_i]][j_node])
-
-                if np.percentile(neighbor_dist, 50) < self.duplicate_threshold:
-                    log.info('Duplicate landmark %d-%d (frames %d-%d)', i_node, j_node, i, j)
-                    to_delete.append(j_node)
-                    duplicates[i_node].append(j)
-                    print(keep_frames)
-                    assert j not in keep_frames
-                else:
-                    break
-
-        new_map = TopologicalMap(
-            m.get_observation(0), directed_graph=False, initial_info=m.graph.nodes[0]['info'],
-        )
-        new_map.num_trajectories = m.num_trajectories
-        new_map.frame_to_node_idx = m.frame_to_node_idx
-        new_map.new_episode()
-
-        prev_traj_idx = 0
-        prev_node = 0
-        for node, data in m.graph.nodes.data():
-            if node in to_delete:
-                assert len(duplicates[node]) <= 0
-                continue
-
-            traj_idx = data.get('traj_idx', 0)
-            assert traj_idx >= prev_traj_idx
-
-            new_node = 0
-            if node > 0:
-                new_node = new_map.add_landmark(data['obs'], data['info'], update_curr_landmark=True)
-                add_edge = traj_idx == prev_traj_idx
-                if not add_edge:
-                    new_map.remove_edges_from([(prev_node, new_node)])
-                    log.info('Remove edge %r between different trajectories', [(prev_node, new_node)])
-
-            for key, value in data.items():
-                new_map.graph.nodes[new_node][key] = value
-
-            # maintain correct frame to node correspondence
-            if traj_idx == m.num_trajectories - 1:
-                frame_idx = data['frame_idx']
-                node_idx[frame_idx] = new_node
-
-            for duplicate_idx in duplicates[node]:
-                log.info('Node for frame %d is %d', duplicate_idx, new_node)
-                node_idx[duplicate_idx] = new_node
-
-            prev_traj_idx = traj_idx
-            prev_node = node
-
-        new_map.frame_to_node_idx[new_map.num_trajectories - 1] = node_idx
-
-        log.debug('%d landmarks in the map after duplicate removal...', new_map.num_landmarks())
-        return new_map
 
     def _shortcuts_distance(self, m, pairwise_distances, min_shortcut_dist, shortcut_window):
         shortcut_candidates = []
@@ -253,7 +216,7 @@ class MapBuilder:
             risk, i1, i2, d, coord_dist = shortcut
             m.add_edge(i1, i2, loop_closure=True)
 
-    def add_trajectory_to_dense_map(self, existing_map, traj, keep_frames):
+    def add_trajectory_to_dense_map(self, existing_map, traj):
         t = Timing()
 
         m = existing_map
@@ -267,17 +230,11 @@ class MapBuilder:
 
         # precalculate feature vectors for the distances network
         with t.timeit('cache_feature_vectors'):
-            self._calc_feature_vectors(m, traj, node_idx)
+            all_observations = [m.get_observation(node) for node in m.graph.nodes]
+            obs_embeddings = self._calc_embeddings(all_observations)
 
         with t.add_time('pairwise_distances'):
-            pairwise_distances = self._calc_pairwise_distances(m)
-
-        # delete very close (duplicate) landmarks from the map
-        with t.timeit('sparsify'):
-            m = self._sparsify_trajectory_map(m, traj, node_idx, pairwise_distances, keep_frames)
-
-        with t.add_time('pairwise_distances'):
-            pairwise_distances = self._calc_pairwise_distances(m)
+            pairwise_distances = self._calc_pairwise_distances(obs_embeddings)
 
         with t.timeit('loop_closures'):
             self._add_shortcuts(m, pairwise_distances)

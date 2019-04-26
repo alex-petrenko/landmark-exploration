@@ -193,7 +193,7 @@ class Localizer:
         target_node = path[0]
         target_d = distances[0]
 
-        confidently_reachable = np.random.random() * 0.1 + 0.05
+        confidently_reachable = np.random.random() * 0.1 + 0.1
 
         if len(path) > 1:
             target_node = path[1]
@@ -226,7 +226,6 @@ def test_locomotion(params, env_id):
     agent.initialize()
 
     env = make_env_func()
-    map_img, coord_limits = generate_env_map(make_env_func)
 
     env_obs, info = reset_with_info(env)
     obs_prev = obs = main_observation(env_obs)
@@ -241,7 +240,12 @@ def test_locomotion(params, env_id):
     frame_repeat = 4
     action = 0
 
-    final_goal_idx = 92
+    final_goal_idx = [44, 131, 170]
+    final_goal_idx = random.choice(final_goal_idx)
+    final_goal_idx = 131
+
+    log.info('Locomotion goal is %d', final_goal_idx)
+
     m = loaded_persistent_map
     localizer = Localizer(m, agent)
 
@@ -280,6 +284,7 @@ def test_locomotion(params, env_id):
 
                 display_obs('next_target', next_target_obs)
                 cv2.waitKey(1)
+                log.info('Frame %d...', frame)
 
         took_seconds = t.one_frame
         desired_fps = 40

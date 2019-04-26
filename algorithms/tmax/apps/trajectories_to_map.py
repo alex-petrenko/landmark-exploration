@@ -74,6 +74,9 @@ def trajectory_to_map(params, env_id):
             verbose=True,
         )
 
+    map_builder = MapBuilder(agent)
+    trajectories = [map_builder.sparsify_trajectory(t) for t in trajectories]
+
     sparse_map = trajectories_to_sparse_map(
         init_map, trajectories, trajectories_dir, agent, map_img, coord_limits,
     )
@@ -83,13 +86,9 @@ def trajectory_to_map(params, env_id):
         pick_best_trajectory(init_map, agent, trajectories)
 
     m = init_map()
-    map_builder = MapBuilder(agent)
 
     for i, t in enumerate(trajectories):
-        keep_frames = []
-        if i == 0:
-            keep_frames = [15, 20, 26, 32, 38, 43, 50, 57]
-        m = map_builder.add_trajectory_to_dense_map(m, t, keep_frames=keep_frames)
+        m = map_builder.add_trajectory_to_dense_map(m, t)
 
     dense_map_dir = ensure_dir_exists(join(trajectories_dir, 'dense_map'))
     m.save_checkpoint(dense_map_dir, map_img=map_img, coord_limits=coord_limits, verbose=True)
@@ -104,6 +103,8 @@ def trajectory_to_map(params, env_id):
 
         obs_sparse = sparse_map.get_observation(node)
         obs_dense = m.get_observation(dense_map_landmark)
+
+        assert np.array_equal(obs_sparse, obs_dense)
 
         import cv2
         cv2.imshow('sparse', obs_sparse)
