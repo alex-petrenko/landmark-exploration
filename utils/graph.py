@@ -87,8 +87,8 @@ def draw_map(g, pos=None, ax=None, **kwds):
     if not only_draw_edges:
         nx.draw_networkx_nodes(g, pos, **kwds)
 
-    edges_normal = [(u, v) for (u, v, d) in g.edges(data=True) if not d['loop_closure']]
-    edges_shortcuts = [(u, v) for (u, v, d) in g.edges(data=True) if d['loop_closure']]
+    edges_normal = [(u, v) for (u, v, d) in g.edges(data=True) if not d.get('loop_closure')]
+    edges_shortcuts = [(u, v) for (u, v, d) in g.edges(data=True) if d.get('loop_closure')]
 
     nx.draw_networkx_edges(g, pos, edgelist=edges_normal, arrows=False, **kwds)
 
@@ -109,8 +109,10 @@ def draw_map(g, pos=None, ax=None, **kwds):
     plt.draw_if_interactive()
 
 
-def visualize_graph_tensorboard(nx_graph, tag, layout='pos', map_img=None, coord_limits=None):
-    figure = plot_graph(nx_graph, layout, map_img=map_img, limits=coord_limits)
+def visualize_graph_tensorboard(nx_graph, tag, layout='pos', map_img=None, coord_limits=None, is_sparse=False):
+    figure = plot_graph(
+        nx_graph, layout, map_img=map_img, limits=coord_limits, topological_map=True, is_sparse=is_sparse,
+    )
     w, h = figure.canvas.get_width_height()
 
     buffer = io.BytesIO()

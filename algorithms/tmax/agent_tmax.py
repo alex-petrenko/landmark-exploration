@@ -17,8 +17,8 @@ from algorithms.distance.distance import DistanceBuffer
 from algorithms.multi_env import MultiEnv
 from algorithms.tmax.graph_encoders import make_graph_encoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer, LocomotionNetworkParams
+from algorithms.tmax.navigator import Navigator
 from algorithms.tmax.tmax_utils import TmaxMode, TmaxTrajectoryBuffer
-from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.map_builder import MapBuilder
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
 from algorithms.utils.algo_utils import EPS, num_env_steps, main_observation, goal_observation
@@ -208,9 +208,8 @@ class TmaxManager:
         self.curiosity = agent.curiosity
         self.params = agent.params
         self.num_envs = self.params.num_envs
-        self.neighbors_buffer = np.zeros([
-            self.params.num_envs, self.params.max_neighborhood_size, agent.encoded_landmark_size,
-        ])
+
+        self.navigator = Navigator(agent)
 
         # we need to potentially preserve a few most recent copies of the persistent map
         # because when we update the persistent map not all of the environments switch to it right away,
@@ -228,8 +227,7 @@ class TmaxManager:
         self.env_steps = 0
         self.episode_frames = [0] * self.num_envs
 
-        self.locomotion_prev = [None] * self.num_envs  # starting landmark for locomotion policy
-        self.locomotion_targets = [None] * self.num_envs  # immediate goal for locomotion policy
+        self.locomotion_targets = [None] * self.num_envs
         self.locomotion_final_targets = [None] * self.num_envs  # final target (e.g. goal observation)
 
         self.global_stage = TmaxMode.EXPLORATION
@@ -276,18 +274,19 @@ class TmaxManager:
         self._maybe_load_map(self.dense_persistent_maps[-1], 'dense')
         self._maybe_load_map(self.sparse_persistent_maps[-1], 'sparse')
 
-    def _save_map(self, current_map, map_type):
+    def _save_map(self, current_map, map_type, is_sparse):
         checkpoint_dir = model_dir(self.params.experiment_dir())
         map_dir = ensure_dir_exists(join(checkpoint_dir, map_type))
         current_map.save_checkpoint(
-            map_dir, map_img=self.agent.map_img, coord_limits=self.agent.coord_limits, verbose=True,
+            map_dir,
+            map_img=self.agent.map_img, coord_limits=self.agent.coord_limits, verbose=True, is_sparse=is_sparse,
         )
 
     def save(self):
         if len(self.dense_persistent_maps) > 0:
-            self._save_map(self.dense_persistent_maps[-1], 'dense')
+            self._save_map(self.dense_persistent_maps[-1], 'dense', is_sparse=False)
         if len(self.sparse_persistent_maps) > 0:
-            self._save_map(self.sparse_persistent_maps[-1], 'sparse')
+            self._save_map(self.sparse_persistent_maps[-1], 'sparse', is_sparse=True)
 
     def _log_verbose(self, s, *args):
         if self._verbose:
@@ -300,70 +299,19 @@ class TmaxManager:
                 self.last_exploration_trajectories[t.env_idx] = t
 
     def get_locomotion_targets(self, env_indices):
-        # TODO!
         assert len(env_indices) > 0
-        targets, target_hashes = [], []
+        targets = [None] * len(env_indices)
 
-        for env_i in env_indices:
+        for i, env_i in enumerate(env_indices):
             assert self.mode[env_i] == TmaxMode.LOCOMOTION
             locomotion_target_idx = self.locomotion_targets[env_i]
-            assert locomotion_target_idx is not None
-            target_obs = self.current_maps[env_i].get_observation(locomotion_target_idx)
-            targets.append(target_obs)
-            target_hashes.append(self.current_maps[env_i].get_hash(locomotion_target_idx))
+            if locomotion_target_idx is None:
+                continue
 
-        assert len(targets) == len(env_indices)
-        return targets, target_hashes
+            target_obs = self.current_dense_maps[env_i].get_observation(locomotion_target_idx)
+            targets[i] = target_obs
 
-    def _select_next_locomotion_target(self, env_i, curr_landmark_idx, verbose=False):
-        # TODO
-        assert self.mode[env_i] == TmaxMode.LOCOMOTION
-
-        if isinstance(self.locomotion_final_targets[env_i], tuple):
-            # target is an edge - let's first navigate to the initial vertex of an edge
-            target = self.locomotion_final_targets[env_i][0]
-        else:
-            # target is a vertex
-            target = self.locomotion_final_targets[env_i]
-
-        assert target is not None
-
-        m = self.current_maps[env_i]
-
-        def weight_func(i1, i2, d):
-            # max_probability encourages us to take more risky edges to minimize the total path length
-            return TopologicalMap.edge_weight(i1, i2, d, max_probability=0.95)
-
-        path = m.get_path(curr_landmark_idx, target, edge_weight=weight_func)
-        assert path is not None  # final goal should always be reachable!
-
-        if verbose and len(path) > 1:
-            log.info('Shortest path from %d to %d is %r', curr_landmark_idx, target, path)
-
-        self.locomotion_prev[env_i] = curr_landmark_idx
-
-        if curr_landmark_idx == target or len(path) <= 1:
-            # we reached the final target
-            if self.env_stage[env_i] == TmaxMode.EXPLORATION:
-                # reached the target, switch to exploration policy
-                self.mode[env_i] = TmaxMode.EXPLORATION
-                self.locomotion_prev[env_i] = None
-                self.locomotion_targets[env_i] = None
-                self.locomotion_final_targets[env_i] = None
-            else:
-                # sample new "final goal" for locomotion policy
-                locomotion_goal = self._get_locomotion_final_goal(env_i, curr_landmark_idx)
-                self.locomotion_final_targets[env_i] = locomotion_goal
-                # call recursively to re-set the locomotion target
-                self._select_next_locomotion_target(env_i, curr_landmark_idx)
-                assert self.locomotion_targets[env_i] != curr_landmark_idx
-        else:
-            # set the next landmark on the way to the final goal to be our next target
-            assert len(path) >= 2
-            next_target = path[1]  # next vertex on the path
-            self.locomotion_targets[env_i] = next_target
-            num_attempts = m.graph[curr_landmark_idx][next_target].get('attempted_traverse', 0)
-            m.graph[curr_landmark_idx][next_target]['attempted_traverse'] = num_attempts + 1
+        return targets
 
     def _get_locomotion_final_goal_locomotion_stage(self, env_i):
         """
@@ -476,7 +424,7 @@ class TmaxManager:
 
         curr_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
         best_trajectory_idx, max_landmarks = self._pick_best_exploration_trajectory(
-            self.agent, self.last_exploration_trajectories, curr_sparse_map,
+            self.agent, self.last_exploration_trajectories[:5], curr_sparse_map,
         )
 
         if max_landmarks == 0:
@@ -501,10 +449,12 @@ class TmaxManager:
         self.sparse_persistent_maps.append(curr_sparse_map)
         self.sparse_map_size_before_locomotion = self.sparse_persistent_maps[-1].num_landmarks()
 
+        # TODO: maybe rebuild shortcuts every time
         new_dense_map = map_builder.add_trajectory_to_dense_map(curr_dense_map, best_trajectory)
         self.dense_persistent_maps.append(new_dense_map)
         self.dense_map_size_before_locomotion = self.dense_persistent_maps[-1].num_landmarks()
 
+        self.save()
         return True
 
     def _prepare_persistent_map_for_exploration(self):
@@ -570,23 +520,18 @@ class TmaxManager:
 
         self.episode_frames[env_i] = 0
 
-        self.locomotion_prev[env_i] = None
         self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
 
-        curr_landmark_idx = 0
-        # noinspection PyTypeChecker
-        self.locomotion_prev[env_i] = curr_landmark_idx
         locomotion_goal = self._get_locomotion_final_goal(env_i)
+        self.locomotion_final_targets[env_i] = locomotion_goal
+        # noinspection PyTypeChecker
+        self.locomotion_targets[env_i] = 0  # will be updated on the next frame
 
         self.mode[env_i] = TmaxMode.LOCOMOTION
-        self.locomotion_final_targets[env_i] = locomotion_goal
-        self._select_next_locomotion_target(env_i, curr_landmark_idx, verbose=True)
-
-        # TODO initialize navigator
+        self.navigator.reset(env_i, self.current_dense_maps[env_i])
 
         assert self.mode[env_i] is not None
         if self.mode[env_i] == TmaxMode.LOCOMOTION:
-            assert self.locomotion_prev[env_i] == curr_landmark_idx
             assert self.locomotion_targets[env_i] is not None
             assert self.locomotion_final_targets[env_i] is not None
 
@@ -618,178 +563,56 @@ class TmaxManager:
         if self.stage_change_required:
             self._update_stage(env_steps)
 
-    def _node_distances(self, from_map, from_node, to_map, to_nodes):
-        # TODO remove?
-        from_obs = [from_map.get_observation(from_node)] * len(to_nodes)
-        to_obs = [to_map.get_observation(node) for node in to_nodes]
-
-        assert len(to_obs) == len(to_nodes)
-        assert len(from_obs) == len(to_nodes)
-
-        distances = self.curiosity.distance.distances_from_obs(
-            self.agent.session, obs_first=from_obs, obs_second=to_obs,
+    def _update_locomotion(self, next_obs):
+        next_target, next_target_d = self.navigator.get_next_target(
+            self.current_dense_maps, next_obs, self.locomotion_final_targets
         )
-        assert len(distances) == len(to_nodes)
-        return distances
 
-    def _distance_to_locomotion_targets(self, obs):
-        # TODO: remove?
-        loco_env_indices = []
-        loco_curr_obs = []
         for env_i in range(self.num_envs):
-            if self.mode[env_i] == TmaxMode.LOCOMOTION:
-                loco_env_indices.append(env_i)
-                loco_curr_obs.append(obs[env_i])
+            if self.mode[env_i] != TmaxMode.LOCOMOTION:
+                continue
 
-        if len(loco_env_indices) == 0:
-            return []
+            self.locomotion_targets[env_i] = next_target[env_i]
+            exploration_stage = self.env_stage[env_i] == TmaxMode.EXPLORATION
 
-        locomotion_targets, target_hashes = self.get_locomotion_targets(loco_env_indices)
-
-        distances = self.curiosity.distance.distances_from_obs(
-            self.agent.session,
-            obs_first=loco_curr_obs, obs_second=locomotion_targets,
-            hashes_first=None, hashes_second=target_hashes,
-        )
-
-        all_distances = [None] * self.num_envs
-        for i, env_i in enumerate(loco_env_indices):
-            all_distances[env_i] = distances[i]
-        return all_distances
-
-    def _update_locomotion(self, next_obs, dones, done_by_timer, timing):
-        # TODO: replace with navigator?
-        rewards = np.zeros(self.num_envs)
-        locomotion_dones = np.zeros(self.num_envs, dtype=bool)
-
-        if not self.curiosity.is_initialized():
-            # don't update anything when distance metric is not trained
-            return rewards, locomotion_dones
-
-        with timing.add_time('calc_distances'):
-            distances = self._distance_to_locomotion_targets(next_obs)
-
-        successful_traversal_frames = self.params.successful_traversal_frames
-
-        with timing.add_time('loco_loop'):
-            for env_i in range(self.num_envs):
-                if self.mode[env_i] != TmaxMode.LOCOMOTION:
-                    continue
-
-                since_last_success = self.episode_frames[env_i] - self.last_locomotion_success[env_i]
-                self.dist_to_target[env_i].append(distances[env_i])
-                last_dist_to_target = self.dist_to_target[env_i][-3:]
-
-                episode_ended = dones[env_i]
-                episode_end_by_timer = done_by_timer[env_i]
-                episode_end_not_by_timer = episode_ended and not episode_end_by_timer
-
-                if episode_end_by_timer:
-                    assert episode_ended
-
-                locomotion_timed_out = since_last_success > successful_traversal_frames
-                exploration_stage = self.env_stage[env_i] == TmaxMode.EXPLORATION
-
-                failed_by_timeout = locomotion_timed_out and (exploration_stage or episode_ended)
-                locomotion_failed = episode_end_not_by_timer or failed_by_timeout
-
-                if locomotion_failed:
-                    # locomotion not successful
-                    locomotion_dones[env_i] = True
-                    self.dist_to_target[env_i] = [math.inf]
-
-                    rewards[env_i] -= 0.02  # failed locomotion, to prevent being attracted by the goal
-
-                    if locomotion_timed_out:
-                        self.current_maps[env_i].update_edge_traversal(
-                            self.locomotion_prev[env_i], self.locomotion_targets[env_i], 0, frames=math.inf,
-                        )
-                        self.locomotion_achieved_goal.append(0)
-
-                        log.info(
-                            'Locomotion failed dist %r, prev %d, goal %d, frame %d, since last success %d',
-                            last_dist_to_target, self.locomotion_prev[env_i],
-                            self.locomotion_targets[env_i], self.episode_frames[env_i], since_last_success,
-                        )
-
-                    if exploration_stage and not episode_ended:
-                        # give up on reaching our locomotion goal, switch to exploration
-                        self.mode[env_i] = TmaxMode.EXPLORATION
-                        self.locomotion_prev[env_i] = None
-                        self.locomotion_targets[env_i] = None
-                        self.locomotion_final_targets[env_i] = None
-
-                    continue
-
-                assert distances[env_i] is not None and 0.0 <= distances[env_i] <= 1.0
-
-                if self.params.locomotion_dense_reward:
-                    rewards[env_i] += (1.0 - distances[env_i]) * 0.01  # scaling factor for dense reward
-                else:
-                    if distances[env_i] <= self.params.locomotion_reached_threshold:
-                        rewards[env_i] += 0.02
-
-                # low-pass filter
-                if all(d < self.params.locomotion_reached_threshold for d in last_dist_to_target):
-                    # reached the target!
-                    self.dist_to_target[env_i] = [math.inf]
-                    curr_landmark_idx = self.locomotion_targets[env_i]
-
-                    rewards[env_i] += 1.0
-
+            if next_target[env_i] is None:
+                if self.locomotion_final_targets[env_i] is not None:
                     log.info(
-                        'Locomotion net gets reward +1! (%.3f) dist %r, prev %d, goal %d, frame %d, took %d env %d',
-                        rewards[env_i], last_dist_to_target, self.locomotion_prev[env_i],
-                        curr_landmark_idx, self.episode_frames[env_i], since_last_success, env_i,
+                        'Agent in env %d got lost in %d steps while trying to reach %d',
+                        env_i, self.episode_frames[env_i], self.locomotion_final_targets[env_i],
                     )
 
-                    locomotion_dones[env_i] = True
-                    is_success = 1 if since_last_success < successful_traversal_frames else 0
-                    self.current_maps[env_i].update_edge_traversal(
-                        self.locomotion_prev[env_i], self.locomotion_targets[env_i],
-                        is_success, frames=since_last_success,
-                    )
-                    self.last_locomotion_success[env_i] = self.episode_frames[env_i]
-                    self.locomotion_achieved_goal.append(1)
-                    self.locomotion_traversal_length.append(since_last_success)
+                    if exploration_stage:
+                        self.mode[env_i] = TmaxMode.EXPLORATION
 
-                    self._select_next_locomotion_target(env_i, curr_landmark_idx)
+                self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
+                continue
 
-                    if self.mode[env_i] != TmaxMode.LOCOMOTION:
-                        log.info('Reached the locomotion goal and switched to exploration')
-                    else:
-                        log.info(
-                            'Env %d next target is %d, goal %r, prev %d',
-                            env_i, self.locomotion_targets[env_i], self.locomotion_final_targets[env_i],
-                            self.locomotion_prev[env_i],
-                        )
+            # TODO: what if we aren't making any progress towards the goal?
 
-        return rewards, locomotion_dones
+            if self.navigator.current_landmarks[env_i] == self.locomotion_final_targets[env_i]:
+                # reached the locomotion goal
+                log.info(
+                    'Env %d reached locomotion goal %d in %d steps',
+                    env_i, self.locomotion_final_targets[env_i], self.episode_frames[env_i],
+                )
 
-    def print_map_summary(self):
-        m = self.persistent_maps[-1]
-        num_edges = 0
-        for e in m.graph.edges(data=True):
-            i1, i2, data = e
-            log.info(
-                'Edge %03d: (%02d-%02d), success: %.4f, last_frames: %r, attempts: %d',
-                num_edges, i1, i2, data['success'], data['last_traversal_frames'], data['attempted_traverse'],
-            )
-            num_edges += 1
+                if exploration_stage:
+                    self.mode[env_i] = TmaxMode.EXPLORATION
+
+                self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
 
     def update(self, obs, next_obs, rewards, dones, infos, env_steps, timing=None, verbose=False):
         self._verbose = verbose
         if timing is None:
             timing = Timing()
 
-        assert len(obs) == len(self.current_maps)
+        assert len(obs) == len(self.current_dense_maps)
 
         self.env_steps = env_steps
 
-        done_by_timer = [info.get('terminated_by_timer', False) for info in infos]
         curiosity_bonus = np.zeros(self.num_envs)
         augmented_rewards = np.zeros(self.num_envs)
-        done_flags = np.zeros(self.num_envs, dtype=bool)
 
         if self.params.persistent_map_checkpoint is None:
             # run curiosity only if we need to discover the map, otherwise we don't need it (map is provided)
@@ -800,7 +623,7 @@ class TmaxManager:
                 )
 
         with timing.add_time('update_locomotion'):
-            locomotion_rewards, locomotion_dones = self._update_locomotion(next_obs, dones, done_by_timer, timing)
+            self._update_locomotion(next_obs)
 
         with timing.add_time('new_episode'):
             for env_i in range(self.num_envs):
@@ -815,13 +638,8 @@ class TmaxManager:
         for env_i in range(self.num_envs):
             if self.mode[env_i] == TmaxMode.EXPLORATION:
                 augmented_rewards[env_i] = rewards[env_i] + curiosity_bonus[env_i]
-                done_flags[env_i] = dones[env_i]
-            else:
-                augmented_rewards[env_i] = locomotion_rewards[env_i]
-                self.episode_locomotion_reward[env_i] += locomotion_rewards[env_i]
-                done_flags[env_i] = dones[env_i] or locomotion_dones[env_i]
 
-        return augmented_rewards, done_flags
+        return augmented_rewards
 
 
 class AgentTMAX(AgentLearner):
@@ -848,7 +666,7 @@ class AgentTMAX(AgentLearner):
             self.graph_encoder_rnn_size = 128  # size of GRU layer in RNN neighborhood encoder
 
             self.rl_locomotion = False
-            self.locomotion_dense_reward = True
+            self.locomotion_dense_reward = True  # TODO remove?
             self.locomotion_reached_threshold = 0.075  # if distance is less than that, we reached the target
             self.reliable_path_probability = 0.4  # product of probs along the path for it to be considered reliable
             self.reliable_edge_probability = 0.1
@@ -1167,69 +985,46 @@ class AgentTMAX(AgentLearner):
         self.summary_writer.flush()
 
     def _maybe_tmax_summaries(self, tmax_mgr, env_steps):
-        maps = tmax_mgr.current_maps
-
         time_since_last = time.time() - self._last_tmax_map_summary
         tmax_map_summary_rate_seconds = 120
         if time_since_last > tmax_map_summary_rate_seconds:
-            map_summaries(maps, env_steps, self.summary_writer, 'tmax_maps', self.map_img, self.coord_limits)
-
             map_summaries(
-                [tmax_mgr.persistent_maps[-1]],
-                env_steps, self.summary_writer, 'tmax_persistent_map', self.map_img, self.coord_limits,
+                [tmax_mgr.dense_persistent_maps[-1]],
+                env_steps, self.summary_writer, 'tmax_dense_map', self.map_img, self.coord_limits,
             )
             map_summaries(
-                [tmax_mgr.accessible_region],
-                env_steps, self.summary_writer, 'tmax_accessible_region', self.map_img, self.coord_limits,
+                [tmax_mgr.sparse_persistent_maps[-1]],
+                env_steps, self.summary_writer, 'tmax_sparse_map', self.map_img, self.coord_limits,
             )
             self._last_tmax_map_summary = time.time()
 
         # locomotion summaries
+        # TODO: summaries from the locomotion stage:
+        # - avg steps to reach final goal
+        # - success rate in reaching final goal
+        # - ...
+
         summary_obj = tf.Summary()
-        achieved_goal = tmax_mgr.locomotion_achieved_goal
-        if len(achieved_goal) > 0:
-            summary_obj.value.add(tag='locomotion/avg_success', simple_value=np.mean(achieved_goal))
-
-        traversal_len = tmax_mgr.locomotion_traversal_length
-        if len(traversal_len) > 0:
-            summary_obj.value.add(tag='locomotion/avg_traversal_len', simple_value=np.mean(traversal_len))
-
-        traversal_success = []
-        for e, properties in tmax_mgr.persistent_maps[-1].graph.edges.items():
-            traversal_success.append(properties['success'])
-        if len(traversal_success) > 0:
-            summary_obj.value.add(
-                tag='locomotion/edge_traversal_success', simple_value=np.mean(traversal_success),
-            )
-            min_success = min(traversal_success)
-            summary_obj.value.add(
-                tag='locomotion/worst_edge_success', simple_value=min_success,
-            )
-
         summary_obj.value.add(
-            tag='locomotion/episode_locomotion_reward', simple_value=np.mean(tmax_mgr.episode_locomotion_reward),
+            tag='tmax_maps/dense_map_size_before_locomotion',
+            simple_value=np.mean(tmax_mgr.dense_map_size_before_locomotion),
         )
         summary_obj.value.add(
-            tag='tmax_maps/map_size_before_locomotion',
-            simple_value=np.mean(tmax_mgr.map_size_before_locomotion),
-        )
-        summary_obj.value.add(
-            tag='tmax_maps/map_size_before_exploration',
-            simple_value=np.mean(tmax_mgr.map_size_before_exploration),
+            tag='tmax_maps/sparse_map_size_before_locomotion',
+            simple_value=np.mean(tmax_mgr.sparse_map_size_before_locomotion),
         )
 
         summary_obj.value.add(tag='tmax/global_stage', simple_value=tmax_mgr.global_stage)
         summary_obj.value.add(tag='tmax/avg_mode', simple_value=np.mean(tmax_mgr.mode))
         summary_obj.value.add(tag='tmax/avg_env_stage', simple_value=np.mean(tmax_mgr.env_stage))
 
-        self._landmark_summaries(self.tmax_mgr.persistent_maps[-1], env_steps)
+        self._landmark_summaries(self.tmax_mgr.dense_persistent_maps[-1], env_steps)
 
         self.summary_writer.add_summary(summary_obj, env_steps)
         self.summary_writer.flush()
 
     def _landmark_summaries(self, m, env_steps):
         """Observation summaries for the current persistent map."""
-        first_landmarks_to_log = {0, 1, 2}
         logged_landmarks = []
         summary_writer = self.summary_writer
 
@@ -1237,11 +1032,7 @@ class AgentTMAX(AgentLearner):
             obs = m.get_observation(idx)
             obs_summary = image_summary(obs, f'tmax_landmarks/landmark_{tag}')
             summary_writer.add_summary(obs_summary, env_steps)
-            logged_landmarks.append(node)
-
-        for node in first_landmarks_to_log:
-            if node in m.graph.nodes:
-                landmark_summary(node, str(node))
+            logged_landmarks.append(idx)
 
         all_landmarks = list(m.graph.nodes)
         landmark_last = all_landmarks[-1]
@@ -1301,76 +1092,41 @@ class AgentTMAX(AgentLearner):
         )
         return actions[0]
 
-    def _idle_explore_policy_step(
-            self, env_i, observations, goals, neighbors, num_neighbors,
-            actions, action_probs, values, masks, tmax_mgr):
-        """This is only used for Montezuma."""
-        if len(env_i) <= 0:
-            # no envs use this now
-            return
-
-        masks[env_i] = 0  # don't train with ppo
-
-        non_idle_i = []
-        for env_index in env_i:
-            # idle-random policy
-            assert tmax_mgr.action_frames[env_index] > 0 or tmax_mgr.idle_frames[env_index] > 0
-
-            if tmax_mgr.idle_frames[env_index] > 0:
-                # idle action
-                tmax_mgr.deliberate_action[env_index] = False
-                actions[env_index] = 0  # NOOP
-                tmax_mgr.idle_frames[env_index] -= 1
-                if tmax_mgr.idle_frames[env_index] <= 0:
-                    tmax_mgr.action_frames[env_index] = np.random.randint(1, self.params.far_threshold)
-            else:
-                tmax_mgr.deliberate_action[env_index] = True
-                non_idle_i.append(env_index)
-
-                tmax_mgr.action_frames[env_index] -= 1
-                if tmax_mgr.action_frames[env_index] <= 0:
-                    if random.random() < 0.5:
-                        tmax_mgr.idle_frames[env_index] = np.random.randint(1, self.params.far_threshold)
-                    else:
-                        tmax_mgr.idle_frames[env_index] = np.random.randint(1, 500)
-
-        non_idle_i = np.asarray(non_idle_i)
-        if len(non_idle_i) > 0:
-            neighbors_policy = num_neighbors_policy = None
-            if neighbors is not None:
-                neighbors_policy = neighbors[non_idle_i]
-                num_neighbors_policy = num_neighbors[non_idle_i]
-            actions[non_idle_i], action_probs[non_idle_i], values[non_idle_i] = self.actor_critic.invoke(
-                self.session, observations[non_idle_i], goals[non_idle_i],
-                neighbors_policy, num_neighbors_policy, deterministic=False,
-            )
-
-    def _locomotion_policy_step(self, env_i, observations, goals, actions, action_probs, values, masks, tmax_mgr):
+    def _locomotion_policy_step(self, env_i, obs_prev, observations, goals, actions, masks, tmax_mgr):
         if len(env_i) <= 0:
             return
 
-        goal_obs, hashes = tmax_mgr.get_locomotion_targets(env_i)
-        goals[env_i] = goal_obs  # replace goals with locomotion goals
-
+        goal_obs = tmax_mgr.get_locomotion_targets(env_i)
         assert len(goal_obs) == len(env_i)
-        for env_index in env_i:
-            tmax_mgr.deliberate_action[env_index] = True
+        log.info('Env i %r', env_i)
+        log.info('Goal_obs %r', goal_obs)
+        goals[env_i] = goal_obs  # replace goals with locomotion goals
+        masks[env_i] = 0
 
-        if self.params.rl_locomotion:
-            actions[env_i], action_probs[env_i], values[env_i] = self.loco_actor_critic.invoke(
-                self.session, observations[env_i], goals[env_i], None, None,
+        envs_with_goal, envs_without_goal = [], []
+        for index in env_i:
+            if goals[env_i] is None:
+                envs_without_goal.append(index)
+            else:
+                envs_with_goal.append(index)
+
+        deterministic = False if random.random() < 0.1 else True
+
+        if len(envs_with_goal) > 0:
+            actions[envs_with_goal] = self.locomotion.navigate(
+                self.session,
+                obs_prev[envs_with_goal], observations[envs_with_goal], goals[envs_with_goal],
+                deterministic=deterministic,
             )
-            masks[env_i] = 1
-        else:
-            # TODO remove?
-            actions[env_i] = self.locomotion.navigate(
-                self.session, observations[env_i], goals[env_i], deterministic=False,
-            )
-            masks[env_i] = 0
+
+        if len(envs_without_goal) > 0:
+            # use random actions
+            # TODO: better random trajectories? (repeat actions for more frames, etc.?)
+            actions[envs_without_goal] = np.random.randint(0, self.actor_critic.num_actions, len(envs_without_goal))
 
     def _exploration_policy_step(
             self, env_i, observations, goals, neighbors, num_neighbors,
-            actions, action_probs, values, masks, tmax_mgr,
+            actions, action_probs, values, masks
     ):
         if len(env_i) <= 0:
             return
@@ -1391,10 +1147,7 @@ class AgentTMAX(AgentLearner):
                 self.session, observations[env_i], goals_policy, neighbors_policy, num_neighbors_policy,
             )
 
-        for env_index in env_i:
-            tmax_mgr.deliberate_action[env_index] = True
-
-    def policy_step(self, observations, goals, neighbors, num_neighbors):
+    def policy_step(self, obs_prev, observations, goals, neighbors, num_neighbors):
         """Run exploration or locomotion policy depending on the state of the particular environment."""
         tmax_mgr = self.tmax_mgr
         num_envs = len(observations)
@@ -1407,6 +1160,7 @@ class AgentTMAX(AgentLearner):
         total_num_indices = sum(len(v) for v in env_indices.values())
         assert total_num_indices == num_envs
 
+        obs_prev = np.asarray(obs_prev)
         observations = np.asarray(observations)
         goals = np.asarray(goals)
         if neighbors is not None:
@@ -1418,19 +1172,13 @@ class AgentTMAX(AgentLearner):
         values = np.zeros(num_envs, np.float32)
         masks = np.zeros(num_envs, np.int32)
 
-        # IDLE_EXPLORATION policy (explore + idle) is used only for Montezuma
-        self._idle_explore_policy_step(
-            env_indices[TmaxMode.IDLE_EXPLORATION], observations, goals, neighbors, num_neighbors,
-            actions, action_probs, values, masks, tmax_mgr,
-        )
-
         self._locomotion_policy_step(
-            env_indices[TmaxMode.LOCOMOTION], observations, goals, actions, action_probs, values, masks, tmax_mgr,
+            env_indices[TmaxMode.LOCOMOTION], obs_prev, observations, goals, actions, masks, tmax_mgr,
         )
 
         self._exploration_policy_step(
             env_indices[TmaxMode.EXPLORATION], observations, goals, neighbors, num_neighbors,
-            actions, action_probs, values, masks, tmax_mgr,
+            actions, action_probs, values, masks,
         )
 
         return actions, action_probs, values, masks, goals, modes
@@ -1552,79 +1300,49 @@ class AgentTMAX(AgentLearner):
 
             prev_loss = avg_loss
 
-    def _maybe_train_locomotion_experience_replay(self, data, env_steps):
+    def _maybe_train_locomotion(self, data, env_steps):
         """Train locomotion using hindsight experience replay."""
-        if not data.has_enough_data():
-            return 0
-
         num_epochs = self.params.locomotion_experience_replay_epochs
-
-        obs_curr, obs_goal = data.buffer.obs_curr, data.buffer.obs_goal
-        old_actions, old_action_probs, masks = [0] * len(obs_curr), [1.0] * len(obs_curr), [1] * len(obs_curr)
-
-        if num_epochs > 1:
-            log.info('Calculate action probabilities before training')
-            max_batch = 1024
-            old_actions, old_action_probs = [], []
-            for i in range(0, len(obs_curr), max_batch):
-                start, end = i, i + max_batch
-
-                result = self.session.run(
-                    [self.loco_actor_critic.act, self.loco_actor_critic.action_prob],
-                    feed_dict={
-                        self.loco_actor_critic.ph_observations: obs_curr[start:end],
-                        self.loco_actor_critic.ph_goal_obs: obs_goal[start:end],
-                    }
-                )
-                old_actions_batch, old_actions_probs_batch = result
-                old_actions.extend(old_actions_batch)
-                old_action_probs.extend(old_actions_probs_batch)
-
-        old_actions, old_action_probs = np.asarray(old_actions), np.asarray(old_action_probs)
-
-        assert len(old_actions) == len(obs_curr)
-        assert len(old_action_probs) == len(obs_curr)
 
         summary = None
         prev_loss = 1e10
         batch_size = self.params.locomotion_experience_replay_batch
-        loco_step = self.loco_her_step.eval(session=self.session)
+        locomotion = self.locomotion
+        loco_step = locomotion.step.eval(session=self.session)
 
         log.info('Training loco_her %d pairs, batch %d, epochs %d', len(data.buffer), batch_size, num_epochs)
 
         for epoch in range(num_epochs):
             losses = []
-            sample_kl = []
 
-            obs_curr, obs_goal, actions = data.buffer.obs_curr, data.buffer.obs_goal, data.buffer.actions
+            obs_prev, obs_curr, obs_goal = data.buffer.obs_prev, data.buffer.obs_curr, data.buffer.obs_goal
+            actions = data.buffer.actions
 
             for i in range(0, len(obs_curr) - 1, batch_size):
+                # noinspection PyProtectedMember
                 with_summaries = self._should_write_summaries(loco_step) and summary is None
-                summaries = [self.loco_her_summaries] if with_summaries else []
+                summaries = [self.loco_summaries] if with_summaries else []
 
                 start, end = i, i + batch_size
 
-                objectives = [self.loco_objectives.gt_actions_loss, self.loco_objectives.sample_kl, self.train_loco_her]
+                objectives = [locomotion.loss, locomotion.train_loco]
 
                 result = self.session.run(
                     objectives + summaries,
                     feed_dict={
-                        self.loco_actor_critic.ph_observations: obs_curr[start:end],
-                        self.loco_actor_critic.ph_goal_obs: obs_goal[start:end],
-                        self.loco_actor_critic.ph_ground_truth_actions: actions[start:end],
-
-                        # for KL-divergence calculation
-                        self.ph_actions: old_actions[start:end],
-                        self.ph_old_action_probs: old_action_probs[start:end],
-                        self.ph_masks: masks[start:end],
+                        locomotion.ph_obs_prev: obs_prev[start:end],
+                        locomotion.ph_obs_curr: obs_curr[start:end],
+                        locomotion.ph_obs_goal: obs_goal[start:end],
+                        locomotion.ph_actions: actions[start:end],
+                        locomotion.ph_is_training: True,
                     }
                 )
 
                 loco_step += 1
+                # noinspection PyProtectedMember
                 self._maybe_save(loco_step, env_steps)
 
                 losses.append(result[0])
-                sample_kl.append(result[1])
 
                 if with_summaries:
                     summary = result[-1]
@@ -1639,25 +1357,12 @@ class AgentTMAX(AgentLearner):
 
             prev_loss = avg_loss
 
-            # check if KL-divergence is too high
-            if epoch < num_epochs - 1:
-                avg_kl = np.mean(sample_kl)
-                if avg_kl > self.params.locomotion_experience_replay_max_kl:
-                    log.info(
-                        'Early stopping HER after %d/%d epochs because of high KL divergence %.4f > %.4f (%s)',
-                        epoch + 1, self.params.ppo_epochs, avg_kl, self.params.target_kl, self.actor_step.name,
-                    )
-                    break
-
-                permutation = data.shuffle_data()
-                # rearrange actions and action_probs using the same permutation
-                old_actions, old_action_probs = old_actions[permutation], old_action_probs[permutation]
-
         return loco_step
 
     def _train_tmax(self, step, buffer, locomotion_buffer, tmax_mgr, env_steps, timing):
-        buffers = buffer.split_by_mode()
-        buffer.reset()  # discard the original data (before mode split)
+        with timing.timeit('split_buffers'):
+            buffers = buffer.split_by_mode()
+            buffer.reset()  # discard the original data (before mode split)
 
         if self.curiosity.is_initialized():
             if self.params.persistent_map_checkpoint is None:
@@ -1686,12 +1391,11 @@ class AgentTMAX(AgentLearner):
                     )
             else:
                 # train locomotion with self imitation from trajectories
-                # TODO: implement!
-                pass
-
-            with timing.timeit('loco_her'):
-                if self.params.locomotion_experience_replay and tmax_mgr.global_stage == TmaxMode.LOCOMOTION:
-                    self._maybe_train_locomotion_experience_replay(locomotion_buffer, env_steps)
+                if tmax_mgr.global_stage == TmaxMode.LOCOMOTION:
+                    if len(locomotion_buffer.buffer) >= self.params.locomotion_experience_replay_buffer:
+                        # TODO train only on random?
+                        self._maybe_train_locomotion(locomotion_buffer, env_steps)
+                        locomotion_buffer.reset()
 
         if self.params.distance_network_checkpoint is None:
             # distance net not provided - train distance metric online
@@ -1706,6 +1410,7 @@ class AgentTMAX(AgentLearner):
         step, env_steps = self.session.run([self.actor_step, self.total_env_steps])
 
         observations, goals = self._get_observations(multi_env.reset())
+        obs_prev = observations
         infos = multi_env.info()
 
         buffer = TmaxPPOBuffer()
@@ -1732,7 +1437,7 @@ class AgentTMAX(AgentLearner):
                 for rollout_step in range(self.params.rollout):
                     with timing.add_time('policy'):
                         actions, action_probs, values, masks, policy_goals, modes = self.policy_step(
-                            observations, goals, None, None,
+                            obs_prev, observations, goals, None, None,
                         )
 
                     # wait for all the workers to complete an environment step
@@ -1744,7 +1449,7 @@ class AgentTMAX(AgentLearner):
                     new_obs, new_goals = self._get_observations(env_obs)
 
                     with timing.add_time('tmax'):
-                        rewards, dones = tmax_mgr.update(
+                        rewards = tmax_mgr.update(
                             observations, new_obs, rewards, dones, infos, env_steps, timing,
                         )
 
@@ -1754,6 +1459,8 @@ class AgentTMAX(AgentLearner):
                         rewards, dones, values,
                         None, None, modes, masks,
                     )
+
+                    obs_prev = observations
                     observations, goals = new_obs, new_goals
 
                     self.process_infos(infos)
@@ -1762,10 +1469,8 @@ class AgentTMAX(AgentLearner):
                     env_steps += num_steps_delta
 
                 # last step values are required for TD-return calculation
-                _, _, values, _, _, _ = self.policy_step(observations, goals, None, None)
+                _, _, values, _, _, _ = self.policy_step(obs_prev, observations, goals, None, None)
                 buffer.values.append(values)
-
-            tmax_mgr.print_map_summary()
 
             # calculate discounted returns and GAE
             buffer.finalize_batch(self.params.gamma, self.params.gae_lambda)

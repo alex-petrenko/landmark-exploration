@@ -127,9 +127,15 @@ class LocomotionBuffer:
 
             data_so_far = 0
 
+            is_locomotion_trajectory = [all(m == TmaxMode.LOCOMOTION for m in t.mode) for t in trajectories]
+
             for _ in range(max_num_segments):
-                trajectory = random.choice(trajectories)
+                trajectory_idx = random.choice(range(len(trajectories)))
+                trajectory = trajectories[trajectory_idx]
                 if len(trajectory) <= 3:
+                    continue
+
+                if not is_locomotion_trajectory[trajectory_idx]:
                     continue
 
                 # sample random interval in trajectory, treat the last frame as "imaginary" goal, use actions as

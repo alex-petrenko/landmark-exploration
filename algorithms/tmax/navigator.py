@@ -85,13 +85,13 @@ class Navigator:
 
         # create a batch of all neighborhood observations from all envs for fast processing on GPU
         neighborhood_obs, neighborhood_hashes, current_obs = [], [], []
-        neighbor_indices = []
+        neighbor_indices = [[]] * len(maps)
         for env_i, m in enumerate(maps):
             if m is None or goals[env_i] is None:
                 continue
 
             neighbors = self._path_lookahead(env_i)
-            neighbor_indices.append(neighbors)
+            neighbor_indices[env_i] = neighbors
             neighborhood_obs.extend([m.get_observation(i) for i in neighbors])
             neighborhood_hashes.extend([m.get_hash(i) for i in neighbors])
             current_obs.extend([obs[env_i]] * len(neighbors))

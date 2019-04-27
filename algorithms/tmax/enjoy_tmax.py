@@ -133,6 +133,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
         done = False
 
         obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
+        prev_obs = obs
         if current_landmark is None:
             current_landmark = obs
 
@@ -148,7 +149,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
             pass
         else:
             agent.tmax_mgr.initialize([obs], [info], env_steps=0)
-            persistent_map = agent.tmax_mgr.current_persistent_maps[0]
+            persistent_map = agent.tmax_mgr.dense_persistent_maps[0]
 
         start_episode = time.time()
         while not done and not terminate and not max_frames_reached(num_frames):
@@ -185,7 +186,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
                 action = env.action_space.sample()
             elif policy_type == PolicyType.AGENT:
                 agent.tmax_mgr.mode[0] = TmaxMode.EXPLORATION
-                action, _, _, _, _, _ = agent.policy_step([obs], [goal_obs], None, None)
+                action, _, _, _, _, _ = agent.policy_step([prev_obs], [obs], [goal_obs], None, None)
                 action = action[0]
             elif policy_type == PolicyType.LOCOMOTION:
                 agent.tmax_mgr.mode[0] = TmaxMode.LOCOMOTION
@@ -197,6 +198,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
             env_obs, rew, done, info = env.step(action)
             next_obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
 
+            prev_obs = obs
             obs = next_obs
 
             episode_reward += rew

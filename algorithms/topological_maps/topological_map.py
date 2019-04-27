@@ -100,6 +100,7 @@ class TopologicalMap:
 
         self.curr_landmark_idx = self._add_new_node(obs=obs, pos=get_position(info), angle=get_angle(info))
         assert self.curr_landmark_idx == 0
+        self.frame_to_node_idx[0] = [0]
 
         self.new_episode()
 
@@ -379,7 +380,7 @@ class TopologicalMap:
         self.__dict__.update(topo_map_dict)
 
 
-def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_limits=None):
+def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_limits=None, is_sparse=False):
     if None in maps:
         return
     # summaries related to episodic memory (maps)
@@ -414,7 +415,8 @@ def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_
             max_graph_idx = i
 
     max_graph_summary = visualize_graph_tensorboard(
-        maps[max_graph_idx].labeled_graph, tag=f'{section}/max_graph', map_img=map_img, coord_limits=coord_limits,
+        maps[max_graph_idx].labeled_graph,
+        tag=f'{section}/max_graph', map_img=map_img, coord_limits=coord_limits, is_sparse=is_sparse,
     )
     summary_writer.add_summary(max_graph_summary, env_steps)
 
@@ -426,4 +428,3 @@ def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_
                 map_img=map_img, coord_limits=coord_limits,
             )
             summary_writer.add_summary(random_graph_summary, env_steps)
-
