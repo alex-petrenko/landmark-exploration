@@ -7,15 +7,15 @@ import cv2
 import numpy as np
 from pynput.keyboard import Key, Listener
 
-from algorithms.utils.algo_utils import main_observation, EPS
-from algorithms.utils.env_wrappers import reset_with_info
 from algorithms.tmax.agent_tmax import AgentTMAX
+from algorithms.tmax.navigator import Navigator
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.topological_maps.topological_map import TopologicalMap
+from algorithms.utils.algo_utils import main_observation, EPS
+from algorithms.utils.env_wrappers import reset_with_info
 from utils.envs.atari import atari_utils
 from utils.envs.doom import doom_utils
 from utils.envs.envs import create_env
-from utils.envs.generate_env_map import generate_env_map
 from utils.timing import Timing
 from utils.utils import log, min_with_idx
 
@@ -62,7 +62,7 @@ class Localizer:
         self.current_landmark = None
 
         self.max_neighborhood = 4
-        self.max_neighborhood_dist = 0.4
+        self.max_neighborhood_dist = 1.0  # should be 0.4-0.5
         self.max_lookahead = 7
         self.confidently_reachable = 0.1
 
@@ -222,6 +222,7 @@ def test_locomotion(params, env_id):
         e.seed(0)
         return e
 
+    params.num_envs = 1
     agent = AgentTMAX(make_env_func, params)
     agent.initialize()
 
@@ -241,7 +242,7 @@ def test_locomotion(params, env_id):
     action = 0
 
     final_goal_idx = [44, 131, 170]
-    final_goal_idx = random.choice(final_goal_idx)
+    # final_goal_idx = random.choice(final_goal_idx)
     final_goal_idx = 131
 
     log.info('Locomotion goal is %d', final_goal_idx)
@@ -250,12 +251,21 @@ def test_locomotion(params, env_id):
     localizer = Localizer(m, agent)
 
     final_goal_obs = m.get_observation(final_goal_idx)
-    display_obs('final_goal', final_goal_obs)
+    cv2.namedWindow('next_target')
+    cv2.moveWindow('next_target', 800, 100)
+    cv2.namedWindow('final_goal')
+    cv2.moveWindow('final_goal', 1400, 100)
     display_obs('next_target', obs)
-    cv2.waitKey()
+    display_obs('final_goal', final_goal_obs)
 
     next_target = localizer.get_next_target(obs, final_goal_idx)
     next_target_obs = m.get_observation(next_target)
+
+    navigator = None
+    test_navigator = False
+    if test_navigator:
+        navigator = Navigator(agent)
+        navigator.reset(0, m)
 
     while not done and not terminate:
         with t.timeit('one_frame'):
@@ -279,8 +289,20 @@ def test_locomotion(params, env_id):
             if frame % frame_repeat == 0:
                 obs_prev = obs
                 obs = main_observation(env_obs)
-                next_target = localizer.get_next_target(obs, final_goal_idx)
-                next_target_obs = m.get_observation(next_target)
+
+                if test_navigator:
+                    next_target, next_target_d = navigator.get_next_target([m], [obs], [final_goal_idx])
+                    next_target, next_target_d = next_target[0], next_target_d[0]
+                    if next_target is None:
+                        log.error('We are lost!')
+                        continue
+                    else:
+                        log.info('Next target is %d with distance %.3f!', next_target, next_target_d)
+                else:
+                    next_target = localizer.get_next_target(obs, final_goal_idx)
+
+                if next_target is not None:
+                    next_target_obs = m.get_observation(next_target)
 
                 display_obs('next_target', next_target_obs)
                 cv2.waitKey(1)
