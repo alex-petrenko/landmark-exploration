@@ -17,7 +17,7 @@ class MapBuilder:
         self.obs_encoder = self.distance_net.obs_encoder
 
         # map generation parameters
-        self.max_duplicate_dist = 20
+        self.max_duplicate_dist = 10
         self.duplicate_neighborhood = 5
         self.duplicate_threshold = 0.1
 

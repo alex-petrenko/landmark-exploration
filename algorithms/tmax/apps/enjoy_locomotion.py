@@ -257,12 +257,14 @@ def test_locomotion(params, env_id):
     cv2.moveWindow('final_goal', 1400, 100)
     display_obs('next_target', obs)
     display_obs('final_goal', final_goal_obs)
+    cv2.waitKey(1)
 
+    localizer.current_landmark = 0
     next_target = localizer.get_next_target(obs, final_goal_idx)
     next_target_obs = m.get_observation(next_target)
 
     navigator = None
-    test_navigator = False
+    test_navigator = True
     if test_navigator:
         navigator = Navigator(agent)
         navigator.reset(0, m)
@@ -272,21 +274,19 @@ def test_locomotion(params, env_id):
             env.render()
 
             if frame % frame_repeat == 0:
-                if random.random() < 0.05:
-                    action = env.action_space.sample()
+                if random.random() < 0.1:
+                    deterministic = False
                 else:
-                    if random.random() < 0.1:
-                        deterministic = False
-                    else:
-                        deterministic = True
+                    deterministic = True
 
-                    action = agent.locomotion.navigate(
-                        agent.session, [obs_prev], [obs], [next_target_obs], deterministic=deterministic,
-                    )
+                action = agent.locomotion.navigate(
+                    agent.session, [obs_prev], [obs], [next_target_obs], deterministic=deterministic,
+                )
 
             env_obs, rew, done, info = env.step(action)
 
             if frame % frame_repeat == 0:
+                log.info('Action is %d', action)
                 obs_prev = obs
                 obs = main_observation(env_obs)
 

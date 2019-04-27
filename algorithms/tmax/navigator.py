@@ -1,3 +1,5 @@
+import numpy as np
+
 from utils.utils import min_with_idx
 
 
@@ -149,12 +151,13 @@ class Navigator:
 
             target_node = lookahead_path[0]
             target_d = distance[0]
+            confidently_reachable = np.random.random() * 0.1 + 0.1
 
             if len(lookahead_path) > 1 and distance[1] < self.max_neighborhood_dist:
                 target_node = lookahead_path[1]
                 target_d = distance[1]
-                for i, node in enumerate(lookahead_path[1:], start=1):
-                    if distance[i] > self.confidently_reachable:
+                for i, node in enumerate(lookahead_path[2:], start=2):
+                    if distance[i] > confidently_reachable:
                         break
                     target_node = node
                     target_d = distance[i]

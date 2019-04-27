@@ -1,3 +1,4 @@
+import copy
 import glob
 import pickle
 import sys
@@ -33,7 +34,7 @@ def pick_best_trajectory(init_map, agent, trajectories):
     """This is just a test."""
     m = init_map()
     map_builder = MapBuilder(agent)
-    map_builder.add_trajectory_to_sparse_map(m, trajectories[1])
+    map_builder.add_trajectory_to_sparse_map(m, trajectories[2])
 
     # noinspection PyProtectedMember
     best_t_idx, max_landmarks = agent.tmax_mgr._pick_best_exploration_trajectory(agent, trajectories, m)
@@ -82,7 +83,8 @@ def trajectory_to_map(params, env_id):
 
     test_pick_best_trajectory = True
     if test_pick_best_trajectory:
-        pick_best_trajectory(init_map, agent, trajectories)
+        pick_best_trajectory(init_map, agent, copy.deepcopy(trajectories))
+        return
 
     m = init_map()
 
