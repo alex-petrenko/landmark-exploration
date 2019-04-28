@@ -1521,14 +1521,18 @@ class AgentTMAX(AgentLearner):
             with timing.timeit('train'):
                 step = self._train_tmax(step, buffer, locomotion_buffer, tmax_mgr, env_steps, timing)
 
-            with timing.timeit('tmax_summaries'):
-                self._maybe_tmax_summaries(tmax_mgr, env_steps)
-                self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
-                self._maybe_coverage_summaries(env_steps)
-                self.curiosity.additional_summaries(
-                    env_steps, self.summary_writer, self.params.stats_episodes,
-                    map_img=self.map_img, coord_limits=self.coord_limits,
-                )
+            with timing.timeit('summaries'):
+                with timing.timeit('tmax_summaries'):
+                    self._maybe_tmax_summaries(tmax_mgr, env_steps)
+                with timing.timeit('traj_summaries'):
+                    self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
+                with timing.timeit('cov_summaries'):
+                    self._maybe_coverage_summaries(env_steps)
+                with timing.timeit('curiosity_summaries'):
+                    self.curiosity.additional_summaries(
+                        env_steps, self.summary_writer, self.params.stats_episodes,
+                        map_img=self.map_img, coord_limits=self.coord_limits,
+                    )
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)

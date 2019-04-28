@@ -126,7 +126,7 @@ class LocomotionBuffer:
             trajectories = [t for t in trajectories if all(m == TmaxMode.LOCOMOTION for m in t.mode)]
             trajectories = [t for t in trajectories if len(t) > self.params.locomotion_max_trajectory]
 
-            random_frames = [[i for i, targ in t.locomotion_target if targ is None] for t in trajectories]
+            random_frames = [[i for i, targ in enumerate(t.locomotion_target) if targ is None] for t in trajectories]
 
             total_experience = sum(len(frames) for frames in random_frames)
             max_total_experience = 0.5 * total_experience  # max fraction of experience to use

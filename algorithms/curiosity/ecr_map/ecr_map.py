@@ -175,7 +175,7 @@ class ECRMapModule(CuriosityModule):
         if time_since_last > map_summary_rate_seconds:
             map_img = kwargs.get('map_img')
             coord_limits = kwargs.get('coord_limits')
-            map_summaries(maps, env_steps, summary_writer, section, map_img, coord_limits)
+            map_summaries(maps, env_steps, summary_writer, section, map_img, coord_limits, is_sparse=True)
             summary_writer.flush()
 
             if self.explored_region_map is not None:
