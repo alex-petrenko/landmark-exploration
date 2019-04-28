@@ -29,7 +29,7 @@ class DistanceNetworkParams:
         self.close_threshold = 5  # num. of frames between obs, such that one is close to the other
         self.far_threshold = 25  # num. of frames between obs, such that one is far from the other
         self.distance_target_buffer_size = 200000  # target number of training examples to store
-        self.distance_train_epochs = 10
+        self.distance_train_epochs = 8
         self.distance_batch_size = 128
         self.distance_bootstrap = 4000000
         self.distance_train_interval = 1000000

@@ -181,6 +181,7 @@ class ECRMapModule(CuriosityModule):
             if self.explored_region_map is not None:
                 map_summaries(
                     [self.explored_region_map], env_steps, summary_writer, 'explored_region', map_img, coord_limits,
+                    is_sparse=True,
                 )
 
             self._last_map_summary = time.time()

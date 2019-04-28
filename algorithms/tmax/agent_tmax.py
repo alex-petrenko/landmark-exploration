@@ -31,7 +31,7 @@ from utils.distributions import CategoricalProbabilityDistribution
 from utils.envs.generate_env_map import generate_env_map
 from utils.tensorboard import image_summary
 from utils.timing import Timing
-from utils.utils import log, AttrDict, numpy_all_the_way, model_dir, max_with_idx, ensure_dir_exists, min_with_idx
+from utils.utils import log, AttrDict, numpy_all_the_way, model_dir, max_with_idx, ensure_dir_exists
 
 
 class ActorCritic:
@@ -242,6 +242,8 @@ class TmaxManager:
 
         self.exploration_trajectories = deque([], maxlen=10)
 
+        self.locomotion_success = deque([], maxlen=300)
+
     def initialize(self, obs, info, env_steps):
         if self.initialized:
             return
@@ -380,12 +382,12 @@ class TmaxManager:
         traj_idx = node_data.get('traj_idx', 0)
         frame_idx = node_data.get('frame_idx', 0)
 
-        log.debug('Location %d is max_ucb_target for exploration (t: %d, f: %d)', max_ucb_target, traj_idx, frame_idx)
+        # log.debug('Location %d is max_ucb_target for exploration (t: %d, f: %d)', max_ucb_target, traj_idx, frame_idx)
 
         curr_dense_map = self.current_dense_maps[env_i]
         dense_map_landmark = curr_dense_map.frame_to_node_idx[traj_idx][frame_idx]
 
-        log.info('Sparse map node %d corresponds to dense map node %d', max_ucb_target, dense_map_landmark)
+        # log.info('Sparse map node %d corresponds to dense map node %d', max_ucb_target, dense_map_landmark)
 
         locomotion_goal_idx = dense_map_landmark
         log.info(
@@ -612,7 +614,8 @@ class TmaxManager:
             self.locomotion_targets[env_i] = next_target[env_i]
             exploration_stage = self.env_stage[env_i] == TmaxMode.EXPLORATION
 
-            if next_target[env_i] is None:
+            # TODO: this is hacky
+            if next_target[env_i] is None or self.episode_frames[env_i] > 250:
                 if self.locomotion_final_targets[env_i] is not None:
                     log.info(
                         'Agent in env %d got lost in %d steps while trying to reach %d',
@@ -623,6 +626,7 @@ class TmaxManager:
                         self.mode[env_i] = TmaxMode.EXPLORATION
 
                 self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
+                self.locomotion_success.append(False)
                 continue
 
             # TODO: what if we aren't making any progress towards the goal?
@@ -638,6 +642,7 @@ class TmaxManager:
                     self.mode[env_i] = TmaxMode.EXPLORATION
 
                 self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
+                self.locomotion_success.append(True)
 
     def update(self, obs, next_obs, rewards, dones, infos, env_steps, timing=None, verbose=False):
         self._verbose = verbose
@@ -826,7 +831,7 @@ class AgentTMAX(AgentLearner):
             self.loco_critic_summaries = merge_summaries(collections=['loco_critic'])
             self.loco_her_summaries = merge_summaries(collections=['loco_her'])
         else:
-            self.loco_summaries = merge_summaries(collections=['loco'])
+            self.loco_summaries = merge_summaries(collections=['locomotion'])
 
         self.saver = tf.train.Saver(max_to_keep=3)
 
@@ -929,8 +934,8 @@ class AgentTMAX(AgentLearner):
             image_summaries_rgb(self.locomotion.ph_obs_curr, name='loco_curr', collections=['loco'])
             image_summaries_rgb(self.locomotion.ph_obs_goal, name='loco_goal', collections=['loco'])
 
-            with tf.name_scope('loco'):
-                locomotion_scalar = partial(tf.summary.scalar, collections=['loco'])
+            with tf.name_scope('locomotion'):
+                locomotion_scalar = partial(tf.summary.scalar, collections=['locomotion'])
                 locomotion_scalar('loss', self.locomotion.loss)
                 locomotion_scalar('entropy', tf.reduce_mean(self.locomotion.actions_distribution.entropy()))
 
@@ -1025,25 +1030,30 @@ class AgentTMAX(AgentLearner):
 
     def _maybe_tmax_summaries(self, tmax_mgr, env_steps):
         time_since_last = time.time() - self._last_tmax_map_summary
-        tmax_map_summary_rate_seconds = 120
+        tmax_map_summary_rate_seconds = 180
         if time_since_last > tmax_map_summary_rate_seconds:
+            dense_map_summary_start = time.time()
             map_summaries(
                 [tmax_mgr.dense_persistent_maps[-1]],
-                env_steps, self.summary_writer, 'tmax_dense_map', self.map_img, self.coord_limits,
+                env_steps, self.summary_writer, 'tmax_dense_map', self.map_img, self.coord_limits, is_sparse=False,
             )
+            dense_map_summary_took = time.time() - dense_map_summary_start
+            sparse_map_summary_start = time.time()
             map_summaries(
                 [tmax_mgr.sparse_persistent_maps[-1]],
-                env_steps, self.summary_writer, 'tmax_sparse_map', self.map_img, self.coord_limits,
+                env_steps, self.summary_writer, 'tmax_sparse_map', self.map_img, self.coord_limits, is_sparse=True,
             )
+            sparse_map_summary_took = time.time() - sparse_map_summary_start
+            log.info('Tmax map summaries took %.3f dense %.3f sparse', dense_map_summary_took, sparse_map_summary_took)
             self._last_tmax_map_summary = time.time()
 
-        # locomotion summaries
-        # TODO: summaries from the locomotion stage:
-        # - avg steps to reach final goal
-        # - success rate in reaching final goal
-        # - ...
-
         summary_obj = tf.Summary()
+
+        if len(tmax_mgr.locomotion_success) > 0:
+            summary_obj.value.add(
+                tag='tmax_locomotion/locomotion_success_rate', simple_value=np.mean(tmax_mgr.locomotion_success),
+            )
+
         summary_obj.value.add(
             tag='tmax_maps/dense_map_size_before_locomotion',
             simple_value=np.mean(tmax_mgr.dense_map_size_before_locomotion),
@@ -1334,6 +1344,9 @@ class AgentTMAX(AgentLearner):
 
     def _maybe_train_locomotion(self, data, env_steps):
         """Train locomotion using hindsight experience replay."""
+        if not data.has_enough_data():
+            return
+
         num_epochs = self.params.locomotion_experience_replay_epochs
 
         summary = None
@@ -1389,8 +1402,6 @@ class AgentTMAX(AgentLearner):
 
             prev_loss = avg_loss
 
-        return loco_step
-
     def _train_tmax(self, step, buffer, locomotion_buffer, tmax_mgr, env_steps, timing):
         with timing.timeit('split_buffers'):
             buffers = buffer.split_by_mode()
@@ -1424,11 +1435,7 @@ class AgentTMAX(AgentLearner):
             else:
                 # train locomotion with self imitation from trajectories
                 if tmax_mgr.global_stage == TmaxMode.LOCOMOTION:
-                    if len(locomotion_buffer.buffer) >= self.params.locomotion_experience_replay_buffer:
-                        # TODO train only on random?
-                        # TODO why training right after exploration stage
-                        self._maybe_train_locomotion(locomotion_buffer, env_steps)
-                        locomotion_buffer.reset()
+                    self._maybe_train_locomotion(locomotion_buffer, env_steps)
 
         if self.params.distance_network_checkpoint is None:
             # distance net not provided - train distance metric online

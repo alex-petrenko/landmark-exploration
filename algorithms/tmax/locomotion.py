@@ -20,8 +20,8 @@ from utils.utils import log, vis_dir, ensure_dir_exists
 
 class LocomotionNetworkParams:
     def __init__(self):
-        self.locomotion_experience_replay_buffer = 100000
-        self.locomotion_experience_replay_epochs = 10
+        self.locomotion_experience_replay_buffer = 50000
+        self.locomotion_experience_replay_epochs = 2
         self.locomotion_experience_replay_batch = 128
         self.locomotion_experience_replay_max_kl = 0.05
         self.locomotion_max_trajectory = 5  # max trajectory length to be utilized during training
@@ -121,31 +121,41 @@ class LocomotionBuffer:
             training_data = []
             max_trajectory = self.params.locomotion_max_trajectory
 
-            total_experience = sum(len(t) for t in trajectories)
+            data_so_far = 0
+
+            trajectories = [t for t in trajectories if all(m == TmaxMode.LOCOMOTION for m in t.mode)]
+            trajectories = [t for t in trajectories if len(t) > self.params.locomotion_max_trajectory]
+
+            random_frames = [[i for i, targ in t.locomotion_target if targ is None] for t in trajectories]
+
+            total_experience = sum(len(frames) for frames in random_frames)
             max_total_experience = 0.5 * total_experience  # max fraction of experience to use
             max_num_segments = int(max_total_experience / max_trajectory)
 
-            data_so_far = 0
+            log.info(
+                '%d total experience from %d trajectories (%d segments)',
+                max_total_experience, len(trajectories), max_num_segments,
+            )
 
-            is_locomotion_trajectory = [all(m == TmaxMode.LOCOMOTION for m in t.mode) for t in trajectories]
-
-            for _ in range(max_num_segments):
+            while len(training_data) < max_num_segments:
                 trajectory_idx = random.choice(range(len(trajectories)))
                 trajectory = trajectories[trajectory_idx]
-                if len(trajectory) <= 3:
+                if len(random_frames[trajectory_idx]) <= 0:
                     continue
 
-                if not is_locomotion_trajectory[trajectory_idx]:
-                    continue
+                first_random_frame = random_frames[trajectory_idx][0]
 
                 # sample random interval in trajectory, treat the last frame as "imaginary" goal, use actions as
                 # ground truth
-                start_idx = random.randint(0, len(trajectory) - 2)
+                start_idx = random.randint(first_random_frame, len(trajectory) - 2)
                 goal_idx = min(start_idx + max_trajectory, len(trajectory) - 1)
                 assert start_idx < goal_idx
 
                 traj_buffer = Buffer()
                 for i in range(start_idx, goal_idx):
+                    assert trajectory.mode[i] == TmaxMode.LOCOMOTION
+                    assert trajectory.locomotion_target[i] is None
+
                     traj_buffer.add(
                         obs_prev=trajectory.obs[max(0, i - 1)],
                         obs_curr=trajectory.obs[i],

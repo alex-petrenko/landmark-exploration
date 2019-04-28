@@ -19,7 +19,7 @@ class MapBuilder:
         # map generation parameters
         self.max_duplicate_dist = 5
         self.duplicate_neighborhood = 5
-        self.duplicate_threshold = 0.05
+        self.duplicate_threshold = 0.075
 
         self.shortcut_dist_threshold = 0.1
         self.shortcut_risk_threshold = 0.1
