@@ -17,12 +17,12 @@ class MapBuilder:
         self.obs_encoder = self.distance_net.obs_encoder
 
         # map generation parameters
-        self.max_duplicate_dist = 10
+        self.max_duplicate_dist = 5
         self.duplicate_neighborhood = 5
-        self.duplicate_threshold = 0.1
+        self.duplicate_threshold = 0.05
 
         self.shortcut_dist_threshold = 0.1
-        self.shortcut_risk_threshold = 0.15
+        self.shortcut_risk_threshold = 0.1
         self.min_shortcut_dist = 5
         self.shortcut_window = 10
         self.shortcuts_to_keep_fraction = 0.25  # fraction of the number of all nodes
@@ -91,13 +91,13 @@ class MapBuilder:
                     neighbor_dist.append(pairwise_distances[i][shifted_j])
                     neighbor_dist.append(pairwise_distances[shifted_i][j])
 
-                if np.percentile(neighbor_dist, 50) < self.duplicate_threshold:
+                if np.percentile(neighbor_dist, 75) < self.duplicate_threshold:
                     log.info('Duplicate landmark frames %d-%d', i, j)
                     to_delete.add(j)
                 else:
                     break
 
-        log.debug('Removing duplicate frames %r from trajectory...', to_delete)
+        log.debug('Removing duplicate frames %r from trajectory...', sorted(list(to_delete)))
 
         trajectory_class = traj.__class__
         new_trajectory = trajectory_class(traj.env_idx)
@@ -187,6 +187,17 @@ class MapBuilder:
                 shortcut_candidates.append(shortcut)
 
         return shortcut_candidates
+
+    @staticmethod
+    def remove_shortcuts(m):
+        to_remove = []
+
+        for e in m.graph.edges(data=True):
+            i1, i2, data = e
+            if data.get('loop_closure', False):
+                to_remove.append((i1, i2))
+
+        m.remove_edges_from(to_remove)
 
     def _add_shortcuts(self, m, pairwise_distances):
         shortcuts = self._shortcuts_distance(

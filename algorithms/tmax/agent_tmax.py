@@ -31,7 +31,7 @@ from utils.distributions import CategoricalProbabilityDistribution
 from utils.envs.generate_env_map import generate_env_map
 from utils.tensorboard import image_summary
 from utils.timing import Timing
-from utils.utils import log, AttrDict, numpy_all_the_way, model_dir, max_with_idx, ensure_dir_exists
+from utils.utils import log, AttrDict, numpy_all_the_way, model_dir, max_with_idx, ensure_dir_exists, min_with_idx
 
 
 class ActorCritic:
@@ -235,11 +235,12 @@ class TmaxManager:
 
         self.mode = [TmaxMode.EXPLORATION] * self.num_envs
         self.env_stage = [TmaxMode.EXPLORATION] * self.num_envs
+        self.intrinsic_reward = [TmaxMode.EXPLORATION] * self.num_envs
 
         # if persistent map is provided, then we can skip the entire exploration stage
         self.stage_change_required = self.params.persistent_map_checkpoint is not None
 
-        self.last_exploration_trajectories = [None] * self.num_envs
+        self.exploration_trajectories = deque([], maxlen=10)
 
     def initialize(self, obs, info, env_steps):
         if self.initialized:
@@ -295,11 +296,39 @@ class TmaxManager:
     def save_trajectories(self, trajectories):
         """Save the last exploration trajectory for every env_idx to potentially later use as a demonstration."""
         for t in trajectories:
-            if all(stage == TmaxMode.EXPLORATION for stage in t.stage):
-                self.last_exploration_trajectories[t.env_idx] = t
+            # calculate total intrinsic reward over the trajectory
+            total_intrinsic_reward = sum(r for r in t.intrinsic_reward)
+
+            if len(self.exploration_trajectories) < self.exploration_trajectories.maxlen:
+                self.exploration_trajectories.append((total_intrinsic_reward, t))
+                continue
+
+            # if list is full then find trajectory with minimum intrinsic reward, remove from deque and append new
+            min_reward_idx = 0
+            for i, past_trajectory in enumerate(self.exploration_trajectories):
+                reward, _ = past_trajectory
+                if reward < self.exploration_trajectories[min_reward_idx][0]:
+                    min_reward_idx = i
+
+            if total_intrinsic_reward > self.exploration_trajectories[min_reward_idx][0]:
+                log.info('Found better exploration trajectory with reward %.3f', total_intrinsic_reward)
+                del self.exploration_trajectories[min_reward_idx]
+                self.exploration_trajectories.append((total_intrinsic_reward, t))
+
+    def envs_with_locomotion_targets(self, env_indices):
+        envs_with_goal, envs_without_goal = [], []
+        for env_i in env_indices:
+            locomotion_target_idx = self.locomotion_targets[env_i]
+            if locomotion_target_idx is None:
+                envs_without_goal.append(env_i)
+            else:
+                envs_with_goal.append(env_i)
+        return envs_with_goal, envs_without_goal
 
     def get_locomotion_targets(self, env_indices):
-        assert len(env_indices) > 0
+        if len(env_indices) <= 0:
+            return []
+
         targets = [None] * len(env_indices)
 
         for i, env_i in enumerate(env_indices):
@@ -418,26 +447,31 @@ class TmaxManager:
         """Pick an exploration trajectory and turn it into a dense persistent map."""
         log.warning('Prepare persistent map for locomotion!')
 
-        if all(t is None for t in self.last_exploration_trajectories):
+        if len(self.exploration_trajectories) <= 0:
             # we don't have any trajectories yet, need more exploration
             return False
 
+        trajectory_rewards = [t[0] for t in self.exploration_trajectories]
+        log.info('Best trajectories rewards: %r', trajectory_rewards)
+
+        trajectories = [t[1] for t in self.exploration_trajectories]
+
         curr_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
         best_trajectory_idx, max_landmarks = self._pick_best_exploration_trajectory(
-            self.agent, self.last_exploration_trajectories[:5], curr_sparse_map,
+            self.agent, trajectories, curr_sparse_map,
         )
 
         if max_landmarks == 0:
             log.debug('Could not find any trajectory with nonzero novel landmarks')
             return False
 
-        best_trajectory = self.last_exploration_trajectories[best_trajectory_idx]
+        best_trajectory = trajectories[best_trajectory_idx]
 
         map_builder = MapBuilder(self.agent)
         best_trajectory = map_builder.sparsify_trajectory(best_trajectory)
 
         # reset exploration trajectories
-        self.last_exploration_trajectories = [None] * self.num_envs
+        self.exploration_trajectories.clear()
 
         curr_dense_map = copy.deepcopy(self.dense_persistent_maps[-1])
         curr_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
@@ -450,15 +484,18 @@ class TmaxManager:
         self.sparse_map_size_before_locomotion = self.sparse_persistent_maps[-1].num_landmarks()
 
         # TODO: maybe rebuild shortcuts every time
+        map_builder.remove_shortcuts(curr_dense_map)
+
         new_dense_map = map_builder.add_trajectory_to_dense_map(curr_dense_map, best_trajectory)
         self.dense_persistent_maps.append(new_dense_map)
         self.dense_map_size_before_locomotion = self.dense_persistent_maps[-1].num_landmarks()
 
+        log.info('Saving new persistent maps...')
         self.save()
         return True
 
     def _prepare_persistent_map_for_exploration(self):
-        """Keep only edges with high probability of success, delete inaccessible vertices."""
+        log.warning('Prepare persistent map for exploration!')
         new_dense_map = copy.deepcopy(self.dense_persistent_maps[-1])
         new_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
 
@@ -638,6 +675,8 @@ class TmaxManager:
         for env_i in range(self.num_envs):
             if self.mode[env_i] == TmaxMode.EXPLORATION:
                 augmented_rewards[env_i] = rewards[env_i] + curiosity_bonus[env_i]
+
+            self.intrinsic_reward[env_i] = curiosity_bonus[env_i]
 
         return augmented_rewards
 
@@ -1096,23 +1135,16 @@ class AgentTMAX(AgentLearner):
         if len(env_i) <= 0:
             return
 
-        goal_obs = tmax_mgr.get_locomotion_targets(env_i)
-        assert len(goal_obs) == len(env_i)
-        log.info('Env i %r', env_i)
-        log.info('Goal_obs %r', goal_obs)
-        goals[env_i] = goal_obs  # replace goals with locomotion goals
+        envs_with_goal, envs_without_goal = tmax_mgr.envs_with_locomotion_targets(env_i)
+
+        goal_obs = tmax_mgr.get_locomotion_targets(envs_with_goal)
+        assert len(goal_obs) == len(envs_with_goal)
+
         masks[env_i] = 0
-
-        envs_with_goal, envs_without_goal = [], []
-        for index in env_i:
-            if goals[env_i] is None:
-                envs_without_goal.append(index)
-            else:
-                envs_with_goal.append(index)
-
         deterministic = False if random.random() < 0.1 else True
 
         if len(envs_with_goal) > 0:
+            goals[envs_with_goal] = goal_obs  # replace goals with locomotion goals
             actions[envs_with_goal] = self.locomotion.navigate(
                 self.session,
                 obs_prev[envs_with_goal], observations[envs_with_goal], goals[envs_with_goal],
@@ -1394,6 +1426,7 @@ class AgentTMAX(AgentLearner):
                 if tmax_mgr.global_stage == TmaxMode.LOCOMOTION:
                     if len(locomotion_buffer.buffer) >= self.params.locomotion_experience_replay_buffer:
                         # TODO train only on random?
+                        # TODO why training right after exploration stage
                         self._maybe_train_locomotion(locomotion_buffer, env_steps)
                         locomotion_buffer.reset()
 

@@ -40,14 +40,19 @@ class TmaxTrajectory(Trajectory):
         super().__init__(env_idx)
         self.mode = []
         self.stage = []
+        self.intrinsic_reward = []
 
     def add(self, obs, action, info, **kwargs):
         super().add(obs, action, info, **kwargs)
         self.mode.append(kwargs['mode'])
         self.stage.append(kwargs['stage'])
+        self.intrinsic_reward.append(kwargs['intrinsic_reward'])
 
     def add_frame(self, tr, i):
-        self.add(tr.obs[i], tr.actions[i], tr.infos[i], mode=tr.mode[i], stage=tr.stage[i])
+        self.add(
+            tr.obs[i], tr.actions[i], tr.infos[i],
+            mode=tr.mode[i], stage=tr.stage[i], intrinsic_reward=tr.intrinsic_reward[i],
+        )
 
 
 class TmaxTrajectoryBuffer(TrajectoryBuffer):
@@ -64,6 +69,7 @@ class TmaxTrajectoryBuffer(TrajectoryBuffer):
             self.current_trajectories[env_idx].add(
                 obs[env_idx], actions[env_idx], infos[env_idx],
                 mode=tmax_mgr.mode[env_idx], stage=tmax_mgr.env_stage[env_idx],
+                intrinsic_reward=tmax_mgr.intrinsic_reward[env_idx],
             )
 
             if dones[env_idx]:
