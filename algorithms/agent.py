@@ -238,7 +238,8 @@ class AgentLearner(Agent):
             summed_histogram += hist
         summed_histogram += 1  # min shouldn't be 0 (for log scale)
 
-        fig = plt.figure(figsize=(4, 4))
+        fig = plt.gcf()
+        fig.clear()
         plt.imshow(
             summed_histogram.T,
             norm=colors.LogNorm(vmin=summed_histogram.min(), vmax=summed_histogram.max()),
@@ -250,4 +251,3 @@ class AgentLearner(Agent):
         summary = visualize_matplotlib_figure_tensorboard(fig, tag)
         self.summary_writer.add_summary(summary, step)
 
-        plt.close(fig)

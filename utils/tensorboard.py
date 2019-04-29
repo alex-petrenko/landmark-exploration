@@ -14,7 +14,6 @@ def visualize_matplotlib_figure_tensorboard(figure, tag):
     graph_summary = tf.Summary.Value(tag=tag, image=graph_image_summary)
 
     summary = tf.Summary(value=[graph_summary])
-    figure.clear()
     return summary
 
 
