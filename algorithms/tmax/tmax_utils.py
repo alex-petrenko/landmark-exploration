@@ -6,8 +6,8 @@ DEFAULT_EXPERIMENT_NAME = 'tmax_v030'
 DEFAULT_ENV = 'doom_maze_very_sparse'
 
 
-def parse_args_tmax(params_cls):
-    return parse_args(DEFAULT_ENV, DEFAULT_EXPERIMENT_NAME, params_cls)
+def parse_args_tmax(params_cls, argv=None):
+    return parse_args(DEFAULT_ENV, DEFAULT_EXPERIMENT_NAME, params_cls, argv=argv)
 
 
 class TmaxMode:

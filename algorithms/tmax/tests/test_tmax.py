@@ -21,7 +21,7 @@ class TestTMAX(TestCase):
     def tmax_train_run(self, env_name=None):
         test_dir_name = self.__class__.__name__
 
-        args, params = parse_args_tmax(AgentTMAX.Params)
+        args, params = parse_args_tmax(AgentTMAX.Params, argv=[])
         if env_name is not None:
             args.env = env_name
 
@@ -59,7 +59,7 @@ class TestTMAX(TestCase):
         g = tf.Graph()
 
         env = make_doom_env(doom_env_by_name(TEST_ENV_NAME))
-        args, params = parse_args_tmax(AgentTMAX.Params)
+        args, params = parse_args_tmax(AgentTMAX.Params, argv=[])
 
         with g.as_default():
             locomotion_net = LocomotionNetwork(env, params)

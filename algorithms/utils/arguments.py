@@ -4,7 +4,10 @@ import sys
 from utils.utils import log, get_experiment_name
 
 
-def parse_args(default_env, default_experiment_name, params_cls):
+def parse_args(default_env, default_experiment_name, params_cls, argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     # common args
@@ -14,7 +17,7 @@ def parse_args(default_env, default_experiment_name, params_cls):
     # params object args
     params_cls.add_cli_args(parser)
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     experiment = args.experiment
     if experiment is None:
