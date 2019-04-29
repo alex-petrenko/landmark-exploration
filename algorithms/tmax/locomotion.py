@@ -20,8 +20,8 @@ from utils.utils import log, vis_dir, ensure_dir_exists
 
 class LocomotionNetworkParams:
     def __init__(self):
-        self.locomotion_experience_replay_buffer = 50000
-        self.locomotion_experience_replay_epochs = 2
+        self.locomotion_experience_replay_buffer = 100000
+        self.locomotion_experience_replay_epochs = 8
         self.locomotion_experience_replay_batch = 128
         self.locomotion_experience_replay_max_kl = 0.05
         self.locomotion_max_trajectory = 5  # max trajectory length to be utilized during training

@@ -406,7 +406,7 @@ def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_
 
     summary_writer.add_summary(summary, env_steps)
 
-    num_maps_to_plot = min(3, len(maps))
+    num_maps_to_plot = min(2, len(maps))
     maps_for_summary = random.sample(maps, num_maps_to_plot)
 
     max_graph_idx = 0
@@ -420,7 +420,7 @@ def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_
     )
     summary_writer.add_summary(max_graph_summary, env_steps)
 
-    if len(maps_for_summary) > 1:
+    if len(maps) > 1:
         for i, map_for_summary in enumerate(maps_for_summary):
             random_graph_summary = visualize_graph_tensorboard(
                 map_for_summary.labeled_graph,

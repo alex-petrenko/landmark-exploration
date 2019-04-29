@@ -37,8 +37,8 @@ DOOM_ENVS = [
     DoomCfg('doom_maze_very_sparse', 'VizdoomMyWayHomeVerySparse-v0', 1.0, 2100),
     DoomCfg('doom_maze_multi_goal', 'VizdoomMyWayHomeMultiGoal-v0', 1.0, 2100),
     DoomCfg('doom_maze_multi_goal_random', 'VizdoomMyWayHomeMultiGoalRandom-v0', 1.0, 2100),
-    DoomCfg('doom_maze_no_goal', 'VizdoomMyWayHomeNoGoal-v0', 1.0, 2100),
-    DoomCfg('doom_maze_no_goal_random', 'VizdoomMyWayHomeNoGoalRandom-v0', 1.0, 10000),
+    DoomCfg('doom_maze_no_goal', 'VizdoomMyWayHomeNoGoal-v0', 1.0, 20000),
+    DoomCfg('doom_maze_no_goal_random', 'VizdoomMyWayHomeNoGoalRandom-v0', 1.0, 20000),
 
     DoomCfg('doom_maze_goal', 'VizdoomMyWayHomeGoal-v0', 1.0, 2100),
 
@@ -82,8 +82,8 @@ def make_doom_env(doom_cfg, mode='train', skip_frames=True, human_input=False, s
     env = ResizeWrapper(env, DOOM_W, DOOM_H, grayscale=False)
 
     # randomly vary episode duration to somewhat decorrelate the experience
-    timeout = doom_cfg.default_timeout - 100
-    env = TimeLimitWrapper(env, limit=timeout, random_variation_steps=99)
+    timeout = doom_cfg.default_timeout - 50
+    env = TimeLimitWrapper(env, limit=timeout, random_variation_steps=49)
 
     if doom_cfg.reward_scaling != 1.0:
         env = RewardScalingWrapper(env, doom_cfg.reward_scaling)

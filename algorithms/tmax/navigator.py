@@ -18,6 +18,8 @@ class Navigator:
         self.distance_net = agent.distance
 
         self.current_landmarks = [0] * self.params.num_envs
+        self.last_made_progress = [0] * self.params.num_envs
+
         self.paths = [[] for _ in range(self.params.num_envs)]
 
         self.lost_localization_frames = [0] * self.params.num_envs
@@ -31,6 +33,7 @@ class Navigator:
 
     def reset(self, env_i, m):
         self.current_landmarks[env_i] = 0  # assuming we always start from the same location
+        self.last_made_progress[env_i] = 0
         self.lost_localization_frames[env_i] = 0
 
         # reset shortest paths to the goal because we might have a new map or a new goal
@@ -126,7 +129,7 @@ class Navigator:
 
         return neighbor_indices, lookahead_distances
 
-    def get_next_target(self, maps, obs, goals):
+    def get_next_target(self, maps, obs, goals, episode_frames):
         """Returns indices of the next locomotion targets for all envs, or nones if we're lost."""
         neighbors, distances = self._localize_path_lookahead(maps, obs, goals)
 
@@ -140,6 +143,7 @@ class Navigator:
             distance = distances[env_i]
             min_d, min_d_idx = min_with_idx(distance)
             closest_landmark = neighbors[env_i][min_d_idx]
+            prev_landmark = self.current_landmarks[env_i]
 
             if min_d > self.max_neighborhood_dist:
                 self.lost_localization_frames[env_i] += 1
@@ -172,5 +176,8 @@ class Navigator:
             # noinspection PyTypeChecker
             next_target[env_i] = target_node
             next_target_d[env_i] = target_d
+
+            if prev_landmark != self.current_landmarks[env_i]:
+                self.last_made_progress[env_i] = episode_frames[env_i]
 
         return next_target, next_target_d

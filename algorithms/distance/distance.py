@@ -14,6 +14,7 @@ from keras.layers import Lambda, concatenate
 
 # noinspection PyProtectedMember
 from algorithms.architectures.resnet_keras import ResnetBuilder, _top_network
+from algorithms.tmax.tmax_utils import TmaxTrajectory, TmaxMode
 from algorithms.topological_maps.topological_map import hash_observation
 from algorithms.utils.buffer import Buffer
 from algorithms.utils.encoders import make_encoder, EncoderParams
@@ -302,14 +303,17 @@ class DistanceBuffer:
 
         with timing.timeit('trajectories'):
             for trajectory in trajectories:
+                check_mode = isinstance(trajectory, TmaxTrajectory)
+
                 obs = trajectory.obs
 
                 indices = list(range(len(trajectory)))
                 np.random.shuffle(indices)
 
                 for i in indices:
-                    if data_added > self.params.distance_target_buffer_size // 4:  # to limit memory usage
-                        break
+                    if self.has_enough_data():
+                        if data_added > self.params.distance_target_buffer_size // 4:  # to limit memory usage
+                            break
 
                     close_i = min(i + close, len(trajectory))
                     far_i = min(i + far, len(trajectory))
@@ -317,6 +321,12 @@ class DistanceBuffer:
                     # sample close observation pair
                     first_idx = i
                     second_idx = np.random.randint(i, close_i)
+
+                    if check_mode and trajectory.mode[first_idx] != TmaxMode.EXPLORATION:
+                        continue
+                    if check_mode and trajectory.mode[second_idx] != TmaxMode.EXPLORATION:
+                        continue
+
                     if self.params.distance_symmetric and random.random() < 0.5:
                         first_idx, second_idx = second_idx, first_idx
 
@@ -351,7 +361,7 @@ class DistanceBuffer:
         log.info('num close %d, num far %d, distance net timing %s', num_close, num_far, timing)
 
     def has_enough_data(self):
-        len_data, min_data = len(self.buffer), self.params.distance_target_buffer_size // 40
+        len_data, min_data = len(self.buffer), self.params.distance_target_buffer_size // 5
         if len_data < min_data:
             log.info('Need to gather more data to train distance net, %d/%d', len_data, min_data)
             return False

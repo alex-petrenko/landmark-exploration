@@ -21,7 +21,7 @@ def safe_get(q, timeout=1e6, msg='Queue timeout'):
 
 
 class MsgType(Enum):
-    INIT, TERMINATE, RESET, STEP_REAL, STEP_IMAGINED, INFO = range(6)
+    INIT, TERMINATE, RESET, STEP_REAL, STEP_REAL_RESET, STEP_IMAGINED, INFO = range(7)
 
 
 class _MultiEnvWorker:
@@ -91,7 +91,7 @@ class _MultiEnvWorker:
 
             # handling actual workload
             envs = real_envs
-            if msg_type == MsgType.RESET or msg_type == MsgType.STEP_REAL:
+            if msg_type == MsgType.RESET or msg_type == MsgType.STEP_REAL or msg_type == MsgType.STEP_REAL_RESET:
                 if imagined_envs is not None:
                     for imagined_env in imagined_envs:
                         imagined_env.close()
@@ -130,6 +130,10 @@ class _MultiEnvWorker:
             else:
                 assert len(envs) == len(actions)
 
+                reset = [False] * len(actions)
+                if msg_type == MsgType.STEP_REAL_RESET:
+                    actions, reset = zip(*actions)
+
                 # Collect obs, reward, done, and info
                 prediction_start = time.time()
                 results = [env.step(action) for env, action in zip(envs, actions)]
@@ -141,12 +145,13 @@ class _MultiEnvWorker:
                     timing.prediction += time.time() - prediction_start
 
                 # If this is a real step and the env is done, reset
-                if msg_type == MsgType.STEP_REAL:
+                if msg_type == MsgType.STEP_REAL or msg_type == MsgType.STEP_REAL_RESET:
                     for i, result in enumerate(results):
                         obs, reward, done, info = result[0]
-                        if done:
+                        if done or reset[i]:
                             obs = real_envs[i].reset()
                             info = self._get_info(real_envs[i])  # info for the new episode
+                            done = True
 
                         results[i] = (obs, reward, done, info)  # collapse dimension of size 1
 
@@ -233,12 +238,15 @@ class MultiEnv:
         observations = self.await_tasks(None, MsgType.RESET)
         return observations
 
-    def step(self, actions):
+    def step(self, actions, reset=None):
         """
         Obviously, returns vectors of obs, rewards, dones instead of usual single values.
         Must call reset before the first step!
         """
-        results = self.await_tasks(actions, MsgType.STEP_REAL)
+        if reset is None:
+            results = self.await_tasks(actions, MsgType.STEP_REAL)
+        else:
+            results = self.await_tasks(list(zip(actions, reset)), MsgType.STEP_REAL_RESET)
         observations, rewards, dones, infos = zip(*results)
 
         for i in range(self.num_envs):

@@ -76,7 +76,7 @@ class ECRMapModule(CuriosityModule):
 
                 self.episodic_maps[i].new_episode()
 
-        bonuses = np.zeros(self.params.num_envs)
+        bonuses = np.full(self.params.num_envs, fill_value=-0.01)
 
         if self.initialized:
             # noinspection PyUnusedLocal
@@ -171,7 +171,7 @@ class ECRMapModule(CuriosityModule):
         summary_writer.add_summary(summary, env_steps)
 
         time_since_last = time.time() - self._last_map_summary
-        map_summary_rate_seconds = 60
+        map_summary_rate_seconds = 120
         if time_since_last > map_summary_rate_seconds:
             map_img = kwargs.get('map_img')
             coord_limits = kwargs.get('coord_limits')

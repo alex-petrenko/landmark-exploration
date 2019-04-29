@@ -39,6 +39,9 @@ class ActorCritic:
         with tf.variable_scope(name):
             obs_space = main_observation_space(env)
 
+            self.ph_timer = tf.placeholder(tf.float32, shape=[None], name='ph_timer')
+            timer = tf.expand_dims(self.ph_timer, axis=1)
+
             self.ph_observations = ph_observations
             self.ph_ground_truth_actions = placeholder_from_space(env.action_space)
 
@@ -89,6 +92,7 @@ class ActorCritic:
                 self.ph_neighbors = None
                 act_obs_and_neighborhoods = act_encoded_obs
 
+            act_obs_and_neighborhoods = tf.concat([act_obs_and_neighborhoods, timer], axis=1)
             actor_model = make_model(act_obs_and_neighborhoods, reg, params, 'act_mdl')
 
             actions_fc = dense(actor_model.latent, params.model_fc_size // 2, reg)
@@ -119,6 +123,7 @@ class ActorCritic:
             else:
                 value_obs_and_neighborhoods = value_encoded_obs
 
+            value_obs_and_neighborhoods = tf.concat([value_obs_and_neighborhoods, timer], axis=1)
             value_model = make_model(value_obs_and_neighborhoods, reg, params, 'val_mdl')
 
             value_fc = dense(value_model.latent, params.model_fc_size // 2, reg)
@@ -126,8 +131,8 @@ class ActorCritic:
 
             log.info('Total parameters so far: %d', count_total_parameters())
 
-    def input_dict(self, observations, goals, neighbors_encoded, num_neighbors):
-        feed_dict = {self.ph_observations: observations}
+    def input_dict(self, observations, goals, neighbors_encoded, num_neighbors, timer):
+        feed_dict = {self.ph_observations: observations, self.ph_timer: timer}
         if self.has_goal:
             feed_dict[self.ph_goal_obs] = goals
         if self.ph_neighbors is not None and self.ph_num_neighbors is not None:
@@ -135,18 +140,18 @@ class ActorCritic:
             feed_dict[self.ph_num_neighbors] = num_neighbors
         return feed_dict
 
-    def invoke(self, session, observations, goals, neighbors_encoded, num_neighbors, deterministic=False):
+    def invoke(self, session, observations, goals, neighbors_encoded, num_neighbors, timer, deterministic=False):
         ops = [
             self.best_action_deterministic if deterministic else self.act,
             self.action_prob,
             self.value,
         ]
-        feed_dict = self.input_dict(observations, goals, neighbors_encoded, num_neighbors)
+        feed_dict = self.input_dict(observations, goals, neighbors_encoded, num_neighbors, timer)
         actions, action_prob, values = session.run(ops, feed_dict=feed_dict)
         return actions, action_prob, values
 
-    def best_action(self, session, observations, goals, neighbors_encoded, num_neighbors, deterministic=False):
-        feed_dict = self.input_dict(observations, goals, neighbors_encoded, num_neighbors)
+    def best_action(self, session, observations, goals, neighbors_encoded, num_neighbors, timer, deterministic=False):
+        feed_dict = self.input_dict(observations, goals, neighbors_encoded, num_neighbors, timer)
         actions = session.run(self.best_action_deterministic if deterministic else self.act, feed_dict=feed_dict)
         return actions
 
@@ -161,15 +166,20 @@ class TmaxPPOBuffer(PPOBuffer):
         self.neighbors, self.num_neighbors = None, None
         self.modes = None
         self.masks = None
+        self.timer = None
 
     def reset(self):
         super(TmaxPPOBuffer, self).reset()
         self.neighbors, self.num_neighbors = [], []
         self.modes = []
         self.masks = []
+        self.timer = []
 
     # noinspection PyMethodOverriding
-    def add(self, obs, goals, actions, action_probs, rewards, dones, values, neighbors, num_neighbors, modes, masks):
+    def add(
+            self, obs, goals, actions, action_probs, rewards, dones,
+            values, neighbors, num_neighbors, modes, masks, timer,
+    ):
         """Append one-step data to the current batch of observations."""
         args = copy.copy(locals())
         super(TmaxPPOBuffer, self)._add_args(args)
@@ -226,6 +236,7 @@ class TmaxManager:
 
         self.env_steps = 0
         self.episode_frames = [0] * self.num_envs
+        self.end_episode = [self.params.exploration_budget] * self.num_envs
 
         self.locomotion_targets = [None] * self.num_envs
         self.locomotion_final_targets = [None] * self.num_envs  # final target (e.g. goal observation)
@@ -240,7 +251,7 @@ class TmaxManager:
         # if persistent map is provided, then we can skip the entire exploration stage
         self.stage_change_required = self.params.persistent_map_checkpoint is not None
 
-        self.exploration_trajectories = deque([], maxlen=10)
+        self.exploration_trajectories = deque([], maxlen=20)
 
         self.locomotion_success = deque([], maxlen=300)
 
@@ -295,27 +306,51 @@ class TmaxManager:
         if self._verbose:
             log.debug(s, *args)
 
+    def is_episode_reset(self):
+        reset = [False] * self.num_envs
+        for env_i in range(self.num_envs):
+            if self.end_episode[env_i] < 0:
+                continue
+
+            if self.episode_frames[env_i] >= self.end_episode[env_i]:
+                reset[env_i] = True
+
+        return reset
+
+    def get_timer(self):
+        timer = np.ones(self.num_envs, dtype=np.float32)
+        for env_i in range(self.num_envs):
+            if self.end_episode[env_i] < 0:
+                timer[env_i] = 1.0
+            else:
+                remaining_frames = self.end_episode[env_i] - self.episode_frames[env_i]
+                timer[env_i] = remaining_frames / self.params.exploration_budget
+
+        return timer
+
     def save_trajectories(self, trajectories):
         """Save the last exploration trajectory for every env_idx to potentially later use as a demonstration."""
         for t in trajectories:
             # calculate total intrinsic reward over the trajectory
             total_intrinsic_reward = sum(r for r in t.intrinsic_reward)
 
-            if len(self.exploration_trajectories) < self.exploration_trajectories.maxlen:
-                self.exploration_trajectories.append((total_intrinsic_reward, t))
-                continue
+            self.exploration_trajectories.append((total_intrinsic_reward, t))
 
-            # if list is full then find trajectory with minimum intrinsic reward, remove from deque and append new
-            min_reward_idx = 0
-            for i, past_trajectory in enumerate(self.exploration_trajectories):
-                reward, _ = past_trajectory
-                if reward < self.exploration_trajectories[min_reward_idx][0]:
-                    min_reward_idx = i
-
-            if total_intrinsic_reward > self.exploration_trajectories[min_reward_idx][0]:
-                log.info('Found better exploration trajectory with reward %.3f', total_intrinsic_reward)
-                del self.exploration_trajectories[min_reward_idx]
-                self.exploration_trajectories.append((total_intrinsic_reward, t))
+            # if len(self.exploration_trajectories) < self.exploration_trajectories.maxlen:
+            #     self.exploration_trajectories.append((total_intrinsic_reward, t))
+            #     continue
+            #
+            # # if list is full then find trajectory with minimum intrinsic reward, remove from deque and append new
+            # min_reward_idx = 0
+            # for i, past_trajectory in enumerate(self.exploration_trajectories):
+            #     reward, _ = past_trajectory
+            #     if reward < self.exploration_trajectories[min_reward_idx][0]:
+            #         min_reward_idx = i
+            #
+            # if total_intrinsic_reward > self.exploration_trajectories[min_reward_idx][0]:
+            #     log.info('Found better exploration trajectory with reward %.3f', total_intrinsic_reward)
+            #     del self.exploration_trajectories[min_reward_idx]
+            #     self.exploration_trajectories.append((total_intrinsic_reward, t))
 
     def envs_with_locomotion_targets(self, env_indices):
         envs_with_goal, envs_without_goal = [], []
@@ -458,6 +493,17 @@ class TmaxManager:
 
         trajectories = [t[1] for t in self.exploration_trajectories]
 
+        # truncate trajectories
+        for t_idx, t in enumerate(trajectories):
+            first_exploration_frame = len(t)
+            for i in range(len(t)):
+                if t.mode[i] == TmaxMode.EXPLORATION:
+                    first_exploration_frame = i
+                    break
+
+            t.trim_at(first_exploration_frame + self.params.max_exploration_trajectory)
+            log.info('Trimmed trajectory %d at %d frames', t_idx, len(t))
+
         curr_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
         best_trajectory_idx, max_landmarks = self._pick_best_exploration_trajectory(
             self.agent, trajectories, curr_sparse_map,
@@ -485,7 +531,6 @@ class TmaxManager:
         self.sparse_persistent_maps.append(curr_sparse_map)
         self.sparse_map_size_before_locomotion = self.sparse_persistent_maps[-1].num_landmarks()
 
-        # TODO: maybe rebuild shortcuts every time
         map_builder.remove_shortcuts(curr_dense_map)
 
         new_dense_map = map_builder.add_trajectory_to_dense_map(curr_dense_map, best_trajectory)
@@ -518,8 +563,9 @@ class TmaxManager:
             return
 
         landmark_observations = [m.get_observation(node) for node in m.graph.nodes]
+        timer = [1.0 for _ in m.graph.nodes]
         _, _, values = self.agent.actor_critic.invoke(
-            self.agent.session, landmark_observations, None, None, None,  # does not work with goals!
+            self.agent.session, landmark_observations, None, None, None, timer,  # does not work with goals!
         )
 
         assert len(values) == len(landmark_observations)
@@ -558,6 +604,8 @@ class TmaxManager:
         self._delete_old_maps(self.current_sparse_maps, self.sparse_persistent_maps)
 
         self.episode_frames[env_i] = 0
+        end_episode = -1 if self.curiosity.is_initialized else self.params.exploration_budget
+        self.end_episode = [end_episode] * self.num_envs
 
         self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
 
@@ -604,7 +652,7 @@ class TmaxManager:
 
     def _update_locomotion(self, next_obs):
         next_target, next_target_d = self.navigator.get_next_target(
-            self.current_dense_maps, next_obs, self.locomotion_final_targets
+            self.current_dense_maps, next_obs, self.locomotion_final_targets, self.episode_frames,
         )
 
         for env_i in range(self.num_envs):
@@ -616,22 +664,29 @@ class TmaxManager:
             self.locomotion_targets[env_i] = next_target[env_i]
             exploration_stage = self.env_stage[env_i] == TmaxMode.EXPLORATION
 
-            # TODO: this is hacky
-            if next_target[env_i] is None or self.episode_frames[env_i] > 250:
-                if self.locomotion_final_targets[env_i] is not None:
-                    log.info(
-                        'Agent in env %d got lost in %d steps while trying to reach %d',
-                        env_i, self.episode_frames[env_i], self.locomotion_final_targets[env_i],
-                    )
+            end_locomotion, locomotion_success = False, False
 
-                    if exploration_stage:
-                        self.mode[env_i] = TmaxMode.EXPLORATION
+            if next_target[env_i] is None:
+                log.info(
+                    'Agent in env %d got lost in %d steps while trying to reach %d',
+                    env_i, self.episode_frames[env_i], self.locomotion_final_targets[env_i],
+                )
+                end_locomotion = True
 
-                self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
-                self.locomotion_success.append(False)
-                continue
+            since_last_made_progress = self.episode_frames[env_i] - self.navigator.last_made_progress[env_i]
+            if since_last_made_progress > 100:
+                log.info(
+                    'Agent in env %d did not make any progress in %d frames while trying to reach %d',
+                    env_i, since_last_made_progress, self.locomotion_final_targets[env_i],
+                )
+                end_locomotion = True
 
-            # TODO: what if we aren't making any progress towards the goal?
+            if self.episode_frames[env_i] > self.params.max_episode / 2:
+                log.info(
+                    'Takes too much time (%d) to get to %d',
+                    self.episode_frames[env_i], self.locomotion_final_targets[env_i],
+                )
+                end_locomotion = True
 
             if self.navigator.current_landmarks[env_i] == self.locomotion_final_targets[env_i]:
                 # reached the locomotion goal
@@ -639,12 +694,16 @@ class TmaxManager:
                     'Env %d reached locomotion goal %d in %d steps',
                     env_i, self.locomotion_final_targets[env_i], self.episode_frames[env_i],
                 )
+                end_locomotion = True
+                locomotion_success = True
 
+            if end_locomotion:
                 if exploration_stage:
                     self.mode[env_i] = TmaxMode.EXPLORATION
 
+                self.end_episode[env_i] = self.episode_frames[env_i] + self.params.exploration_budget
                 self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
-                self.locomotion_success.append(True)
+                self.locomotion_success.append(locomotion_success)
 
     def update(self, obs, next_obs, rewards, dones, infos, env_steps, timing=None, verbose=False):
         self._verbose = verbose
@@ -717,6 +776,10 @@ class AgentTMAX(AgentLearner):
             self.reliable_path_probability = 0.4  # product of probs along the path for it to be considered reliable
             self.reliable_edge_probability = 0.1
             self.successful_traversal_frames = 50  # if we traverse an edge in less than that, we succeeded
+
+            self.exploration_budget = 1000
+            self.max_exploration_trajectory = 100
+            self.max_episode = 20000
 
             self.locomotion_experience_replay = True
 
@@ -1153,7 +1216,7 @@ class AgentTMAX(AgentLearner):
         assert len(goal_obs) == len(envs_with_goal)
 
         masks[env_i] = 0
-        deterministic = False if random.random() < 0.1 else True
+        deterministic = False if random.random() < 0.25 else True
 
         if len(envs_with_goal) > 0:
             goals[envs_with_goal] = goal_obs  # replace goals with locomotion goals
@@ -1170,26 +1233,20 @@ class AgentTMAX(AgentLearner):
 
     def _exploration_policy_step(
             self, env_i, observations, goals, neighbors, num_neighbors,
-            actions, action_probs, values, masks
+            actions, action_probs, values, masks, timer,
     ):
         if len(env_i) <= 0:
             return
 
-        random_exploration = False  # TODO remove of make a parameter
-
-        if random_exploration:
-            masks[env_i] = 0
-            actions[env_i] = np.random.randint(0, self.actor_critic.num_actions, len(env_i))
-        else:
-            masks[env_i] = 1
-            goals_policy = goals[env_i] if self.is_goal_env else None
-            neighbors_policy = num_neighbors_policy = None
-            if neighbors is not None:
-                neighbors_policy = neighbors[env_i]
-                num_neighbors_policy = num_neighbors[env_i]
-            actions[env_i], action_probs[env_i], values[env_i] = self.actor_critic.invoke(
-                self.session, observations[env_i], goals_policy, neighbors_policy, num_neighbors_policy,
-            )
+        masks[env_i] = 1
+        goals_policy = goals[env_i] if self.is_goal_env else None
+        neighbors_policy = num_neighbors_policy = None
+        if neighbors is not None:
+            neighbors_policy = neighbors[env_i]
+            num_neighbors_policy = num_neighbors[env_i]
+        actions[env_i], action_probs[env_i], values[env_i] = self.actor_critic.invoke(
+            self.session, observations[env_i], goals_policy, neighbors_policy, num_neighbors_policy, timer,
+        )
 
     def policy_step(self, obs_prev, observations, goals, neighbors, num_neighbors):
         """Run exploration or locomotion policy depending on the state of the particular environment."""
@@ -1215,6 +1272,7 @@ class AgentTMAX(AgentLearner):
         action_probs = np.ones(num_envs, np.float32)
         values = np.zeros(num_envs, np.float32)
         masks = np.zeros(num_envs, np.int32)
+        timer = tmax_mgr.get_timer()
 
         self._locomotion_policy_step(
             env_indices[TmaxMode.LOCOMOTION], obs_prev, observations, goals, actions, masks, tmax_mgr,
@@ -1222,10 +1280,10 @@ class AgentTMAX(AgentLearner):
 
         self._exploration_policy_step(
             env_indices[TmaxMode.EXPLORATION], observations, goals, neighbors, num_neighbors,
-            actions, action_probs, values, masks,
+            actions, action_probs, values, masks, timer,
         )
 
-        return actions, action_probs, values, masks, goals, modes
+        return actions, action_probs, values, masks, goals, modes, timer
 
     def _get_observations(self, env_obs):
         """
@@ -1261,6 +1319,7 @@ class AgentTMAX(AgentLearner):
                 policy_input = actor_critic.input_dict(
                     buffer.obs[start:end], buffer.goals[start:end],
                     buffer.neighbors[start:end], buffer.num_neighbors[start:end],
+                    buffer.timer[start:end],
                 )
 
                 result = self.session.run(
@@ -1315,6 +1374,7 @@ class AgentTMAX(AgentLearner):
                 policy_input = actor_critic.input_dict(
                     buffer.obs[start:end], buffer.goals[start:end],
                     buffer.neighbors[start:end], buffer.num_neighbors[start:end],
+                    buffer.timer[start:end],
                 )
 
                 result = self.session.run(
@@ -1346,9 +1406,6 @@ class AgentTMAX(AgentLearner):
 
     def _maybe_train_locomotion(self, data, env_steps):
         """Train locomotion using hindsight experience replay."""
-        if not data.has_enough_data():
-            return
-
         num_epochs = self.params.locomotion_experience_replay_epochs
 
         summary = None
@@ -1413,6 +1470,7 @@ class AgentTMAX(AgentLearner):
             if self.params.persistent_map_checkpoint is None:
                 # persistent map is not provided - train exploration policy to discover it online
                 with timing.timeit('train_policy'):
+                    log.info('Exploration buffer size %d', len(buffers[TmaxMode.EXPLORATION]))
                     step = self._train_actor(
                         buffers[TmaxMode.EXPLORATION], env_steps,
                         self.objectives, self.actor_critic, self.train_actor, self.actor_step, self.actor_summaries,
@@ -1437,7 +1495,9 @@ class AgentTMAX(AgentLearner):
             else:
                 # train locomotion with self imitation from trajectories
                 if tmax_mgr.global_stage == TmaxMode.LOCOMOTION:
-                    self._maybe_train_locomotion(locomotion_buffer, env_steps)
+                    if len(locomotion_buffer.buffer) >= self.params.locomotion_experience_replay_buffer:
+                        self._maybe_train_locomotion(locomotion_buffer, env_steps)
+                        locomotion_buffer.reset()
 
         if self.params.distance_network_checkpoint is None:
             # distance net not provided - train distance metric online
@@ -1478,13 +1538,14 @@ class AgentTMAX(AgentLearner):
                 buffer.reset()
                 for rollout_step in range(self.params.rollout):
                     with timing.add_time('policy'):
-                        actions, action_probs, values, masks, policy_goals, modes = self.policy_step(
+                        actions, action_probs, values, masks, policy_goals, modes, timer = self.policy_step(
                             obs_prev, observations, goals, None, None,
                         )
 
                     # wait for all the workers to complete an environment step
                     with timing.add_time('env_step'):
-                        env_obs, rewards, dones, infos = multi_env.step(actions)
+                        reset = tmax_mgr.is_episode_reset()
+                        env_obs, rewards, dones, infos = multi_env.step(actions, reset)
 
                     trajectory_buffer.add(observations, actions, infos, dones, tmax_mgr=tmax_mgr)
 
@@ -1499,7 +1560,7 @@ class AgentTMAX(AgentLearner):
                     buffer.add(
                         observations, policy_goals, actions, action_probs,
                         rewards, dones, values,
-                        None, None, modes, masks,
+                        None, None, modes, masks, timer,
                     )
 
                     obs_prev = observations
@@ -1511,7 +1572,7 @@ class AgentTMAX(AgentLearner):
                     env_steps += num_steps_delta
 
                 # last step values are required for TD-return calculation
-                _, _, values, _, _, _ = self.policy_step(obs_prev, observations, goals, None, None)
+                _, _, values, _, _, _, _ = self.policy_step(obs_prev, observations, goals, None, None)
                 buffer.values.append(values)
 
             # calculate discounted returns and GAE

@@ -163,4 +163,7 @@ class TestMultiEnv(TestCase):
             self.assertEqual(len(dones), num_envs)
             self.assertEqual(len(infos), num_envs)
 
+        obs, rewards, dones, infos = multi_env.step([0] * num_envs, reset=[True] * num_envs)
+        self.assertTrue(all(d for d in dones))
+
         multi_env.close()
