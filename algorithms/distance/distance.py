@@ -311,7 +311,7 @@ class DistanceBuffer:
                 np.random.shuffle(indices)
 
                 for i in indices:
-                    if self.has_enough_data():
+                    if len(self.buffer) > self.params.distance_target_buffer_size // 2:
                         if data_added > self.params.distance_target_buffer_size // 4:  # to limit memory usage
                             break
 
