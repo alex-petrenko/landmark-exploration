@@ -36,18 +36,20 @@ def plot_graph(
 
     pos = parse_layout(nx_graph, layout)
 
-    figure = plt.gcf()
-    figure.clear()
-    if map_img is not None:
+    if map_img is None:
+        figure = plt.gcf()
+        figure.clear()
+    else:
         map_img = cv2.resize(map_img, dsize=None, fx=2, fy=2)
         width, height = map_img.shape[:2]
 
         dpi = 120  # can be changed
-        plt.close('all')
         figure = plt.figure(num=2, figsize=(height / dpi, width / dpi), dpi=dpi, facecolor='none', edgecolor='k')
+        figure.clear()
         figure.figimage(map_img, 0, 0)
         plt.xlim(limits[0], limits[2])
         plt.ylim(limits[1], limits[3])
+
     ax = plt.gca()
     ax.set_aspect('equal')
     ax.patch.set_facecolor('none')

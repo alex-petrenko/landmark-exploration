@@ -425,6 +425,6 @@ def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_
             random_graph_summary = visualize_graph_tensorboard(
                 map_for_summary.labeled_graph,
                 tag=f'{section}/random_graph_{i}',
-                map_img=map_img, coord_limits=coord_limits,
+                map_img=map_img, coord_limits=coord_limits, is_sparse=is_sparse,
             )
             summary_writer.add_summary(random_graph_summary, env_steps)

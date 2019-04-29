@@ -1,6 +1,6 @@
 import numpy as np
 
-from utils.utils import min_with_idx
+from utils.utils import min_with_idx, log
 
 
 def edge_weight(i1, i2, d):
@@ -49,6 +49,13 @@ class Navigator:
                 continue
 
             path = m.get_path(curr_landmark, goal, edge_weight=edge_weight)
+
+            if path is None or len(path) <= 0:
+                log.error('Nodes: %r', list(m.graph.nodes))
+                log.error('Path %r', path)
+                log.error('Current landmark: %d', curr_landmark)
+                log.error('Goal: %d', goal)
+
             assert path is not None and len(path) > 0
 
             curr_node = curr_landmark

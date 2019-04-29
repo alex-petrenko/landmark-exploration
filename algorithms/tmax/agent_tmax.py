@@ -610,6 +610,8 @@ class TmaxManager:
         for env_i in range(self.num_envs):
             if self.mode[env_i] != TmaxMode.LOCOMOTION:
                 continue
+            if self.locomotion_final_targets[env_i] is None:
+                continue
 
             self.locomotion_targets[env_i] = next_target[env_i]
             exploration_stage = self.env_stage[env_i] == TmaxMode.EXPLORATION
@@ -1051,7 +1053,7 @@ class AgentTMAX(AgentLearner):
 
         if len(tmax_mgr.locomotion_success) > 0:
             summary_obj.value.add(
-                tag='tmax_locomotion/locomotion_success_rate', simple_value=np.mean(tmax_mgr.locomotion_success),
+                tag='locomotion/locomotion_success_rate', simple_value=np.mean(tmax_mgr.locomotion_success),
             )
 
         summary_obj.value.add(
