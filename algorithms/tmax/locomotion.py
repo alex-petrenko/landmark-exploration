@@ -129,7 +129,7 @@ class LocomotionBuffer:
             random_frames = [[i for i, targ in enumerate(t.locomotion_target) if targ is None] for t in trajectories]
 
             total_experience = sum(len(frames) for frames in random_frames)
-            max_total_experience = 0.5 * total_experience  # max fraction of experience to use
+            max_total_experience = 0.66 * total_experience  # max fraction of experience to use
             max_num_segments = int(max_total_experience / max_trajectory)
 
             log.info(

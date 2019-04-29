@@ -475,7 +475,7 @@ class TmaxManager:
         max_landmarks, best_trajectory_idx = max_with_idx(num_landmarks)
         log.debug(
             'Selected traj %d with %d landmarks and avg. distance of %.3f',
-            best_trajectory_idx, max_landmarks, len(trajectories[best_trajectory_idx]) / max_landmarks,
+            best_trajectory_idx, max_landmarks, len(trajectories[best_trajectory_idx]) / max_landmarks + EPS,
         )
 
         return best_trajectory_idx, max_landmarks
@@ -589,6 +589,8 @@ class TmaxManager:
                 return
 
     def _new_episode(self, env_i):
+        log.info('Env %d new episode (frames %d)!', env_i, self.episode_frames[env_i])
+
         self.current_dense_maps[env_i] = self.dense_persistent_maps[-1]
         self.current_sparse_maps[env_i] = self.sparse_persistent_maps[-1]
 
@@ -604,8 +606,7 @@ class TmaxManager:
         self._delete_old_maps(self.current_sparse_maps, self.sparse_persistent_maps)
 
         self.episode_frames[env_i] = 0
-        end_episode = -1 if self.curiosity.is_initialized else self.params.exploration_budget
-        self.end_episode = [end_episode] * self.num_envs
+        self.end_episode[env_i] = -1 if self.curiosity.is_initialized else self.params.exploration_budget
 
         self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
 
@@ -704,6 +705,7 @@ class TmaxManager:
                 self.end_episode[env_i] = self.episode_frames[env_i] + self.params.exploration_budget
                 self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
                 self.locomotion_success.append(locomotion_success)
+                log.info('End locomotion, frame %d, end %d', self.episode_frames[env_i], self.end_episode[env_i])
 
     def update(self, obs, next_obs, rewards, dones, infos, env_steps, timing=None, verbose=False):
         self._verbose = verbose
@@ -778,7 +780,7 @@ class AgentTMAX(AgentLearner):
             self.successful_traversal_frames = 50  # if we traverse an edge in less than that, we succeeded
 
             self.exploration_budget = 1000
-            self.max_exploration_trajectory = 100
+            self.max_exploration_trajectory = 150
             self.max_episode = 20000
 
             self.locomotion_experience_replay = True
@@ -1245,7 +1247,7 @@ class AgentTMAX(AgentLearner):
             neighbors_policy = neighbors[env_i]
             num_neighbors_policy = num_neighbors[env_i]
         actions[env_i], action_probs[env_i], values[env_i] = self.actor_critic.invoke(
-            self.session, observations[env_i], goals_policy, neighbors_policy, num_neighbors_policy, timer,
+            self.session, observations[env_i], goals_policy, neighbors_policy, num_neighbors_policy, timer[env_i],
         )
 
     def policy_step(self, obs_prev, observations, goals, neighbors, num_neighbors):
@@ -1480,24 +1482,26 @@ class AgentTMAX(AgentLearner):
                         self.objectives, self.actor_critic, self.train_critic, self.critic_step, self.critic_summaries,
                     )
 
-            if self.params.rl_locomotion:
-                with timing.timeit('loco_rl'):
-                    self._train_actor(
-                        buffers[TmaxMode.LOCOMOTION], env_steps,
-                        self.loco_objectives, self.loco_actor_critic, self.train_loco_actor,
-                        self.loco_actor_step, self.loco_actor_summaries,
-                    )
-                    self._train_critic(
-                        buffers[TmaxMode.LOCOMOTION], env_steps,
-                        self.loco_objectives, self.loco_actor_critic, self.train_loco_critic,
-                        self.loco_critic_step, self.loco_critic_summaries,
-                    )
-            else:
-                # train locomotion with self imitation from trajectories
-                if tmax_mgr.global_stage == TmaxMode.LOCOMOTION:
-                    if len(locomotion_buffer.buffer) >= self.params.locomotion_experience_replay_buffer:
-                        self._maybe_train_locomotion(locomotion_buffer, env_steps)
-                        locomotion_buffer.reset()
+        if self.params.rl_locomotion:
+            with timing.timeit('loco_rl'):
+                self._train_actor(
+                    buffers[TmaxMode.LOCOMOTION], env_steps,
+                    self.loco_objectives, self.loco_actor_critic, self.train_loco_actor,
+                    self.loco_actor_step, self.loco_actor_summaries,
+                )
+                self._train_critic(
+                    buffers[TmaxMode.LOCOMOTION], env_steps,
+                    self.loco_objectives, self.loco_actor_critic, self.train_loco_critic,
+                    self.loco_critic_step, self.loco_critic_summaries,
+                )
+        else:
+            # train locomotion with self imitation from trajectories
+            if tmax_mgr.global_stage == TmaxMode.LOCOMOTION:
+                if len(locomotion_buffer.buffer) >= self.params.locomotion_experience_replay_buffer:
+                    self._maybe_train_locomotion(locomotion_buffer, env_steps)
+                    locomotion_buffer.reset()
+                else:
+                    log.info('Locomotion buffer size: %d', len(locomotion_buffer.buffer))
 
         if self.params.distance_network_checkpoint is None:
             # distance net not provided - train distance metric online
