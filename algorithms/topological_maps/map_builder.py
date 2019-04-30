@@ -328,24 +328,15 @@ class MapBuilder:
 
         for landmark in landmarks:
             node_data = sparse_map.graph.nodes[landmark]
-            traj_idx = node_data['traj_idx']
-            frame_idx = node_data['frame_idx']
+            traj_idx = node_data.get('traj_idx', 0)
+            frame_idx = node_data.get('frame_idx', 0)
 
             dense_map_landmark = dense_map.frame_to_node_idx[traj_idx][frame_idx]
             path = dense_map.get_path(0, dense_map_landmark, edge_weight=edge_weight)
             sparse_map.graph.nodes[landmark]['distance'] = len(path)
 
     @staticmethod
-    def sieve_landmarks_by_distance(sparse_map, threshold=100):
+    def sieve_landmarks_by_distance(sparse_map, max_distance=1e9):
         landmarks = list(sparse_map.graph.nodes)
-        distances = [sparse_map.graph.nodes[l]['distance'] for l in landmarks]
-
-        max_d, max_d_idx = max_with_idx(distances)
-        # log.info('Max landmark %d distance %d', landmarks[max_d_idx], max_d)
-
-        max_distance_allowed = max(5, max_d - threshold)
-        sieved = [l for l in landmarks if sparse_map.graph.nodes[l]['distance'] <= max_distance_allowed]
-
-        # log.info('Allowed landmarks %r', sieved)
-
+        sieved = [l for l in landmarks if sparse_map.graph.nodes[l]['distance'] <= max_distance]
         return sieved

@@ -276,6 +276,10 @@ class TmaxManager:
             self.current_dense_maps.append(self.dense_persistent_maps[-1])
             self.current_sparse_maps.append(self.sparse_persistent_maps[-1])
 
+        map_builder = MapBuilder(self.agent)
+        map_builder.calc_distances_to_landmarks(self.sparse_persistent_maps[-1], self.dense_persistent_maps[-1])
+        map_builder.sieve_landmarks_by_distance(self.sparse_persistent_maps[-1])  # for test
+
         self.last_stage_change = max(self.last_stage_change, env_steps)
 
         self.initialized = True
@@ -398,7 +402,11 @@ class TmaxManager:
 
         # don't allow locomotion to most far away targets right away
         # this is to force exploration policy to find shorter routes to interesting locations
-        potential_targets = MapBuilder.sieve_landmarks_by_distance(curr_sparse_map)
+        total_frames = max(0, self.env_steps - self.params.distance_bootstrap)
+        stage_idx = total_frames // (2 * self.params.stage_duration)
+        max_distance = max(5, (stage_idx - 1) * 100)
+        potential_targets = MapBuilder.sieve_landmarks_by_distance(curr_sparse_map, max_distance=max_distance)
+        log.info('Max allowed distance %d, available landmarks %r...', max_distance, potential_targets[:10])
 
         # calculate UCB of value estimate for all targets
         total_num_samples = 0
@@ -419,8 +427,8 @@ class TmaxManager:
 
         # corresponding location in the dense map
         node_data = curr_sparse_map.graph.nodes[max_ucb_target]
-        traj_idx = node_data['traj_idx']
-        frame_idx = node_data['frame_idx']
+        traj_idx = node_data.get('traj_idx', 0)
+        frame_idx = node_data.get('frame_idx', 0)
 
         # log.debug('Location %d is max_ucb_target for exploration (t: %d, f: %d)', max_ucb_target, traj_idx, frame_idx)
 
@@ -1242,6 +1250,11 @@ class AgentTMAX(AgentLearner):
                 obs_prev[envs_with_goal], observations[envs_with_goal], goals[envs_with_goal],
                 deterministic=deterministic,
             )
+            for env_index in envs_with_goal:
+                if actions[env_index] == 0:
+                    # discourage idle actions to avoid getting stuck
+                    if random.random() < 0.3:
+                        actions[env_index] = np.random.randint(0, self.actor_critic.num_actions)
 
         if len(envs_without_goal) > 0:
             # use random actions
