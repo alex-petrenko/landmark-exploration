@@ -4,10 +4,11 @@ from functools import partial
 
 import numpy as np
 
+from algorithms.tmax.navigator import edge_weight
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import hash_observation
 from utils.timing import Timing
-from utils.utils import log
+from utils.utils import log, max_with_idx
 
 
 class MapBuilder:
@@ -17,7 +18,7 @@ class MapBuilder:
         self.obs_encoder = self.distance_net.obs_encoder
 
         # map generation parameters
-        self.max_duplicate_dist = 2
+        self.max_duplicate_dist = 1
         self.duplicate_neighborhood = 5
         self.duplicate_threshold = 0.05
 
@@ -72,7 +73,7 @@ class MapBuilder:
             if i in to_delete:
                 continue
 
-            for j in range(i + 1, min(len(traj), i + 1 + self.max_duplicate_dist)):
+            for j in range(i + 1, len(traj)):
                 if j in to_delete:
                     continue
 
@@ -80,6 +81,9 @@ class MapBuilder:
                     log.info('Frames %d and %d are exactly the same!', i, j)
                     to_delete.add(j)
                     continue
+
+                if j > i + self.max_duplicate_dist:
+                    break
 
                 d = pairwise_distances[i][j]
                 if d > self.duplicate_threshold:
@@ -181,7 +185,7 @@ class MapBuilder:
                     neighbors_dist.append(pairwise_distances[shifted_i][shifted_j])
 
                 # the more aligned neighborhoods are, the less risk there is for the shortcut to be noise
-                distance_percentile = np.percentile(neighbors_dist, 60)
+                distance_percentile = np.percentile(neighbors_dist, 75)
                 shorcut_risk = distance_percentile  # closer to 0 = better
 
                 # calculate ground-truth distance (purely for diagnostic purposes)
@@ -190,6 +194,34 @@ class MapBuilder:
                 xj = nodes[j]['info']['pos']['agent_x']
                 yj = nodes[j]['info']['pos']['agent_y']
                 gt_dist = math.sqrt((xi - xj) ** 2 + (yi - yj) ** 2)
+
+                # Visualize false loop closures for debugging
+                # if gt_dist > 50 and shorcut_risk < 0.1:
+                #     log.info('Showing neighborhoods for shortcut %d-%d', i, j)
+                #     import cv2
+                #     obs_t1, obs_t2 = [], []
+                #     for shift in range(-shortcut_window, shortcut_window + 1):
+                #         shifted_i, shifted_j = i + shift, j + shift
+                #         if shifted_i < 0 or shifted_i >= m.num_landmarks():
+                #             continue
+                #         if shifted_j < 0 or shifted_j >= m.num_landmarks():
+                #             continue
+                #
+                #         shifted_i_traj_idx = nodes[shifted_i].get('traj_idx', 0)
+                #         shifted_j_traj_idx = nodes[shifted_j].get('traj_idx', 0)
+                #         if shifted_i_traj_idx != i_traj_idx or shifted_j_traj_idx != j_traj_idx:
+                #             continue
+                #
+                #         obs_t1.append(nodes[shifted_i]['obs'])
+                #         obs_t2.append(nodes[shifted_j]['obs'])
+                #
+                #     assert len(obs_t1) == len(obs_t2)
+                #     for obs_i in range(len(obs_t1)):
+                #         log.warning('Dist: %.3f', neighbors_dist[obs_i])
+                #         cv2.imshow('t1', cv2.resize(cv2.cvtColor(obs_t1[obs_i], cv2.COLOR_RGB2BGR), (210, 210)))
+                #         cv2.imshow('t2', cv2.resize(cv2.cvtColor(obs_t2[obs_i], cv2.COLOR_RGB2BGR), (210, 210)))
+                #         cv2.waitKey()
+                #     cv2.waitKey()
 
                 shortcut = shorcut_risk, i, j, d, gt_dist
                 assert i < j
@@ -289,3 +321,31 @@ class MapBuilder:
 
         m.num_trajectories += 1
         return is_new_landmark
+
+    @staticmethod
+    def calc_distances_to_landmarks(sparse_map, dense_map):
+        landmarks = list(sparse_map.graph.nodes)
+
+        for landmark in landmarks:
+            node_data = sparse_map.graph.nodes[landmark]
+            traj_idx = node_data['traj_idx']
+            frame_idx = node_data['frame_idx']
+
+            dense_map_landmark = dense_map.frame_to_node_idx[traj_idx][frame_idx]
+            path = dense_map.get_path(0, dense_map_landmark, edge_weight=edge_weight)
+            sparse_map.graph.nodes[landmark]['distance'] = len(path)
+
+    @staticmethod
+    def sieve_landmarks_by_distance(sparse_map, threshold=100):
+        landmarks = list(sparse_map.graph.nodes)
+        distances = [sparse_map.graph.nodes[l]['distance'] for l in landmarks]
+
+        max_d, max_d_idx = max_with_idx(distances)
+        # log.info('Max landmark %d distance %d', landmarks[max_d_idx], max_d)
+
+        max_distance_allowed = max(5, max_d - threshold)
+        sieved = [l for l in landmarks if sparse_map.graph.nodes[l]['distance'] <= max_distance_allowed]
+
+        # log.info('Allowed landmarks %r', sieved)
+
+        return sieved

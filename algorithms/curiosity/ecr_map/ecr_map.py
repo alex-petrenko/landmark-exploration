@@ -48,7 +48,7 @@ class ECRMapModule(CuriosityModule):
         self._last_trained = 0
         self._last_map_summary = 0
 
-    def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos):
+    def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos, mask=None):
         if self.episodic_maps is None:
             self.current_episode_bonus = np.zeros(self.params.num_envs)  # for statistics
             self.episodic_maps = []
@@ -83,8 +83,12 @@ class ECRMapModule(CuriosityModule):
             def on_new_landmark(env_i, new_landmark_idx):
                 bonuses[env_i] += self.params.map_expansion_reward
 
+            if mask is None:
+                maps = self.episodic_maps
+            else:
+                maps = [self.episodic_maps[i] if mask[i] else None for i in range(len(mask))]
             distances_to_memory = self.localizer.localize(
-                session, next_obs, infos, self.episodic_maps, self.distance, on_new_landmark=on_new_landmark,
+                session, next_obs, infos, maps, self.distance, on_new_landmark=on_new_landmark,
             )
             assert len(distances_to_memory) == len(next_obs)
             threshold = 0.5

@@ -163,6 +163,8 @@ class Navigator:
             target_node = lookahead_path[0]
             target_d = distance[0]
             confidently_reachable = np.random.random() * 0.1 + 0.1
+            log.info('path %r', lookahead_path)  # TODO!
+            log.info('Distances %r', [f'{d:.3f}' for d in distance])  # TODO!
 
             if len(lookahead_path) > 1 and distance[1] < self.max_neighborhood_dist:
                 target_node = lookahead_path[1]

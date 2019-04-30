@@ -395,7 +395,10 @@ class TmaxManager:
     def _get_locomotion_final_goal_exploration_stage(self, env_i):
         """Sample target according to UCB of value estimate."""
         curr_sparse_map = self.current_sparse_maps[env_i]
-        potential_targets = list(curr_sparse_map.graph.nodes)
+
+        # don't allow locomotion to most far away targets right away
+        # this is to force exploration policy to find shorter routes to interesting locations
+        potential_targets = MapBuilder.sieve_landmarks_by_distance(curr_sparse_map)
 
         # calculate UCB of value estimate for all targets
         total_num_samples = 0
@@ -416,8 +419,8 @@ class TmaxManager:
 
         # corresponding location in the dense map
         node_data = curr_sparse_map.graph.nodes[max_ucb_target]
-        traj_idx = node_data.get('traj_idx', 0)
-        frame_idx = node_data.get('frame_idx', 0)
+        traj_idx = node_data['traj_idx']
+        frame_idx = node_data['frame_idx']
 
         # log.debug('Location %d is max_ucb_target for exploration (t: %d, f: %d)', max_ucb_target, traj_idx, frame_idx)
 
@@ -516,8 +519,7 @@ class TmaxManager:
             return False
 
         best_trajectory = trajectories[best_trajectory_idx]
-
-
+        best_trajectory.save(self.params.experiment_dir())
 
         map_builder = MapBuilder(self.agent)
         best_trajectory = map_builder.sparsify_trajectory(best_trajectory)
@@ -538,6 +540,9 @@ class TmaxManager:
         new_dense_map = map_builder.add_trajectory_to_dense_map(curr_dense_map, best_trajectory)
         self.dense_persistent_maps.append(new_dense_map)
         self.dense_map_size_before_locomotion = self.dense_persistent_maps[-1].num_landmarks()
+
+        map_builder.calc_distances_to_landmarks(curr_sparse_map, new_dense_map)
+        map_builder.sieve_landmarks_by_distance(curr_sparse_map)  # for test
 
         log.info('Saving new persistent maps...')
         self.save()
@@ -707,6 +712,13 @@ class TmaxManager:
                 self.locomotion_success.append(locomotion_success)
                 log.info('End locomotion, frame %d, end %d', self.episode_frames[env_i], self.end_episode[env_i])
 
+    def _update_curiosity(self, obs, next_obs, dones, infos):
+        mask = [stage == TmaxMode.EXPLORATION for stage in self.env_stage]
+        curiosity_bonus = self.curiosity.generate_bonus_rewards(
+            self.agent.session, obs, next_obs, None, dones, infos, mask=mask,
+        )
+        return curiosity_bonus
+
     def update(self, obs, next_obs, rewards, dones, infos, env_steps, timing=None, verbose=False):
         self._verbose = verbose
         if timing is None:
@@ -721,11 +733,8 @@ class TmaxManager:
 
         if self.params.persistent_map_checkpoint is None:
             # run curiosity only if we need to discover the map, otherwise we don't need it (map is provided)
-            # TODO: performance improvement - don't run in locomotion stage
             with timing.add_time('curiosity'):
-                curiosity_bonus = self.curiosity.generate_bonus_rewards(
-                    self.agent.session, obs, next_obs, None, dones, infos,
-                )
+                curiosity_bonus = self._update_curiosity(obs, next_obs, dones, infos)
 
         with timing.add_time('update_locomotion'):
             self._update_locomotion(next_obs)
@@ -1185,11 +1194,16 @@ class AgentTMAX(AgentLearner):
                 img_array = numpy_all_the_way(trajectory.obs)[:, :, :, -3:]
                 for i in range(img_array.shape[0]):
                     if trajectory.mode[i] == TmaxMode.LOCOMOTION:
-                        img_array[i, -sq_sz:, -sq_sz:] = [255, 0, 0]  # red for locomotion
+                        if trajectory.locomotion_target[i] is None:
+                            color = [0, 0, 255]  # blue for random locomotion
+                        else:
+                            color = [255, 0, 0]  # red for locomotion
                     elif trajectory.mode[i] == TmaxMode.EXPLORATION:
-                        img_array[i, -sq_sz:, -sq_sz:] = [0, 255, 0]  # green for exploration
+                        color = [0, 255, 0]  # green for exploration
                     else:
                         raise NotImplementedError('Unknown TMAX mode. Use EXPLORATION or LOCOMOTION')
+
+                    img_array[i, -sq_sz:, -sq_sz:] = color
                 trajectories.append(img_array)
 
         if len(trajectories) > 0:
@@ -1474,14 +1488,18 @@ class AgentTMAX(AgentLearner):
                 # persistent map is not provided - train exploration policy to discover it online
                 with timing.timeit('train_policy'):
                     log.info('Exploration buffer size %d', len(buffers[TmaxMode.EXPLORATION]))
-                    step = self._train_actor(
-                        buffers[TmaxMode.EXPLORATION], env_steps,
-                        self.objectives, self.actor_critic, self.train_actor, self.actor_step, self.actor_summaries,
-                    )
-                    self._train_critic(
-                        buffers[TmaxMode.EXPLORATION], env_steps,
-                        self.objectives, self.actor_critic, self.train_critic, self.critic_step, self.critic_summaries,
-                    )
+                    max_buffer_size = self.params.rollout * self.params.num_envs
+                    if len(buffers[TmaxMode.EXPLORATION]) > 0.1 * max_buffer_size:
+                        step = self._train_actor(
+                            buffers[TmaxMode.EXPLORATION], env_steps,
+                            self.objectives, self.actor_critic, self.train_actor, self.actor_step,
+                            self.actor_summaries,
+                        )
+                        self._train_critic(
+                            buffers[TmaxMode.EXPLORATION], env_steps,
+                            self.objectives, self.actor_critic, self.train_critic, self.critic_step,
+                            self.critic_summaries,
+                        )
 
         if self.params.rl_locomotion:
             with timing.timeit('loco_rl'):
@@ -1498,11 +1516,12 @@ class AgentTMAX(AgentLearner):
         else:
             # train locomotion with self imitation from trajectories
             if tmax_mgr.global_stage == TmaxMode.LOCOMOTION:
-                if len(locomotion_buffer.buffer) >= self.params.locomotion_experience_replay_buffer:
-                    self._maybe_train_locomotion(locomotion_buffer, env_steps)
-                    locomotion_buffer.reset()
-                else:
-                    log.info('Locomotion buffer size: %d', len(locomotion_buffer.buffer))
+                with timing.timeit('train_loco'):
+                    if len(locomotion_buffer.buffer) >= self.params.locomotion_experience_replay_buffer:
+                        self._maybe_train_locomotion(locomotion_buffer, env_steps)
+                        locomotion_buffer.reset()
+                    else:
+                        log.info('Locomotion buffer size: %d', len(locomotion_buffer.buffer))
 
         if self.params.distance_network_checkpoint is None:
             # distance net not provided - train distance metric online
@@ -1634,6 +1653,3 @@ class AgentTMAX(AgentLearner):
                 multi_env.close()
 
         return status
-
-
-# TODO: distance net overfits to exploration trajectories

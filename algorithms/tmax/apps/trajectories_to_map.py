@@ -110,6 +110,9 @@ def trajectory_to_map(params, env_id):
     for i, t in enumerate(trajectories):
         m = map_builder.add_trajectory_to_dense_map(m, t)
 
+    map_builder.calc_distances_to_landmarks(sparse_map, m)
+    map_builder.sieve_landmarks_by_distance(sparse_map)
+
     dense_map_dir = ensure_dir_exists(join(trajectories_dir, 'dense_map'))
     m.save_checkpoint(dense_map_dir, map_img=map_img, coord_limits=coord_limits, verbose=True)
 
@@ -120,6 +123,7 @@ def trajectory_to_map(params, env_id):
 
         dense_map_landmark = m.frame_to_node_idx[traj_idx][frame_idx]
         log.info('Sparse map node %d corresponds to dense map node %d', node, dense_map_landmark)
+        log.info('Sparse map node %d distance %d', node, data['distance'])
 
         obs_sparse = sparse_map.get_observation(node)
         obs_dense = m.get_observation(dense_map_landmark)

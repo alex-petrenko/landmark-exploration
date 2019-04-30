@@ -242,9 +242,7 @@ def test_locomotion(params, env_id):
     frame_repeat = 4
     action = 0
 
-    final_goal_idx = [44, 131, 170]
-    # final_goal_idx = random.choice(final_goal_idx)
-    final_goal_idx = 131
+    final_goal_idx = 73
 
     log.info('Locomotion goal is %d', final_goal_idx)
 
@@ -292,7 +290,9 @@ def test_locomotion(params, env_id):
                 obs = main_observation(env_obs)
 
                 if test_navigator:
-                    next_target, next_target_d = navigator.get_next_target([m], [obs], [final_goal_idx])
+                    next_target, next_target_d = navigator.get_next_target(
+                        [m], [obs], [final_goal_idx], [frame // frame_repeat],
+                    )
                     next_target, next_target_d = next_target[0], next_target_d[0]
                     if next_target is None:
                         log.error('We are lost!')
