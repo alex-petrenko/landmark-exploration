@@ -17,7 +17,7 @@ class MapBuilder:
         self.obs_encoder = self.distance_net.obs_encoder
 
         # map generation parameters
-        self.max_duplicate_dist = 5
+        self.max_duplicate_dist = 2
         self.duplicate_neighborhood = 5
         self.duplicate_threshold = 0.05
 
@@ -74,6 +74,11 @@ class MapBuilder:
 
             for j in range(i + 1, min(len(traj), i + 1 + self.max_duplicate_dist)):
                 if j in to_delete:
+                    continue
+
+                if np.array_equal(traj.obs[i], traj.obs[j]):
+                    log.info('Frames %d and %d are exactly the same!', i, j)
+                    to_delete.add(j)
                     continue
 
                 d = pairwise_distances[i][j]
@@ -156,6 +161,10 @@ class MapBuilder:
                 if d > self.shortcut_dist_threshold:
                     continue
 
+                if j in m.graph[i]:
+                    # there's already an edge between i and j
+                    continue
+
                 # check how aligned the landmark neighborhoods are
                 for shift in range(-shortcut_window, shortcut_window + 1):
                     shifted_i, shifted_j = i + shift, j + shift
@@ -197,9 +206,12 @@ class MapBuilder:
             if data.get('loop_closure', False):
                 to_remove.append((i1, i2))
 
+        log.info('Removing shortcut edges %r', to_remove)
         m.remove_edges_from(to_remove)
 
     def _add_shortcuts(self, m, pairwise_distances):
+        self.remove_shortcuts(m)  # first - remove all existing shortcuts
+
         shortcuts = self._shortcuts_distance(
             m, pairwise_distances, self.min_shortcut_dist, self.shortcut_window,
         )
@@ -239,7 +251,7 @@ class MapBuilder:
         with t.timeit('create_initial_map'):
             self._add_simple_path_to_map(m, traj, node_idx)
 
-        # precalculate feature vectors for the distances network
+        # precalculate feature vectors for the distance network
         with t.timeit('cache_feature_vectors'):
             all_observations = [m.get_observation(node) for node in m.graph.nodes]
             obs_embeddings = self._calc_embeddings(all_observations)

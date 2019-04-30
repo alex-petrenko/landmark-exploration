@@ -223,6 +223,7 @@ def test_locomotion(params, env_id):
         return e
 
     params.num_envs = 1
+    params.with_timer = False  # TODO!!!
     agent = AgentTMAX(make_env_func, params)
     agent.initialize()
 

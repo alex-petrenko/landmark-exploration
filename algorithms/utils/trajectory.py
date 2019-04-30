@@ -1,3 +1,10 @@
+import datetime
+import pickle
+from os.path import join
+
+from utils.utils import ensure_dir_exists, log
+
+
 class Trajectory:
     def __init__(self, env_idx):
         self.obs = []
@@ -31,6 +38,18 @@ class Trajectory:
             return 0
         obs_size = self.obs[0].nbytes
         return len(self) * obs_size
+
+    def save(self, experiment_dir):
+        trajectories_dir = ensure_dir_exists(join(experiment_dir, '.trajectories'))
+
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        trajectory_dir = ensure_dir_exists(join(trajectories_dir, f'traj_{timestamp}'))
+        log.info('Saving trajectory to %s...', trajectory_dir)
+
+        with open(join(trajectory_dir, 'trajectory.pickle'), 'wb') as traj_file:
+            pickle.dump(self.__dict__, traj_file)
+
+        return trajectory_dir
 
 
 class TrajectoryBuffer:

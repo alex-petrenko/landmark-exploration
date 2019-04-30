@@ -98,16 +98,7 @@ def record_trajectory(params, env_id):
     env.render()
     time.sleep(0.2)
 
-    experiment_dir = params.experiment_dir()
-    trajectories_dir = ensure_dir_exists(join(experiment_dir, '.trajectories'))
-
-    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    trajectory_dir = ensure_dir_exists(join(trajectories_dir, f'traj_{timestamp}'))
-    log.info('Saving to %s...', trajectory_dir)
-
-    with open(join(trajectory_dir, 'trajectory.pickle'), 'wb') as traj_file:
-        pickle.dump(trajectory.__dict__, traj_file)
-
+    trajectory_dir = trajectory.save(params.experiment_dir())
     m.save_checkpoint(trajectory_dir, map_img=map_img, coord_limits=coord_limits, verbose=True)
 
     env.close()

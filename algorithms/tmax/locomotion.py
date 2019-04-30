@@ -21,7 +21,7 @@ from utils.utils import log, vis_dir, ensure_dir_exists
 class LocomotionNetworkParams:
     def __init__(self):
         self.locomotion_experience_replay_buffer = 100000
-        self.locomotion_experience_replay_epochs = 8
+        self.locomotion_experience_replay_epochs = 10
         self.locomotion_experience_replay_batch = 128
         self.locomotion_experience_replay_max_kl = 0.05
         self.locomotion_max_trajectory = 5  # max trajectory length to be utilized during training
@@ -129,7 +129,7 @@ class LocomotionBuffer:
             random_frames = [[i for i, targ in enumerate(t.locomotion_target) if targ is None] for t in trajectories]
 
             total_experience = sum(len(frames) for frames in random_frames)
-            max_total_experience = 0.66 * total_experience  # max fraction of experience to use
+            max_total_experience = 0.75 * total_experience  # max fraction of experience to use
             max_num_segments = int(max_total_experience / max_trajectory)
 
             log.info(

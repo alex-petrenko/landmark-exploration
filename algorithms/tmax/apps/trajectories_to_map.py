@@ -47,6 +47,8 @@ def trajectory_to_map(params, env_id):
         e.seed(0)
         return e
 
+    params.num_envs = 1
+    params.with_timer = False
     agent = AgentTMAX(make_env_func, params)
     agent.initialize()
 
@@ -55,16 +57,34 @@ def trajectory_to_map(params, env_id):
     experiment_dir = params.experiment_dir()
     trajectories_dir = ensure_dir_exists(join(experiment_dir, '.trajectories'))
 
-    prefix = 'traj_'
-    all_trajectories = glob.glob(f'{trajectories_dir}/{prefix}*')
-    all_trajectories.sort()
+    if params.persistent_map_checkpoint is None:
+        prefix = 'traj_'
+        all_trajectories = glob.glob(f'{trajectories_dir}/{prefix}*')
+        all_trajectories.sort()
 
-    trajectories = []
-    for i, trajectory_dir in enumerate(all_trajectories):
-        with open(join(trajectory_dir, 'trajectory.pickle'), 'rb') as traj_file:
-            traj = Trajectory(i)
-            traj.__dict__.update(pickle.load(traj_file))
-            trajectories.append(traj)
+        trajectories = []
+        for i, trajectory_dir in enumerate(all_trajectories):
+            with open(join(trajectory_dir, 'trajectory.pickle'), 'rb') as traj_file:
+                traj = Trajectory(i)
+                traj.__dict__.update(pickle.load(traj_file))
+                trajectories.append(traj)
+    else:
+        loaded_persistent_map = TopologicalMap.create_empty()
+        loaded_persistent_map.maybe_load_checkpoint(params.persistent_map_checkpoint)
+
+        num_trajectories = loaded_persistent_map.num_trajectories
+        trajectories = [Trajectory(i) for i in range(num_trajectories)]
+
+        zero_frame = loaded_persistent_map.graph.nodes[0]
+        for i in range(1, num_trajectories):
+            trajectories[i].add(zero_frame['obs'], -1, zero_frame['info'])
+
+        for node in loaded_persistent_map.graph.nodes(data=True):
+            node_idx, d = node
+            trajectories[d['traj_idx']].add(d['obs'], -1, d['info'])
+
+        log.info('Loaded %d trajectories from the map', num_trajectories)
+        log.info('Trajectory lengths %r', [len(t) for t in trajectories])
 
     def init_map():
         return TopologicalMap(
@@ -81,10 +101,9 @@ def trajectory_to_map(params, env_id):
         init_map, trajectories, trajectories_dir, agent, map_img, coord_limits,
     )
 
-    test_pick_best_trajectory = True
+    test_pick_best_trajectory = False
     if test_pick_best_trajectory:
         pick_best_trajectory(init_map, agent, copy.deepcopy(trajectories))
-        return
 
     m = init_map()
 

@@ -92,7 +92,8 @@ class ActorCritic:
                 self.ph_neighbors = None
                 act_obs_and_neighborhoods = act_encoded_obs
 
-            act_obs_and_neighborhoods = tf.concat([act_obs_and_neighborhoods, timer], axis=1)
+            if params.with_timer:
+                act_obs_and_neighborhoods = tf.concat([act_obs_and_neighborhoods, timer], axis=1)
             actor_model = make_model(act_obs_and_neighborhoods, reg, params, 'act_mdl')
 
             actions_fc = dense(actor_model.latent, params.model_fc_size // 2, reg)
@@ -123,7 +124,8 @@ class ActorCritic:
             else:
                 value_obs_and_neighborhoods = value_encoded_obs
 
-            value_obs_and_neighborhoods = tf.concat([value_obs_and_neighborhoods, timer], axis=1)
+            if params.with_timer:
+                value_obs_and_neighborhoods = tf.concat([value_obs_and_neighborhoods, timer], axis=1)
             value_model = make_model(value_obs_and_neighborhoods, reg, params, 'val_mdl')
 
             value_fc = dense(value_model.latent, params.model_fc_size // 2, reg)
@@ -515,6 +517,8 @@ class TmaxManager:
 
         best_trajectory = trajectories[best_trajectory_idx]
 
+
+
         map_builder = MapBuilder(self.agent)
         best_trajectory = map_builder.sparsify_trajectory(best_trajectory)
 
@@ -530,8 +534,6 @@ class TmaxManager:
 
         self.sparse_persistent_maps.append(curr_sparse_map)
         self.sparse_map_size_before_locomotion = self.sparse_persistent_maps[-1].num_landmarks()
-
-        map_builder.remove_shortcuts(curr_dense_map)
 
         new_dense_map = map_builder.add_trajectory_to_dense_map(curr_dense_map, best_trajectory)
         self.dense_persistent_maps.append(new_dense_map)
@@ -589,8 +591,6 @@ class TmaxManager:
                 return
 
     def _new_episode(self, env_i):
-        log.info('Env %d new episode (frames %d)!', env_i, self.episode_frames[env_i])
-
         self.current_dense_maps[env_i] = self.dense_persistent_maps[-1]
         self.current_sparse_maps[env_i] = self.sparse_persistent_maps[-1]
 
@@ -771,6 +771,7 @@ class AgentTMAX(AgentLearner):
             self.graph_enc_name = 'rnn'  # 'rnn', 'deepsets'
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 128  # size of GRU layer in RNN neighborhood encoder
+            self.with_timer = True
 
             self.rl_locomotion = False
             self.locomotion_dense_reward = True  # TODO remove?
@@ -780,7 +781,7 @@ class AgentTMAX(AgentLearner):
             self.successful_traversal_frames = 50  # if we traverse an edge in less than that, we succeeded
 
             self.exploration_budget = 1000
-            self.max_exploration_trajectory = 150
+            self.max_exploration_trajectory = 100
             self.max_episode = 20000
 
             self.locomotion_experience_replay = True
@@ -1633,3 +1634,6 @@ class AgentTMAX(AgentLearner):
                 multi_env.close()
 
         return status
+
+
+# TODO: distance net overfits to exploration trajectories

@@ -179,12 +179,18 @@ class TopologicalMap:
     def add_edge(self, i1, i2, loop_closure=False):
         initial_success = 0.01  # add to params?
 
+        if i2 in self.graph[i1]:
+            log.warning('Edge %d-%d already exists (%r)! Overriding!', i1, i2, self.graph[i1])
+
         self.graph.add_edge(
             i1, i2,
             success=initial_success, last_traversal_frames=math.inf, attempted_traverse=0,
             loop_closure=loop_closure,
         )
         if not self.directed_graph:
+            if i1 in self.graph[i2]:
+                log.warning('Edge %d-%d already exists (%r)! Overriding!', i2, i1, self.graph[i2])
+
             self.graph.add_edge(
                 i2, i1,
                 success=initial_success, last_traversal_frames=math.inf, attempted_traverse=0,
