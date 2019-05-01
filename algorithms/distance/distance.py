@@ -14,7 +14,7 @@ from keras.layers import Lambda, concatenate
 
 # noinspection PyProtectedMember
 from algorithms.architectures.resnet_keras import ResnetBuilder, _top_network
-from algorithms.tmax.tmax_utils import TmaxTrajectory, TmaxMode
+from algorithms.tmax.tmax_utils import TmaxTrajectory
 from algorithms.topological_maps.topological_map import hash_observation
 from algorithms.utils.buffer import Buffer
 from algorithms.utils.encoders import make_encoder, EncoderParams
@@ -112,6 +112,7 @@ class DistanceNetwork:
     def _add_summaries(self, collections):
         with tf.name_scope('distance'):
             distance_scalar = partial(tf.summary.scalar, collections=collections)
+            distance_scalar('dist_steps', self.step)
             distance_scalar('dist_loss', self.dist_loss)
             distance_scalar('dist_correct', self.correct)
             distance_scalar('dist_reg_loss', self.reg_loss)
@@ -303,7 +304,7 @@ class DistanceBuffer:
 
         with timing.timeit('trajectories'):
             for trajectory in trajectories:
-                check_mode = isinstance(trajectory, TmaxTrajectory)
+                check_if_random = isinstance(trajectory, TmaxTrajectory)
 
                 obs = trajectory.obs
 
@@ -322,9 +323,10 @@ class DistanceBuffer:
                     first_idx = i
                     second_idx = np.random.randint(i, close_i)
 
-                    if check_mode and trajectory.mode[first_idx] != TmaxMode.EXPLORATION:
+                    # in TMAX we train only on random actions
+                    if check_if_random and not trajectory.is_random[first_idx]:
                         continue
-                    if check_mode and trajectory.mode[second_idx] != TmaxMode.EXPLORATION:
+                    if check_if_random and not trajectory.is_random[second_idx]:
                         continue
 
                     if self.params.distance_symmetric and random.random() < 0.5:

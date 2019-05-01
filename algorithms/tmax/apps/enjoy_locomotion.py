@@ -223,7 +223,7 @@ def test_locomotion(params, env_id):
         return e
 
     params.num_envs = 1
-    params.with_timer = False  # TODO!!!
+    # params.with_timer = False  # TODO!!!
     agent = AgentTMAX(make_env_func, params)
     agent.initialize()
 
@@ -233,8 +233,12 @@ def test_locomotion(params, env_id):
     obs_prev = obs = main_observation(env_obs)
     done = False
 
-    loaded_persistent_map = TopologicalMap.create_empty()
-    loaded_persistent_map.maybe_load_checkpoint(params.persistent_map_checkpoint)
+    if params.persistent_map_checkpoint is not None:
+        loaded_persistent_map = TopologicalMap.create_empty()
+        loaded_persistent_map.maybe_load_checkpoint(params.persistent_map_checkpoint)
+    else:
+        agent.tmax_mgr.initialize([obs], [info], 1)
+        loaded_persistent_map = agent.tmax_mgr.dense_persistent_maps[-1]
 
     t = Timing()
 
@@ -242,7 +246,8 @@ def test_locomotion(params, env_id):
     frame_repeat = 4
     action = 0
 
-    final_goal_idx = 73
+    # final_goal_idx = 73
+    final_goal_idx = 1589 # 1293 #347
 
     log.info('Locomotion goal is %d', final_goal_idx)
 

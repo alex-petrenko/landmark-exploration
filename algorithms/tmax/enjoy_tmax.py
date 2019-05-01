@@ -186,7 +186,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
                 action = env.action_space.sample()
             elif policy_type == PolicyType.AGENT:
                 agent.tmax_mgr.mode[0] = TmaxMode.EXPLORATION
-                action, _, _, _, _, _, _ = agent.policy_step([prev_obs], [obs], [goal_obs], None, None)
+                action, *_ = agent.policy_step([prev_obs], [obs], [goal_obs], None, None)
                 action = action[0]
             elif policy_type == PolicyType.LOCOMOTION:
                 agent.tmax_mgr.mode[0] = TmaxMode.LOCOMOTION

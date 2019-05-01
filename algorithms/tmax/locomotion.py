@@ -21,7 +21,7 @@ from utils.utils import log, vis_dir, ensure_dir_exists
 class LocomotionNetworkParams:
     def __init__(self):
         self.locomotion_experience_replay_buffer = 100000
-        self.locomotion_experience_replay_epochs = 10
+        self.locomotion_experience_replay_epochs = 12
         self.locomotion_experience_replay_batch = 128
         self.locomotion_experience_replay_max_kl = 0.05
         self.locomotion_max_trajectory = 5  # max trajectory length to be utilized during training
@@ -117,16 +117,19 @@ class LocomotionBuffer:
         if len(trajectories) <= 0:
             return
 
+        if len(self.buffer) > self.params.locomotion_experience_replay_buffer:
+            return
+
         with timing.timeit('trajectories'):
             training_data = []
             max_trajectory = self.params.locomotion_max_trajectory
 
             data_so_far = 0
 
-            trajectories = [t for t in trajectories if all(m == TmaxMode.LOCOMOTION for m in t.mode)]
             trajectories = [t for t in trajectories if len(t) > self.params.locomotion_max_trajectory]
 
-            random_frames = [[i for i, targ in enumerate(t.locomotion_target) if targ is None] for t in trajectories]
+            # train only on random frames
+            random_frames = [[i for i, is_random in enumerate(t.is_random) if is_random] for t in trajectories]
 
             total_experience = sum(len(frames) for frames in random_frames)
             max_total_experience = 0.75 * total_experience  # max fraction of experience to use
@@ -151,10 +154,15 @@ class LocomotionBuffer:
                 goal_idx = min(start_idx + max_trajectory, len(trajectory) - 1)
                 assert start_idx < goal_idx
 
+                if not trajectory.is_random[start_idx]:
+                    continue
+                if not trajectory.is_random[goal_idx]:
+                    continue
+
                 traj_buffer = Buffer()
                 for i in range(start_idx, goal_idx):
-                    assert trajectory.mode[i] == TmaxMode.LOCOMOTION
-                    assert trajectory.locomotion_target[i] is None
+                    if not trajectory.is_random[i]:
+                        continue
 
                     traj_buffer.add(
                         obs_prev=trajectory.obs[max(0, i - 1)],
@@ -181,8 +189,8 @@ class LocomotionBuffer:
             for traj_buffer in training_data:
                 self.buffer.add_buff(traj_buffer)
 
-            self.shuffle_data()
-            self.buffer.trim_at(self.params.locomotion_experience_replay_buffer)
+            # self.shuffle_data()
+            # self.buffer.trim_at(self.params.locomotion_experience_replay_buffer)
 
         self.batch_num += 1
         log.info('Locomotion, num trajectories: %d, timing: %s', len(training_data), timing)

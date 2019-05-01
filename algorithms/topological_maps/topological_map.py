@@ -389,10 +389,15 @@ class TopologicalMap:
 def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_limits=None, is_sparse=False):
     if None in maps:
         return
+
     # summaries related to episodic memory (maps)
     num_landmarks = [m.num_landmarks() for m in maps]
-    num_neighbors = [len(m.neighborhood()) for m in maps]
     num_edges = [m.num_edges() for m in maps]
+
+    num_neighbors = []
+    for m in maps:
+        node = random.choice(list(m.graph.nodes))
+        num_neighbors.append(m.neighbors(node))
 
     avg_num_landmarks = sum(num_landmarks) / len(num_landmarks)
     avg_num_neighbors = sum(num_neighbors) / len(num_neighbors)

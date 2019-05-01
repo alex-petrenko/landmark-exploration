@@ -404,7 +404,7 @@ class TmaxManager:
         # this is to force exploration policy to find shorter routes to interesting locations
         total_frames = max(0, self.env_steps - self.params.distance_bootstrap)
         stage_idx = total_frames // (2 * self.params.stage_duration)
-        max_distance = max(5, (stage_idx - 1) * 100)
+        max_distance = max(5, (stage_idx - 1) * 75)
         potential_targets = MapBuilder.sieve_landmarks_by_distance(curr_sparse_map, max_distance=max_distance)
         log.info('Max allowed distance %d, available landmarks %r...', max_distance, potential_targets[:10])
 
@@ -551,6 +551,10 @@ class TmaxManager:
 
         map_builder.calc_distances_to_landmarks(curr_sparse_map, new_dense_map)
         map_builder.sieve_landmarks_by_distance(curr_sparse_map)  # for test
+
+        # just in case
+        new_dense_map.new_episode()
+        curr_sparse_map.new_episode()
 
         log.info('Saving new persistent maps...')
         self.save()
@@ -798,7 +802,7 @@ class AgentTMAX(AgentLearner):
             self.successful_traversal_frames = 50  # if we traverse an edge in less than that, we succeeded
 
             self.exploration_budget = 1000
-            self.max_exploration_trajectory = 100
+            self.max_exploration_trajectory = 150
             self.max_episode = 20000
 
             self.locomotion_experience_replay = True
@@ -1015,12 +1019,13 @@ class AgentTMAX(AgentLearner):
                 locomotion_scalar('entropy', tf.reduce_mean(self.loco_actor_critic.actions_distribution.entropy()))
                 locomotion_scalar('sample_kl', self.loco_objectives.sample_kl)
         else:
-            image_summaries_rgb(self.locomotion.ph_obs_prev, name='loco_prev', collections=['loco'])
-            image_summaries_rgb(self.locomotion.ph_obs_curr, name='loco_curr', collections=['loco'])
-            image_summaries_rgb(self.locomotion.ph_obs_goal, name='loco_goal', collections=['loco'])
+            image_summaries_rgb(self.locomotion.ph_obs_prev, name='loco_prev', collections=['locomotion'])
+            image_summaries_rgb(self.locomotion.ph_obs_curr, name='loco_curr', collections=['locomotion'])
+            image_summaries_rgb(self.locomotion.ph_obs_goal, name='loco_goal', collections=['locomotion'])
 
             with tf.name_scope('locomotion'):
                 locomotion_scalar = partial(tf.summary.scalar, collections=['locomotion'])
+                locomotion_scalar('loco_steps', self.locomotion.step)
                 locomotion_scalar('loss', self.locomotion.loss)
                 locomotion_scalar('entropy', tf.reduce_mean(self.locomotion.actions_distribution.entropy()))
 
@@ -1191,27 +1196,26 @@ class AgentTMAX(AgentLearner):
 
         trajectories = []
         trajectories_locomotion = []
-        sq_sz = 5  # size of square to indicate TMaxMode in gifs
+        sq_sz = 5  # size of square to indicate TmaxMode in gifs
 
         for trajectory in trajectory_buffer.complete_trajectories[:num_envs]:
+            img_array = numpy_all_the_way(trajectory.obs)[:, :, :, -3:]
+            for i in range(img_array.shape[0]):
+                if trajectory.mode[i] == TmaxMode.LOCOMOTION:
+                    if trajectory.locomotion_target[i] is None:
+                        color = [0, 0, 255]  # blue for random locomotion
+                    else:
+                        color = [255, 0, 0]  # red for locomotion
+                elif trajectory.mode[i] == TmaxMode.EXPLORATION:
+                    color = [0, 255, 0]  # green for exploration
+                else:
+                    raise NotImplementedError('Unknown TMAX mode. Use EXPLORATION or LOCOMOTION')
+
+                img_array[i, -sq_sz:, -sq_sz:] = color
+
             if all(mode == TmaxMode.LOCOMOTION for mode in trajectory.mode):
-                img_array = numpy_all_the_way(trajectory.obs)[:, :, :, -3:]
-                img_array[:, -sq_sz:, -sq_sz:] = [255, 0, 0]  # red for locomotion
                 trajectories_locomotion.append(img_array)
             else:
-                img_array = numpy_all_the_way(trajectory.obs)[:, :, :, -3:]
-                for i in range(img_array.shape[0]):
-                    if trajectory.mode[i] == TmaxMode.LOCOMOTION:
-                        if trajectory.locomotion_target[i] is None:
-                            color = [0, 0, 255]  # blue for random locomotion
-                        else:
-                            color = [255, 0, 0]  # red for locomotion
-                    elif trajectory.mode[i] == TmaxMode.EXPLORATION:
-                        color = [0, 255, 0]  # green for exploration
-                    else:
-                        raise NotImplementedError('Unknown TMAX mode. Use EXPLORATION or LOCOMOTION')
-
-                    img_array[i, -sq_sz:, -sq_sz:] = color
                 trajectories.append(img_array)
 
         if len(trajectories) > 0:
@@ -1231,7 +1235,7 @@ class AgentTMAX(AgentLearner):
         )
         return actions[0]
 
-    def _locomotion_policy_step(self, env_i, obs_prev, observations, goals, actions, masks, tmax_mgr):
+    def _locomotion_policy_step(self, env_i, obs_prev, observations, goals, actions, masks, is_random, tmax_mgr):
         if len(env_i) <= 0:
             return
 
@@ -1244,6 +1248,7 @@ class AgentTMAX(AgentLearner):
         deterministic = False if random.random() < 0.25 else True
 
         if len(envs_with_goal) > 0:
+            is_random[envs_with_goal] = 0
             goals[envs_with_goal] = goal_obs  # replace goals with locomotion goals
             actions[envs_with_goal] = self.locomotion.navigate(
                 self.session,
@@ -1260,10 +1265,11 @@ class AgentTMAX(AgentLearner):
             # use random actions
             # TODO: better random trajectories? (repeat actions for more frames, etc.?)
             actions[envs_without_goal] = np.random.randint(0, self.actor_critic.num_actions, len(envs_without_goal))
+            is_random[envs_without_goal] = 1
 
     def _exploration_policy_step(
             self, env_i, observations, goals, neighbors, num_neighbors,
-            actions, action_probs, values, masks, timer,
+            actions, action_probs, values, masks, timer, is_random,
     ):
         if len(env_i) <= 0:
             return
@@ -1274,9 +1280,15 @@ class AgentTMAX(AgentLearner):
         if neighbors is not None:
             neighbors_policy = neighbors[env_i]
             num_neighbors_policy = num_neighbors[env_i]
-        actions[env_i], action_probs[env_i], values[env_i] = self.actor_critic.invoke(
-            self.session, observations[env_i], goals_policy, neighbors_policy, num_neighbors_policy, timer[env_i],
-        )
+
+        if self.curiosity.is_initialized():
+            actions[env_i], action_probs[env_i], values[env_i] = self.actor_critic.invoke(
+                self.session, observations[env_i], goals_policy, neighbors_policy, num_neighbors_policy, timer[env_i],
+            )
+            is_random[env_i] = 0
+        else:
+            actions[env_i] = np.random.randint(0, self.actor_critic.num_actions, len(env_i))
+            is_random[env_i] = 1
 
     def policy_step(self, obs_prev, observations, goals, neighbors, num_neighbors):
         """Run exploration or locomotion policy depending on the state of the particular environment."""
@@ -1302,18 +1314,19 @@ class AgentTMAX(AgentLearner):
         action_probs = np.ones(num_envs, np.float32)
         values = np.zeros(num_envs, np.float32)
         masks = np.zeros(num_envs, np.int32)
+        is_random = np.zeros(num_envs, np.uint8)
         timer = tmax_mgr.get_timer()
 
         self._locomotion_policy_step(
-            env_indices[TmaxMode.LOCOMOTION], obs_prev, observations, goals, actions, masks, tmax_mgr,
+            env_indices[TmaxMode.LOCOMOTION], obs_prev, observations, goals, actions, masks, is_random, tmax_mgr,
         )
 
         self._exploration_policy_step(
             env_indices[TmaxMode.EXPLORATION], observations, goals, neighbors, num_neighbors,
-            actions, action_probs, values, masks, timer,
+            actions, action_probs, values, masks, timer, is_random,
         )
 
-        return actions, action_probs, values, masks, goals, modes, timer
+        return actions, action_probs, values, masks, goals, modes, timer, is_random
 
     def _get_observations(self, env_obs):
         """
@@ -1575,7 +1588,7 @@ class AgentTMAX(AgentLearner):
                 buffer.reset()
                 for rollout_step in range(self.params.rollout):
                     with timing.add_time('policy'):
-                        actions, action_probs, values, masks, policy_goals, modes, timer = self.policy_step(
+                        actions, action_probs, values, masks, policy_goals, modes, timer, is_random = self.policy_step(
                             obs_prev, observations, goals, None, None,
                         )
 
@@ -1584,7 +1597,7 @@ class AgentTMAX(AgentLearner):
                         reset = tmax_mgr.is_episode_reset()
                         env_obs, rewards, dones, infos = multi_env.step(actions, reset)
 
-                    trajectory_buffer.add(observations, actions, infos, dones, tmax_mgr=tmax_mgr)
+                    trajectory_buffer.add(observations, actions, infos, dones, tmax_mgr=tmax_mgr, is_random=is_random)
 
                     new_obs, new_goals = self._get_observations(env_obs)
 
@@ -1609,7 +1622,7 @@ class AgentTMAX(AgentLearner):
                     env_steps += num_steps_delta
 
                 # last step values are required for TD-return calculation
-                _, _, values, _, _, _, _ = self.policy_step(obs_prev, observations, goals, None, None)
+                _, _, values, *_ = self.policy_step(obs_prev, observations, goals, None, None)
                 buffer.values.append(values)
 
             # calculate discounted returns and GAE
@@ -1666,3 +1679,6 @@ class AgentTMAX(AgentLearner):
                 multi_env.close()
 
         return status
+
+# TODO: branch off from locomotion trajectory?
+# TODO: separate coverage for different stages

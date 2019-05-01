@@ -15,6 +15,7 @@ from tensorflow.contrib import slim
 from utils.decay import LinearDecay
 from utils.gifs import encode_gif
 from utils.params import Params
+from utils.plot import HEATMAP_FIGURE_ID
 from utils.tensorboard import visualize_matplotlib_figure_tensorboard
 from utils.utils import log, model_dir, summaries_dir, memory_consumption_mb, numpy_all_the_way
 
@@ -74,7 +75,7 @@ class AgentLearner(Agent):
 
             self.stats_episodes = 100  # how many rewards to average to measure performance
 
-            self.gif_save_rate = 200  # number of seconds to wait before saving another gif to tensorboard
+            self.gif_save_rate = 150  # number of seconds to wait before saving another gif to tensorboard
             self.gif_summary_num_envs = 2
             self.num_position_histograms = 200  # number of position heatmaps to aggregate
             self.heatmap_save_rate = 120
@@ -238,7 +239,7 @@ class AgentLearner(Agent):
             summed_histogram += hist
         summed_histogram += 1  # min shouldn't be 0 (for log scale)
 
-        fig = plt.gcf()
+        fig = plt.figure(num=HEATMAP_FIGURE_ID, figsize=(4, 4))
         fig.clear()
         plt.imshow(
             summed_histogram.T,
@@ -250,4 +251,3 @@ class AgentLearner(Agent):
 
         summary = visualize_matplotlib_figure_tensorboard(fig, tag)
         self.summary_writer.add_summary(summary, step)
-

@@ -8,7 +8,7 @@ from algorithms.tmax.navigator import edge_weight
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import hash_observation
 from utils.timing import Timing
-from utils.utils import log, max_with_idx
+from utils.utils import log
 
 
 class MapBuilder:
@@ -18,15 +18,15 @@ class MapBuilder:
         self.obs_encoder = self.distance_net.obs_encoder
 
         # map generation parameters
-        self.max_duplicate_dist = 1
+        self.max_duplicate_dist = 2
         self.duplicate_neighborhood = 5
         self.duplicate_threshold = 0.05
 
-        self.shortcut_dist_threshold = 0.1
-        self.shortcut_risk_threshold = 0.1
+        self.shortcut_dist_threshold = 0.05
+        self.shortcut_risk_threshold = 0.05
         self.min_shortcut_dist = 5
         self.shortcut_window = 10
-        self.shortcuts_to_keep_fraction = 0.25  # fraction of the number of all nodes
+        self.shortcuts_to_keep_fraction = 0.2  # fraction of the number of all nodes
 
     def _calc_pairwise_distances(self, obs_embeddings):
         num_embeddings = len(obs_embeddings)

@@ -8,6 +8,7 @@ import tensorflow as tf
 from matplotlib import pyplot as plt
 import numpy as np
 
+from utils.plot import MAP_FIGURE_ID
 from utils.utils import ensure_dir_exists
 
 
@@ -44,7 +45,9 @@ def plot_graph(
         width, height = map_img.shape[:2]
 
         dpi = 120  # can be changed
-        figure = plt.figure(num=2, figsize=(height / dpi, width / dpi), dpi=dpi, facecolor='none', edgecolor='k')
+        figure = plt.figure(
+            num=MAP_FIGURE_ID, figsize=(height / dpi, width / dpi), dpi=dpi, facecolor='none', edgecolor='k',
+        )
         figure.clear()
         figure.figimage(map_img, 0, 0)
         plt.xlim(limits[0], limits[2])
