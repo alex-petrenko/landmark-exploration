@@ -258,7 +258,7 @@ class TmaxManager:
         # if persistent map is provided, then we can skip the entire exploration stage
         self.stage_change_required = self.params.persistent_map_checkpoint is not None
 
-        self.exploration_trajectories = deque([], maxlen=30)
+        self.exploration_trajectories = deque([], maxlen=35)
 
         self.locomotion_success = deque([], maxlen=300)
 
@@ -342,6 +342,10 @@ class TmaxManager:
     def save_trajectories(self, trajectories):
         """Save the last exploration trajectory for every env_idx to potentially later use as a demonstration."""
         for t in trajectories:
+            is_all_exploration = all(stage == TmaxMode.EXPLORATION for stage in t.stage)
+            if not is_all_exploration:
+                continue
+
             # calculate total intrinsic reward over the trajectory
             total_intrinsic_reward = sum(r for r in t.intrinsic_reward)
 
@@ -411,7 +415,7 @@ class TmaxManager:
         stage_idx = total_frames // (2 * self.params.stage_duration)
         max_distance = max(5, (stage_idx - 1) * 75)
         potential_targets = MapBuilder.sieve_landmarks_by_distance(curr_sparse_map, max_distance=max_distance)
-        log.info('Max allowed distance %d, available landmarks %r...', max_distance, potential_targets[:10])
+        # log.info('Max allowed distance %d, available landmarks %r...', max_distance, potential_targets[:10])
 
         # calculate UCB of value estimate for all targets
         total_num_samples = 0
