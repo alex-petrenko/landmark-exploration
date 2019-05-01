@@ -413,7 +413,7 @@ class TmaxManager:
         # this is to force exploration policy to find shorter routes to interesting locations
         total_frames = max(0, self.env_steps - self.params.distance_bootstrap)
         stage_idx = total_frames // (2 * self.params.stage_duration)
-        max_distance = max(5, (stage_idx - 1) * 75)
+        max_distance = max(5, (stage_idx - 1) * 100)
         potential_targets = MapBuilder.sieve_landmarks_by_distance(curr_sparse_map, max_distance=max_distance)
         # log.info('Max allowed distance %d, available landmarks %r...', max_distance, potential_targets[:10])
 
