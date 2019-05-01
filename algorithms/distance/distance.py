@@ -29,7 +29,7 @@ class DistanceNetworkParams:
     def __init__(self):
         self.close_threshold = 5  # num. of frames between obs, such that one is close to the other
         self.far_threshold = 25  # num. of frames between obs, such that one is far from the other
-        self.distance_target_buffer_size = 200000  # target number of training examples to store
+        self.distance_target_buffer_size = 150000  # target number of training examples to store
         self.distance_train_epochs = 8
         self.distance_batch_size = 128
         self.distance_bootstrap = 4000000
@@ -158,7 +158,10 @@ class DistanceNetwork:
             self.encoded_observation, feed_dict={self.ph_obs: obs, self.ph_is_training: False},
         )
 
-    def train(self, buffer, env_steps, agent):
+    def train(self, buffer, env_steps, agent, timing=None):
+        if timing is None:
+            timing = Timing()
+
         params = agent.params
 
         batch_size = params.distance_batch_size
@@ -170,44 +173,49 @@ class DistanceNetwork:
 
         log.info('Train distance net %d pairs, batch %d, epochs %d', len(buffer), batch_size, num_epochs)
 
-        for epoch in range(num_epochs):
-            losses = []
-            buffer.shuffle_data()
-            obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
+        with timing.timeit('dist_epochs'):
+            for epoch in range(num_epochs):
+                losses = []
 
-            for i in range(0, len(obs_first) - 1, batch_size):
-                # noinspection PyProtectedMember
-                with_summaries = agent._should_write_summaries(dist_step) and summary is None
-                summaries = [self.summaries] if with_summaries else []
+                with timing.add_time('shuffle'):
+                    buffer.shuffle_data()
 
-                start, end = i, i + batch_size
+                obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
 
-                result = agent.session.run(
-                    [self.loss, self.train_op] + summaries,
-                    feed_dict={
-                        self.ph_obs_first: obs_first[start:end],
-                        self.ph_obs_second: obs_second[start:end],
-                        self.ph_labels: labels[start:end],
-                        self.ph_is_training: True,
-                    }
-                )
+                with timing.add_time('batch'):
+                    for i in range(0, len(obs_first) - 1, batch_size):
+                        # noinspection PyProtectedMember
+                        with_summaries = agent._should_write_summaries(dist_step) and summary is None
+                        summaries = [self.summaries] if with_summaries else []
 
-                dist_step += 1
-                # noinspection PyProtectedMember
-                agent._maybe_save(dist_step, env_steps)
-                losses.append(result[0])
+                        start, end = i, i + batch_size
 
-                if with_summaries:
-                    summary = result[-1]
-                    agent.summary_writer.add_summary(summary, global_step=env_steps)
+                        result = agent.session.run(
+                            [self.loss, self.train_op] + summaries,
+                            feed_dict={
+                                self.ph_obs_first: obs_first[start:end],
+                                self.ph_obs_second: obs_second[start:end],
+                                self.ph_labels: labels[start:end],
+                                self.ph_is_training: True,
+                            }
+                        )
 
-            # check loss improvement at the end of each epoch, early stop if necessary
-            avg_loss = np.mean(losses)
-            if avg_loss >= prev_loss:
-                log.info('Early stopping after %d epochs because distance net did not improve', epoch + 1)
-                log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
-                break
-            prev_loss = avg_loss
+                        dist_step += 1
+                        # noinspection PyProtectedMember
+                        agent._maybe_save(dist_step, env_steps)
+                        losses.append(result[0])
+
+                        if with_summaries:
+                            summary = result[-1]
+                            agent.summary_writer.add_summary(summary, global_step=env_steps)
+
+                    # check loss improvement at the end of each epoch, early stop if necessary
+                    avg_loss = np.mean(losses)
+                    if avg_loss >= prev_loss:
+                        log.info('Early stopping after %d epochs because distance net did not improve', epoch + 1)
+                        log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
+                        break
+                    prev_loss = avg_loss
 
         return dist_step
 
@@ -297,6 +305,10 @@ class DistanceBuffer:
     def extract_data(self, trajectories):
         timing = Timing()
 
+        if len(self.buffer) > self.params.distance_target_buffer_size:
+            # already enough data
+            return
+
         close, far = self.params.close_threshold, self.params.far_threshold
 
         num_close, num_far = 0, 0
@@ -324,10 +336,12 @@ class DistanceBuffer:
                     second_idx = np.random.randint(i, close_i)
 
                     # in TMAX we train only on random actions
-                    if check_if_random and not trajectory.is_random[first_idx]:
-                        continue
-                    if check_if_random and not trajectory.is_random[second_idx]:
-                        continue
+                    if check_if_random:
+                        if trajectory.is_random[first_idx] or trajectory.is_random[second_idx]:
+                            # we're good
+                            pass
+                        else:
+                            continue
 
                     if self.params.distance_symmetric and random.random() < 0.5:
                         first_idx, second_idx = second_idx, first_idx
@@ -347,13 +361,8 @@ class DistanceBuffer:
                         data_added += 1
                         num_far += 1
 
-        with timing.timeit('shuffle'):
-            # This is to avoid shuffling data every time. We grow the buffer a little more (up to 1.5 size of max
-            # buffer) and shuffle and trim only then (or when we need it for training).
-            # Adjust this 1.5 parameter for memory consumption.
-            if len(self.buffer) > 1.5 * self.params.distance_target_buffer_size:
-                self.shuffle_data()
-                self.buffer.trim_at(self.params.distance_target_buffer_size)
+        with timing.timeit('finalize'):
+            self.buffer.trim_at(self.params.distance_target_buffer_size)
 
         if self.batch_num % 20 == 0:
             with timing.timeit('visualize'):
@@ -363,17 +372,11 @@ class DistanceBuffer:
         log.info('num close %d, num far %d, distance net timing %s', num_close, num_far, timing)
 
     def has_enough_data(self):
-        len_data, min_data = len(self.buffer), self.params.distance_target_buffer_size // 5
+        len_data, min_data = len(self.buffer), self.params.distance_target_buffer_size // 3
         if len_data < min_data:
             log.info('Need to gather more data to train distance net, %d/%d', len_data, min_data)
             return False
         return True
-
-    def get_buffer(self):
-        if len(self.buffer) > self.params.distance_target_buffer_size:
-            self.shuffle_data()
-            self.buffer.trim_at(self.params.distance_target_buffer_size)
-        return self.buffer
 
     def shuffle_data(self):
         self.buffer.shuffle_data()

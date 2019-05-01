@@ -397,7 +397,7 @@ def map_summaries(maps, env_steps, summary_writer, section, map_img=None, coord_
     num_neighbors = []
     for m in maps:
         node = random.choice(list(m.graph.nodes))
-        num_neighbors.append(m.neighbors(node))
+        num_neighbors.append(len(m.neighbors(node)))
 
     avg_num_landmarks = sum(num_landmarks) / len(num_landmarks)
     avg_num_neighbors = sum(num_neighbors) / len(num_neighbors)

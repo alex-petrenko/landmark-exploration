@@ -21,7 +21,7 @@ from utils.utils import log, vis_dir, ensure_dir_exists
 class LocomotionNetworkParams:
     def __init__(self):
         self.locomotion_experience_replay_buffer = 100000
-        self.locomotion_experience_replay_epochs = 12
+        self.locomotion_experience_replay_epochs = 10
         self.locomotion_experience_replay_batch = 128
         self.locomotion_experience_replay_max_kl = 0.05
         self.locomotion_max_trajectory = 5  # max trajectory length to be utilized during training
@@ -196,7 +196,7 @@ class LocomotionBuffer:
         log.info('Locomotion, num trajectories: %d, timing: %s', len(training_data), timing)
 
     def has_enough_data(self):
-        len_data, min_data = len(self.buffer), self.params.locomotion_experience_replay_buffer // 5
+        len_data, min_data = len(self.buffer), self.params.locomotion_experience_replay_buffer // 3
         if len_data < min_data:
             log.info('Need to gather more data to train locomotion net, %d/%d', len_data, min_data)
             return False

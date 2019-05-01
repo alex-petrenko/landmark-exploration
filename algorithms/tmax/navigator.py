@@ -150,7 +150,15 @@ class Navigator:
                 curr_landmark_on_the_path = 0
             else:
                 self.lost_localization_frames[env_i] = 0
-                # noinspection PyTypeChecker
+
+                if min_d_idx > 0 or len(distance) <= 1 or distance[1] > 0.04:
+                    pass
+                else:
+                    # current landmark (distance[0]) is the closest, but next landmark is also super close
+                    # set current landmark to be the next landmark on the path to make some progress
+                    min_d_idx = 1
+                    closest_landmark = neighbors[env_i][min_d_idx]
+
                 self.current_landmarks[env_i] = closest_landmark
                 curr_landmark_on_the_path = min_d_idx
 
@@ -163,7 +171,7 @@ class Navigator:
             target_node = lookahead_path[0]
             target_d = distance[0]
             confidently_reachable = np.random.random() * 0.1 + 0.1
-            # log.info('path %r', lookahead_path)  # TODO!
+            # log.info('Curr landmark %d, path %r',  self.current_landmarks[env_i], lookahead_path)  # TODO!
             # log.info('Distances %r', [f'{d:.3f}' for d in distance])  # TODO!
 
             if len(lookahead_path) > 1 and distance[1] < self.max_neighborhood_dist:
