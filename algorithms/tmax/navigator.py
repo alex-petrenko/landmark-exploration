@@ -170,9 +170,12 @@ class Navigator:
 
             target_node = lookahead_path[0]
             target_d = distance[0]
-            confidently_reachable = np.random.random() * 0.1 + 0.1
-            # log.info('Curr landmark %d, path %r',  self.current_landmarks[env_i], lookahead_path)  # TODO!
-            # log.info('Distances %r', [f'{d:.3f}' for d in distance])  # TODO!
+            confidently_reachable = np.random.random() * 0.1 + 0.01
+
+            if len(maps) < 5:
+                # debug
+                log.info('Curr landmark %d, path %r',  self.current_landmarks[env_i], lookahead_path)
+                log.info('Distances %r', [f'{d:.3f}' for d in distance])
 
             if len(lookahead_path) > 1 and distance[1] < self.max_neighborhood_dist:
                 target_node = lookahead_path[1]

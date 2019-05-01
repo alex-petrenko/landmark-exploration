@@ -1266,7 +1266,7 @@ class AgentTMAX(AgentLearner):
         assert len(goal_obs) == len(envs_with_goal)
 
         masks[env_i] = 0
-        deterministic = False if random.random() < 0.25 else True
+        deterministic = False if random.random() < 0.1 else True
 
         if len(envs_with_goal) > 0:
             is_random[envs_with_goal] = 0
@@ -1279,7 +1279,7 @@ class AgentTMAX(AgentLearner):
             for env_index in envs_with_goal:
                 if actions[env_index] == 0:
                     # discourage idle actions to avoid getting stuck
-                    if random.random() < 0.3:
+                    if random.random() < 0.03:
                         actions[env_index] = np.random.randint(0, self.actor_critic.num_actions)
 
         if len(envs_without_goal) > 0:
