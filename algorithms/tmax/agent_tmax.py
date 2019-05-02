@@ -481,7 +481,7 @@ class TmaxManager:
     def _pick_best_exploration_trajectory(agent, trajectories, curr_sparse_map):
         map_builder = MapBuilder(agent)
 
-        max_dist_between_landmarks = 250
+        max_dist_between_landmarks = agent.params.max_frames_between_landmarks
 
         trajectory_landmarks = [[] for _ in range(len(trajectories))]
         num_landmarks = [0] * len(trajectories)
@@ -868,6 +868,7 @@ class AgentTMAX(AgentLearner):
             self.exploration_budget = 1000
             self.random_frames_at_the_end = 400
             self.max_exploration_trajectory = 900  # should be less than exploration budget
+            self.max_frames_between_landmarks = 250
             self.max_episode = 20000
 
             self.locomotion_experience_replay = True
@@ -1764,3 +1765,4 @@ class AgentTMAX(AgentLearner):
 
 # TODO: branch off from locomotion trajectory?
 # TODO: separate coverage for different stages
+# TODO: don't sparsify trajectories
