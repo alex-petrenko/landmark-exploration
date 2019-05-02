@@ -243,7 +243,14 @@ class TmaxManager:
 
         self.env_steps = 0
         self.episode_frames = [0] * self.num_envs
-        self.end_episode = [self.params.exploration_budget] * self.num_envs
+        self.end_episode = [self.params.exploration_budget * 1000] * self.num_envs
+
+        # frame at which we switched to exploration mode
+        self.exploration_started = [-1] * self.num_envs
+
+        # we collect some amount of random experience at the end of every exploration trajectory
+        # to make the data for the distance network training more diverse
+        self.random_mode = [False] * self.num_envs
 
         self.locomotion_targets = [None] * self.num_envs
         self.locomotion_final_targets = [None] * self.num_envs  # final target (e.g. goal observation)
@@ -258,7 +265,7 @@ class TmaxManager:
         # if persistent map is provided, then we can skip the entire exploration stage
         self.stage_change_required = self.params.persistent_map_checkpoint is not None
 
-        self.exploration_trajectories = deque([], maxlen=35)
+        self.exploration_trajectories = deque([], maxlen=150)
 
         self.locomotion_success = deque([], maxlen=300)
 
@@ -331,11 +338,19 @@ class TmaxManager:
     def get_timer(self):
         timer = np.ones(self.num_envs, dtype=np.float32)
         for env_i in range(self.num_envs):
-            if self.end_episode[env_i] < 0:
-                timer[env_i] = 1.0
+            exploration_mode = self.mode[env_i] == TmaxMode.EXPLORATION
+            assert not exploration_mode or self.end_episode[env_i] >= self.params.exploration_budget
+
+            if self.end_episode[env_i] < 0 or not exploration_mode:
+                timer[env_i] = 1.0  # does not matter, because it's never used
             else:
-                remaining_frames = self.end_episode[env_i] - self.episode_frames[env_i]
-                timer[env_i] = remaining_frames / self.params.exploration_budget
+                assert exploration_mode
+                assert self.exploration_started[env_i] >= 0
+
+                frames_so_far = self.episode_frames[env_i] - self.exploration_started[env_i]
+                remaining_frames = self.params.exploration_budget - frames_so_far
+                timer[env_i] = max(remaining_frames / self.params.exploration_budget, 0.0)
+                assert -EPS < timer[env_i] < 1.0 + EPS
 
         return timer
 
@@ -413,9 +428,8 @@ class TmaxManager:
         # this is to force exploration policy to find shorter routes to interesting locations
         total_frames = max(0, self.env_steps - self.params.distance_bootstrap)
         stage_idx = total_frames // (2 * self.params.stage_duration)
-        max_distance = max(5, (stage_idx - 1) * 100)
+        max_distance = max(5, stage_idx * 1000)
         potential_targets = MapBuilder.sieve_landmarks_by_distance(curr_sparse_map, max_distance=max_distance)
-        # log.info('Max allowed distance %d, available landmarks %r...', max_distance, potential_targets[:10])
 
         # calculate UCB of value estimate for all targets
         total_num_samples = 0
@@ -448,8 +462,8 @@ class TmaxManager:
 
         locomotion_goal_idx = dense_map_landmark
         log.info(
-            'Locomotion final goal for exploration is %d with value %.3f, samples %d and UCB %.3f',
-            locomotion_goal_idx, node_data['value_estimate'], node_data['num_samples'], max_ucb,
+            'Locomotion final goal for exploration is %d (%d) with value %.3f, samples %d and UCB %.3f',
+            locomotion_goal_idx, max_ucb_target, node_data['value_estimate'], node_data['num_samples'], max_ucb,
         )
         node_data['num_samples'] += 1
 
@@ -465,7 +479,7 @@ class TmaxManager:
     def _pick_best_exploration_trajectory(agent, trajectories, curr_sparse_map):
         map_builder = MapBuilder(agent)
 
-        max_dist_between_landmarks = 40
+        max_dist_between_landmarks = 500
 
         trajectory_landmarks = [[] for _ in range(len(trajectories))]
         num_landmarks = [0] * len(trajectories)
@@ -479,6 +493,7 @@ class TmaxManager:
             assert not t.is_random[-1]
 
             m = copy.deepcopy(curr_sparse_map)
+            m.new_episode()
             is_frame_a_landmark = map_builder.add_trajectory_to_sparse_map(m, t)
             landmark_frames = np.nonzero(is_frame_a_landmark)[0]
 
@@ -521,6 +536,8 @@ class TmaxManager:
 
         trajectories = [t[1] for t in self.exploration_trajectories]
 
+        assert self.params.exploration_budget > self.params.random_frames_at_the_end
+
         # truncate trajectories
         for t_idx, t in enumerate(trajectories):
             first_exploration_frame = len(t)
@@ -528,8 +545,6 @@ class TmaxManager:
                 if t.mode[i] == TmaxMode.EXPLORATION:
                     first_exploration_frame = i
                     break
-
-            assert self.params.exploration_budget > self.params.random_frames_at_the_end
 
             t.trim_at(first_exploration_frame + self.params.max_exploration_trajectory)
             log.info('Trimmed trajectory %d at %d frames', t_idx, len(t))
@@ -583,8 +598,8 @@ class TmaxManager:
         new_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
 
         # reset UCB statistics
-        for node in new_sparse_map.graph.nodes:
-            new_sparse_map.graph.nodes[node]['num_samples'] = 1
+        # for node in new_sparse_map.graph.nodes:
+        #     new_sparse_map.graph.nodes[node]['num_samples'] = 1
 
         new_dense_map.new_episode()
         new_sparse_map.new_episode()
@@ -634,13 +649,20 @@ class TmaxManager:
         self.curiosity.episodic_maps[env_i] = copy.deepcopy(self.sparse_persistent_maps[-1])
 
         self.env_stage[env_i] = self.global_stage
-        self._update_value_estimates(self.current_sparse_maps[env_i])
+
+        if env_i % 10 == 0:
+            # we don't have to do it every time
+            self._update_value_estimates(self.current_sparse_maps[env_i])
 
         self._delete_old_maps(self.current_dense_maps, self.dense_persistent_maps)
         self._delete_old_maps(self.current_sparse_maps, self.sparse_persistent_maps)
 
         self.episode_frames[env_i] = 0
-        self.end_episode[env_i] = -1 if self.curiosity.is_initialized else self.params.exploration_budget
+
+        # this will be updated once locomotion goal is achieved (even if it's 0)
+        self.end_episode[env_i] = -1 if self.curiosity.is_initialized else self.params.exploration_budget * 1000
+        self.exploration_started[env_i] = -1
+        self.random_mode[env_i] = False
 
         self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
 
@@ -652,10 +674,8 @@ class TmaxManager:
         self.mode[env_i] = TmaxMode.LOCOMOTION
         self.navigator.reset(env_i, self.current_dense_maps[env_i])
 
-        assert self.mode[env_i] is not None
-        if self.mode[env_i] == TmaxMode.LOCOMOTION:
-            assert self.locomotion_targets[env_i] is not None
-            assert self.locomotion_final_targets[env_i] is not None
+        assert self.locomotion_targets[env_i] is not None
+        assert self.locomotion_final_targets[env_i] is not None
 
     def _update_stage(self, env_steps):
         if env_steps - self.last_stage_change > self.params.stage_duration or self.stage_change_required:
@@ -702,7 +722,7 @@ class TmaxManager:
             end_locomotion, locomotion_success = False, False
 
             if next_target[env_i] is None:
-                log.info(
+                log.warning(
                     'Agent in env %d got lost in %d steps while trying to reach %d',
                     env_i, self.episode_frames[env_i], self.locomotion_final_targets[env_i],
                 )
@@ -710,14 +730,14 @@ class TmaxManager:
 
             since_last_made_progress = self.episode_frames[env_i] - self.navigator.last_made_progress[env_i]
             if since_last_made_progress > 100:
-                log.info(
+                log.warning(
                     'Agent in env %d did not make any progress in %d frames while trying to reach %d',
                     env_i, since_last_made_progress, self.locomotion_final_targets[env_i],
                 )
                 end_locomotion = True
 
             if self.episode_frames[env_i] > self.params.max_episode / 2:
-                log.info(
+                log.error(
                     'Takes too much time (%d) to get to %d',
                     self.episode_frames[env_i], self.locomotion_final_targets[env_i],
                 )
@@ -735,6 +755,10 @@ class TmaxManager:
             if end_locomotion:
                 if exploration_stage:
                     self.mode[env_i] = TmaxMode.EXPLORATION
+                    self.exploration_started[env_i] = self.episode_frames[env_i]
+                else:
+                    # after we reached locomotion goal we just collect random experience
+                    self.random_mode[env_i] = True
 
                 self.end_episode[env_i] = self.episode_frames[env_i] + self.params.exploration_budget
                 if self.env_stage[env_i] == TmaxMode.EXPLORATION:
@@ -745,7 +769,13 @@ class TmaxManager:
                 log.info('End locomotion, frame %d, end %d', self.episode_frames[env_i], self.end_episode[env_i])
 
     def _update_curiosity(self, obs, next_obs, dones, infos):
-        mask = [stage == TmaxMode.EXPLORATION for stage in self.env_stage]
+        mask = []
+        for env_i in range(self.num_envs):
+            update_curiosity = self.env_stage[env_i] == TmaxMode.EXPLORATION
+            if self.random_mode[env_i]:
+                update_curiosity = False
+            mask.append(update_curiosity)
+
         curiosity_bonus = self.curiosity.generate_bonus_rewards(
             self.agent.session, obs, next_obs, None, dones, infos, mask=mask,
         )
@@ -762,6 +792,7 @@ class TmaxManager:
 
         curiosity_bonus = np.zeros(self.num_envs)
         augmented_rewards = np.zeros(self.num_envs)
+        done_flags = np.array(dones)
 
         if self.params.persistent_map_checkpoint is None:
             # run curiosity only if we need to discover the map, otherwise we don't need it (map is provided)
@@ -778,6 +809,15 @@ class TmaxManager:
                 else:
                     self.episode_frames[env_i] += 1
 
+            timer = self.get_timer()
+            for env_i in range(self.num_envs):
+                if timer[env_i] < EPS:
+                    assert self.mode[env_i] == TmaxMode.EXPLORATION
+                    if not self.random_mode[env_i]:
+                        log.info('Environment %d exploration out of timer (%f)', env_i, timer[env_i])
+                        self.random_mode[env_i] = True
+                        done_flags[env_i] = True  # for RL purposes this is the end of the episode
+
         self._update_stage(env_steps)
 
         # combine final rewards and done flags
@@ -787,7 +827,7 @@ class TmaxManager:
 
             self.intrinsic_reward[env_i] = curiosity_bonus[env_i]
 
-        return augmented_rewards
+        return augmented_rewards, done_flags
 
 
 class AgentTMAX(AgentLearner):
@@ -822,8 +862,8 @@ class AgentTMAX(AgentLearner):
             self.successful_traversal_frames = 50  # if we traverse an edge in less than that, we succeeded
 
             self.exploration_budget = 1000
-            self.random_frames_at_the_end = 500
-            self.max_exploration_trajectory = 150
+            self.random_frames_at_the_end = 400
+            self.max_exploration_trajectory = 900  # should be less than exploration budget
             self.max_episode = 20000
 
             self.locomotion_experience_replay = True
@@ -1114,7 +1154,9 @@ class AgentTMAX(AgentLearner):
                 self.session, tf.train.latest_checkpoint(self.params.distance_network_checkpoint),
             )
             self.curiosity.initialized = True
-            log.debug('Done!')
+            log.debug('Done loading distance network from checkpoint!')
+
+        log.debug('Computation graph is initialized!')
 
     def _save(self, step, env_steps):
         super()._save(step, env_steps)
@@ -1298,9 +1340,7 @@ class AgentTMAX(AgentLearner):
         env_random, env_non_random = [], []
         for env_index in env_i:
             random_action = False if self.curiosity.is_initialized() else True
-
-            time_left = tmax_mgr.end_episode[env_index] - tmax_mgr.episode_frames[env_index]
-            if time_left < self.params.random_frames_at_the_end:
+            if tmax_mgr.random_mode[env_index]:
                 random_action = True
 
             if random_action:
@@ -1640,14 +1680,14 @@ class AgentTMAX(AgentLearner):
                     new_obs, new_goals = self._get_observations(env_obs)
 
                     with timing.add_time('tmax'):
-                        rewards = tmax_mgr.update(
+                        rewards, done_flags = tmax_mgr.update(
                             observations, new_obs, rewards, dones, infos, env_steps, timing,
                         )
 
                     # add experience from all environments to the current buffer(s)
                     buffer.add(
                         observations, policy_goals, actions, action_probs,
-                        rewards, dones, values,
+                        rewards, done_flags, values,
                         None, None, modes, masks, timer, is_random,
                     )
 

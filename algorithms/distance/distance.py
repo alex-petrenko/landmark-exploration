@@ -29,7 +29,7 @@ class DistanceNetworkParams:
     def __init__(self):
         self.close_threshold = 5  # num. of frames between obs, such that one is close to the other
         self.far_threshold = 25  # num. of frames between obs, such that one is far from the other
-        self.distance_target_buffer_size = 150000  # target number of training examples to store
+        self.distance_target_buffer_size = 140000  # target number of training examples to store
         self.distance_train_epochs = 8
         self.distance_batch_size = 128
         self.distance_bootstrap = 4000000
@@ -336,30 +336,40 @@ class DistanceBuffer:
                     second_idx = np.random.randint(i, close_i)
 
                     # in TMAX we train only on random actions
+                    add_close = True
                     if check_if_random:
                         if trajectory.is_random[first_idx] or trajectory.is_random[second_idx]:
-                            # we're good
-                            pass
+                            add_close = True
                         else:
-                            continue
+                            add_close = False
 
                     if self.params.distance_symmetric and random.random() < 0.5:
                         first_idx, second_idx = second_idx, first_idx
 
-                    self.buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=0)
-                    data_added += 1
-                    num_close += 1
+                    if add_close:
+                        self.buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=0)
+                        data_added += 1
+                        num_close += 1
 
                     # sample far observation pair
                     if far_i < len(trajectory):
                         first_idx = i
                         second_idx = np.random.randint(far_i, len(trajectory))
+
+                        add_far = True
+                        if check_if_random:
+                            if trajectory.is_random[first_idx] or trajectory.is_random[second_idx]:
+                                add_far = True
+                            else:
+                                add_far = False
+
                         if self.params.distance_symmetric and random.random() < 0.5:
                             first_idx, second_idx = second_idx, first_idx
 
-                        self.buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=1)
-                        data_added += 1
-                        num_far += 1
+                        if add_far:
+                            self.buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=1)
+                            data_added += 1
+                            num_far += 1
 
         with timing.timeit('finalize'):
             self.buffer.trim_at(self.params.distance_target_buffer_size)

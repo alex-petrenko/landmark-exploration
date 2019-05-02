@@ -246,7 +246,7 @@ def test_locomotion(params, env_id):
     frame_repeat = 4
     action = 0
 
-    final_goal_idx = 123  # 1293 #347
+    final_goal_idx = 2146  # 1293 #347
 
     log.info('Locomotion goal is %d', final_goal_idx)
 
