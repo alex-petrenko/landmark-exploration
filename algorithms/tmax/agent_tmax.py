@@ -481,7 +481,7 @@ class TmaxManager:
     def _pick_best_exploration_trajectory(agent, trajectories, curr_sparse_map):
         map_builder = MapBuilder(agent)
 
-        max_dist_between_landmarks = 500
+        max_dist_between_landmarks = 250
 
         trajectory_landmarks = [[] for _ in range(len(trajectories))]
         num_landmarks = [0] * len(trajectories)
@@ -490,9 +490,9 @@ class TmaxManager:
             log.debug('Processing trajectory %d with %d frames', i, len(t))
 
             if t.is_random[-1]:
-                log.error('Last frame of trajectory %d is random!', i)
-                log.error('%r', [r for r in t.is_random])
-            assert not t.is_random[-1]
+                # this should not happen normally, but okay in testing
+                log.warning('Last frame of trajectory %d is random!', i)
+                log.warning('%r', [r for r in t.is_random])
 
             m = copy.deepcopy(curr_sparse_map)
             m.new_episode()
