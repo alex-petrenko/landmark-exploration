@@ -246,7 +246,7 @@ class TmaxManager:
         self.end_episode = [self.params.exploration_budget * 1000] * self.num_envs
 
         # frame at which we switched to exploration mode
-        self.exploration_started = [-1] * self.num_envs
+        self.exploration_started = [0] * self.num_envs
 
         # we collect some amount of random experience at the end of every exploration trajectory
         # to make the data for the distance network training more diverse
@@ -290,9 +290,11 @@ class TmaxManager:
 
         map_builder = MapBuilder(self.agent)
         map_builder.calc_distances_to_landmarks(self.sparse_persistent_maps[-1], self.dense_persistent_maps[-1])
-        map_builder.sieve_landmarks_by_distance(self.sparse_persistent_maps[-1])  # for test
 
         self.last_stage_change = max(self.last_stage_change, env_steps)
+
+        for i in range(self.num_envs):
+            self._new_episode(i)
 
         self.initialized = True
         return self.mode
@@ -646,7 +648,9 @@ class TmaxManager:
         # Initialize curiosity episode map to be the current persistent map, this is to "push" the curious agent out
         # of the already explored region. Note - this only works with sparse ECR reward, otherwise the agent can get
         # stuck between two landmarks to maximize the immediate reward.
-        self.curiosity.episodic_maps[env_i] = copy.deepcopy(self.sparse_persistent_maps[-1])
+        if self.curiosity.episodic_maps is not None:
+            self.curiosity.episodic_maps[env_i] = copy.deepcopy(self.sparse_persistent_maps[-1])
+            self.curiosity.episodic_maps[env_i].new_episode()
 
         self.env_stage[env_i] = self.global_stage
 
@@ -660,8 +664,8 @@ class TmaxManager:
         self.episode_frames[env_i] = 0
 
         # this will be updated once locomotion goal is achieved (even if it's 0)
-        self.end_episode[env_i] = -1 if self.curiosity.is_initialized else self.params.exploration_budget * 1000
-        self.exploration_started[env_i] = -1
+        self.end_episode[env_i] = self.params.exploration_budget * 1000
+        self.exploration_started[env_i] = 0
         self.random_mode[env_i] = False
 
         self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
