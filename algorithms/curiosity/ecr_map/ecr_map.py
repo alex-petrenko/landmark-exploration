@@ -22,7 +22,7 @@ class ECRMapModule(CuriosityModule):
             self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
             self.loop_closure_threshold = 0.6  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.2  # reward for finding new vertex
-            self.ecr_dense_reward = False
+            self.ecr_map_dense_reward = False
 
             self.expand_explored_region = False
             self.expand_explored_region_frames = 4000000
@@ -122,7 +122,7 @@ class ECRMapModule(CuriosityModule):
             ])
             dense_rewards *= 0.1  # scaling factor
 
-            if self.params.ecr_dense_reward:
+            if self.params.ecr_map_dense_reward:
                 bonuses += dense_rewards
 
         self.current_episode_bonus += bonuses
