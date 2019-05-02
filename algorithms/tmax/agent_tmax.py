@@ -19,7 +19,7 @@ from algorithms.tmax.graph_encoders import make_graph_encoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer, LocomotionNetworkParams
 from algorithms.tmax.navigator import Navigator
 from algorithms.tmax.tmax_utils import TmaxMode, TmaxTrajectoryBuffer
-from algorithms.topological_maps.map_builder import MapBuilder
+from algorithms.topological_maps.map_builder import MapBuilder, MapBuilderParams
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
 from algorithms.utils.algo_utils import EPS, num_env_steps, main_observation, goal_observation
 from algorithms.utils.encoders import make_encoder, make_encoder_with_goal, get_enc_params
@@ -841,6 +841,7 @@ class AgentTMAX(AgentLearner):
         AgentPPO.Params,
         ECRMapModule.Params,
         LocomotionNetworkParams,
+        MapBuilderParams,
     ):
         """Hyperparams for the algorithm and the training process."""
 
@@ -850,6 +851,7 @@ class AgentTMAX(AgentLearner):
             AgentPPO.Params.__init__(self, experiment_name)
             ECRMapModule.Params.__init__(self)
             LocomotionNetworkParams.__init__(self)
+            MapBuilderParams.__init__(self)
 
             # TMAX-specific parameters
             self.use_neighborhood_encoder = False

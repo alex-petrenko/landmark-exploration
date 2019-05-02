@@ -25,7 +25,6 @@ class Navigator:
         self.lost_localization_frames = [0] * self.params.num_envs
 
         # navigation parameters
-        self.max_neighborhood = 4
         self.max_neighborhood_dist = 0.5
         self.max_lookahead = 7
         self.confidently_reachable = 0.1

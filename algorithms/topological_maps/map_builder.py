@@ -11,22 +11,27 @@ from utils.timing import Timing
 from utils.utils import log
 
 
-class MapBuilder:
-    def __init__(self, agent):
-        self.agent = agent
-        self.distance_net = self.agent.distance
-        self.obs_encoder = self.distance_net.obs_encoder
+class MapBuilderParams:
+    def __init__(self):
+        self.shortcut_dist_threshold = 0.05
+        self.shortcut_risk_threshold = 0.05
+        self.min_shortcut_dist = 5
+        self.shortcut_window = 10
+        self.shortcuts_to_keep_fraction = 0.2  # fraction of the number of all nodes
 
         # map generation parameters
         self.max_duplicate_dist = 2
         self.duplicate_neighborhood = 5
         self.duplicate_threshold = 0.05
 
-        self.shortcut_dist_threshold = 0.05
-        self.shortcut_risk_threshold = 0.05
-        self.min_shortcut_dist = 5
-        self.shortcut_window = 10
-        self.shortcuts_to_keep_fraction = 0.2  # fraction of the number of all nodes
+
+class MapBuilder:
+    def __init__(self, agent):
+        self.agent = agent
+        self.distance_net = self.agent.distance
+        self.obs_encoder = self.distance_net.obs_encoder
+
+        self.params = agent.params
 
     def _calc_pairwise_distances(self, obs_embeddings):
         num_embeddings = len(obs_embeddings)
@@ -82,15 +87,15 @@ class MapBuilder:
                     to_delete.add(j)
                     continue
 
-                if j > i + self.max_duplicate_dist:
+                if j > i + self.params.max_duplicate_dist:
                     break
 
                 d = pairwise_distances[i][j]
-                if d > self.duplicate_threshold:
+                if d > self.params.duplicate_threshold:
                     break
 
                 neighbor_dist = []
-                for shift in range(-self.duplicate_neighborhood, self.duplicate_neighborhood + 1):
+                for shift in range(-self.params.duplicate_neighborhood, self.params.duplicate_neighborhood + 1):
                     shifted_i, shifted_j = i + shift, j + shift
                     if shifted_i < 0 or shifted_i >= len(traj):
                         continue
@@ -100,7 +105,7 @@ class MapBuilder:
                     neighbor_dist.append(pairwise_distances[i][shifted_j])
                     neighbor_dist.append(pairwise_distances[shifted_i][j])
 
-                if np.percentile(neighbor_dist, 75) < self.duplicate_threshold:
+                if np.percentile(neighbor_dist, 75) < self.params.duplicate_threshold:
                     log.info('Duplicate landmark frames %d-%d', i, j)
                     to_delete.add(j)
                 else:
@@ -162,7 +167,7 @@ class MapBuilder:
                 neighbors_dist = []
 
                 d = pairwise_distances[i][j]
-                if d > self.shortcut_dist_threshold:
+                if d > self.params.shortcut_dist_threshold:
                     continue
 
                 if j in m.graph[i]:
@@ -245,7 +250,7 @@ class MapBuilder:
         self.remove_shortcuts(m)  # first - remove all existing shortcuts
 
         shortcuts = self._shortcuts_distance(
-            m, pairwise_distances, self.min_shortcut_dist, self.shortcut_window,
+            m, pairwise_distances, self.params.min_shortcut_dist, self.params.shortcut_window,
         )
         if len(shortcuts) <= 0:
             log.warning('Could not find any shortcuts')
@@ -254,12 +259,12 @@ class MapBuilder:
         random.shuffle(shortcuts)
         shortcut_risks = [s[0] for s in shortcuts]
 
-        shortcuts_to_keep = int(self.shortcuts_to_keep_fraction * m.num_landmarks())
+        shortcuts_to_keep = int(self.params.shortcuts_to_keep_fraction * m.num_landmarks())
 
         keep = min(shortcuts_to_keep, len(shortcuts))
         percentile = (keep / len(shortcuts)) * 100
         max_risk = np.percentile(shortcut_risks, percentile)
-        max_risk = min(max_risk, self.shortcut_risk_threshold)
+        max_risk = min(max_risk, self.params.shortcut_risk_threshold)
 
         log.debug('Keep shortcuts with risk <= %.3f...', max_risk)
         shortcuts = [s for s in shortcuts if s[0] <= max_risk][:keep]
