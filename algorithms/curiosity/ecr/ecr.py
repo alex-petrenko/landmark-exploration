@@ -27,7 +27,7 @@ class ECRModule(CuriosityModule):
             self.episodic_memory_size = 200
             self.ecr_dense_reward = True
             self.dense_reward_scaling_factor = 0.1
-            self.dense_reward_threshold = 0.5
+            self.dense_reward_threshold = 1
             self.add_to_memory_threshold = 0.9
 
     def __init__(self, env, params):
@@ -66,8 +66,7 @@ class ECRModule(CuriosityModule):
             self.current_episode_bonus = np.zeros(self.params.num_envs)  # for statistics
             self.episodic_memories = []
             for i in range(self.params.num_envs):
-                memory = EpisodicMemory(self.params, obs_enc[i])
-                self.episodic_memories.append(memory)
+                self.episodic_memories.append(EpisodicMemory(self.params, obs_enc[i]))
 
         next_obs_enc = self.distance.encode_observation(session, next_obs)
         assert len(next_obs_enc) == len(self.episodic_memories)
@@ -124,12 +123,13 @@ class ECRModule(CuriosityModule):
                     self.episodic_memories[i].add(next_obs_enc[i])
 
             dense_rewards = np.array([
-                0.0 if done else dist - self.params.dense_reward_threshold for (dist, done) in zip(distances_to_memory, dones)
+                0.0 if done else self.params.dense_reward_threshold - dist for (dist, done) in zip(distances_to_memory, dones)
             ])
 
             dense_rewards *= self.params.dense_reward_scaling_factor
 
             if self.params.ecr_dense_reward:
+                assert len(dense_rewards) == len(bonuses)
                 bonuses += dense_rewards
 
 
