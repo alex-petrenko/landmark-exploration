@@ -7,7 +7,7 @@ class EpisodicMemory:
     """Contains the episodic memory, a buffer of frequently-updated observations."""
 
     def __init__(self, params, embedding=None):
-        self.arr = []
+        self._arr = []
         self.batch_num = 0
 
         self.params = params
@@ -36,6 +36,10 @@ class EpisodicMemory:
             random.shuffle(self.arr)
             while len(self.arr) >= self.params.episodic_memory_size:
                 self.arr.pop()
+
+    @property
+    def arr(self):
+        return self._arr
 
     def __len__(self):
         return len(self.arr)

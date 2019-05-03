@@ -112,7 +112,7 @@ class ECRModule(CuriosityModule):
             for env_i, memlen in enumerate(memory_lengths):
                 if not dones[env_i] and memlen > 0:
                     new_count = count + memlen
-                    distances_to_memory.append(np.percentile(batch_distances[count:new_count], 90))
+                    distances_to_memory.append(np.percentile(batch_distances[count:new_count], 10))
                     count = new_count
                 else:
                     distances_to_memory.append(0)
