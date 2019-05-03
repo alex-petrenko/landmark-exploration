@@ -869,8 +869,8 @@ class AgentTMAX(AgentLearner):
 
             self.exploration_budget = 1000
             self.random_frames_at_the_end = 400
-            self.max_exploration_trajectory = 900  # should be less than exploration budget
-            self.max_frames_between_landmarks = 250
+            self.max_exploration_trajectory = 500  # should be less than exploration budget
+            self.max_frames_between_landmarks = 100
             self.max_episode = 20000
 
             self.locomotion_experience_replay = True

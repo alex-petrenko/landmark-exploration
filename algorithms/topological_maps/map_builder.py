@@ -20,7 +20,7 @@ class MapBuilderParams:
         self.shortcuts_to_keep_fraction = 0.2  # fraction of the number of all nodes
 
         # map generation parameters
-        self.max_duplicate_dist = 2
+        self.max_duplicate_dist = 0
         self.duplicate_neighborhood = 5
         self.duplicate_threshold = 0.05
 

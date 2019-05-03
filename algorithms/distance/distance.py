@@ -14,7 +14,7 @@ from keras.layers import Lambda, concatenate
 
 # noinspection PyProtectedMember
 from algorithms.architectures.resnet_keras import ResnetBuilder, _top_network
-from algorithms.tmax.tmax_utils import TmaxTrajectory
+from algorithms.tmax.tmax_utils import TmaxTrajectory, TmaxMode
 from algorithms.topological_maps.topological_map import hash_observation
 from algorithms.utils.buffer import Buffer
 from algorithms.utils.encoders import make_encoder, EncoderParams
@@ -316,7 +316,7 @@ class DistanceBuffer:
 
         with timing.timeit('trajectories'):
             for trajectory in trajectories:
-                check_if_random = isinstance(trajectory, TmaxTrajectory)
+                check_tmax = isinstance(trajectory, TmaxTrajectory)
 
                 obs = trajectory.obs
 
@@ -335,18 +335,21 @@ class DistanceBuffer:
                     first_idx = i
                     second_idx = np.random.randint(i, close_i)
 
-                    # in TMAX we train only on random actions
+                    # in TMAX we do some additional checks
                     add_close = True
-                    if check_if_random:
-                        if trajectory.is_random[first_idx] or trajectory.is_random[second_idx]:
+                    if check_tmax:
+                        both_frames_random = trajectory.is_random[first_idx] and trajectory.is_random[second_idx]
+                        first_exploration = trajectory.mode[first_idx] == TmaxMode.EXPLORATION
+                        second_exploration = trajectory.mode[second_idx] == TmaxMode.EXPLORATION
+                        if both_frames_random or (first_exploration and second_exploration):
                             add_close = True
                         else:
                             add_close = False
 
-                    if self.params.distance_symmetric and random.random() < 0.5:
-                        first_idx, second_idx = second_idx, first_idx
-
                     if add_close:
+                        if self.params.distance_symmetric and random.random() < 0.5:
+                            first_idx, second_idx = second_idx, first_idx
+
                         self.buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=0)
                         data_added += 1
                         num_close += 1
@@ -357,16 +360,19 @@ class DistanceBuffer:
                         second_idx = np.random.randint(far_i, len(trajectory))
 
                         add_far = True
-                        if check_if_random:
-                            if trajectory.is_random[first_idx] or trajectory.is_random[second_idx]:
+                        if check_tmax:
+                            both_frames_random = trajectory.is_random[first_idx] and trajectory.is_random[second_idx]
+                            first_exploration = trajectory.mode[first_idx] == TmaxMode.EXPLORATION
+                            second_exploration = trajectory.mode[second_idx] == TmaxMode.EXPLORATION
+                            if both_frames_random or (first_exploration and second_exploration):
                                 add_far = True
                             else:
                                 add_far = False
 
-                        if self.params.distance_symmetric and random.random() < 0.5:
-                            first_idx, second_idx = second_idx, first_idx
-
                         if add_far:
+                            if self.params.distance_symmetric and random.random() < 0.5:
+                                first_idx, second_idx = second_idx, first_idx
+
                             self.buffer.add(obs_first=obs[first_idx], obs_second=obs[second_idx], labels=1)
                             data_added += 1
                             num_far += 1

@@ -28,7 +28,7 @@ class Navigator:
         self.max_neighborhood_dist = 0.5
         self.max_lookahead = 7
         self.confidently_reachable = 0.1
-        self.max_lost_localization = 10
+        self.max_lost_localization = 20
 
     def reset(self, env_i, m):
         self.current_landmarks[env_i] = 0  # assuming we always start from the same location
@@ -169,7 +169,7 @@ class Navigator:
 
             target_node = lookahead_path[0]
             target_d = distance[0]
-            confidently_reachable = np.random.random() * 0.1 + 0.01
+            confidently_reachable = np.random.random() * 0.05 + 0.01
 
             if len(maps) < 5:
                 # debug
