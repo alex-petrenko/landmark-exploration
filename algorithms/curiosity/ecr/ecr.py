@@ -123,7 +123,7 @@ class ECRModule(CuriosityModule):
                     self.episodic_memories[i].add(next_obs_enc[i])
 
             dense_rewards = np.array([
-                0.0 if done else self.params.dense_reward_threshold - dist for (dist, done) in zip(distances_to_memory, dones)
+                0.0 if done else dist - self.params.dense_reward_threshold for (dist, done) in zip(distances_to_memory, dones)
             ])
 
             dense_rewards *= self.params.dense_reward_scaling_factor
