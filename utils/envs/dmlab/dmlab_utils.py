@@ -26,7 +26,7 @@ def dmlab_env_by_name(name):
     raise Exception('Unknown DMLab env')
 
 
-def make_dmlab_env(cfg, mode='train'):
+def make_dmlab_env(cfg, mode='train', **kwargs):
     repeat_actions = 4
     if mode == 'test':
         repeat_actions = 1

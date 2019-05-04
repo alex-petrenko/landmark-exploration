@@ -80,6 +80,8 @@ class AgentLearner(Agent):
             self.num_position_histograms = 200  # number of position heatmaps to aggregate
             self.heatmap_save_rate = 60
 
+            self.episode_horizon = -1  # standard environment horizon
+
             self.use_env_map = False
 
     def __init__(self, params):

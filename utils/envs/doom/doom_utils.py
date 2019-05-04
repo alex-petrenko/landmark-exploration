@@ -65,7 +65,7 @@ def doom_env_by_name(name):
     raise Exception('Unknown Doom env')
 
 
-def make_doom_env(doom_cfg, mode='train', skip_frames=True, human_input=False, show_automap=False):
+def make_doom_env(doom_cfg, mode='train', skip_frames=True, human_input=False, show_automap=False, episode_horizon=None, **kwargs):
     skip_frames = 4 if skip_frames else 1
     env = gym.make(doom_cfg.env_id, show_automap=show_automap, skip_frames=skip_frames)
 
@@ -83,7 +83,11 @@ def make_doom_env(doom_cfg, mode='train', skip_frames=True, human_input=False, s
 
     # randomly vary episode duration to somewhat decorrelate the experience
     timeout = doom_cfg.default_timeout - 50
+    if episode_horizon is not None and episode_horizon > 0:
+        timeout = episode_horizon
     env = TimeLimitWrapper(env, limit=timeout, random_variation_steps=49)
+
+
 
     if doom_cfg.reward_scaling != 1.0:
         env = RewardScalingWrapper(env, doom_cfg.reward_scaling)

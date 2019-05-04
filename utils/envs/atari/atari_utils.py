@@ -56,7 +56,7 @@ def atari_env_by_name(name):
     raise Exception('Unknown Atari env')
 
 
-def make_atari_env(atari_cfg, mode='train'):
+def make_atari_env(atari_cfg, mode='train', **kwargs):
     """Heavily inspired by https://github.com/openai/random-network-distillation"""
 
     env = gym.make(atari_cfg.env_id)

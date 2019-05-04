@@ -7,7 +7,7 @@ from utils.envs.envs import create_env
 
 def train(curious_ppo_params, env_id):
     def make_env_func():
-        return create_env(env_id)
+        return create_env(env_id, episode_horizon=curious_ppo_params.episode_horizon)
 
     agent = AgentCuriousPPO(make_env_func, params=curious_ppo_params)
     agent.initialize()
