@@ -103,7 +103,9 @@ class ECRMapModule(CuriosityModule):
         self.current_episode_bonus += bonuses
         return bonuses
 
-    def train(self, buffer, env_steps, agent):
+    def train(self, latest_batch_of_experience, env_steps, agent):
+        # latest batch of experience is not used here
+
         self.distance_buffer.extract_data(self.trajectory_buffer.complete_trajectories)
 
         if env_steps - self._last_trained > self.params.distance_train_interval:

@@ -18,6 +18,7 @@ import networkx as nx
 
 from algorithms.utils.algo_utils import EPS
 from utils.graph import visualize_graph_tensorboard, plot_graph
+from utils.timing import Timing
 from utils.utils import ensure_contigious, log, ensure_dir_exists, AttrDict
 
 
@@ -310,55 +311,58 @@ class TopologicalMap:
         return g
 
     def save_checkpoint(
-            self, checkpoint_dir, map_img=None, coord_limits=None, num_to_keep=5, is_sparse=False, verbose=False,
+            self, checkpoint_dir, map_img=None, coord_limits=None, num_to_keep=2, is_sparse=False, verbose=False,
     ):
         """Verbose mode also dumps all the landmark observations and the graph structure into the directory."""
-        results = AttrDict()
+        t = Timing()
+        with t.timeit('map_checkpoint'):
+            results = AttrDict()
 
-        prefix = '.map_'
-        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-        dir_name = f'{prefix}{timestamp}'
-        map_dir = join(checkpoint_dir, dir_name)
+            prefix = '.map_'
+            timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+            dir_name = f'{prefix}{timestamp}'
+            map_dir = join(checkpoint_dir, dir_name)
 
-        if os.path.isdir(map_dir):
-            log.warning('Warning: map checkpoint %s already exists! Overwriting...')
-            shutil.rmtree(map_dir)
+            if os.path.isdir(map_dir):
+                log.warning('Warning: map checkpoint %s already exists! Overwriting...')
+                shutil.rmtree(map_dir)
 
-        map_dir = ensure_dir_exists(map_dir)
+            map_dir = ensure_dir_exists(map_dir)
 
-        with open(join(map_dir, 'topo_map.pkl'), 'wb') as fobj:
-            pkl.dump(self.__dict__, fobj, 2)
+            with open(join(map_dir, 'topo_map.pkl'), 'wb') as fobj:
+                pkl.dump(self.__dict__, fobj, 2)
 
-        if verbose:
-            map_extra = ensure_dir_exists(join(map_dir, '.map_verbose'))
-            for node in self.graph.nodes:
-                obs = self.get_observation(node)
-                obs_bgr = cv2.cvtColor(obs, cv2.COLOR_RGB2BGR)
-                obs_bgr_bigger = cv2.resize(obs_bgr, (420, 420), interpolation=cv2.INTER_NEAREST)
-                cv2.imwrite(join(map_extra, f'{node:03d}.jpg'), obs_bgr_bigger)
+            if verbose:
+                map_extra = ensure_dir_exists(join(map_dir, '.map_verbose'))
+                for node in self.graph.nodes:
+                    obs = self.get_observation(node)
+                    obs_bgr = cv2.cvtColor(obs, cv2.COLOR_RGB2BGR)
+                    obs_bgr_bigger = cv2.resize(obs_bgr, (420, 420), interpolation=cv2.INTER_NEAREST)
+                    cv2.imwrite(join(map_extra, f'{node:03d}.jpg'), obs_bgr_bigger)
 
-            figure = plot_graph(
-                self.graph,
-                layout='pos', map_img=map_img, limits=coord_limits, topological_map=True, is_sparse=is_sparse,
-            )
-            graph_filename = join(map_extra, 'graph.png')
-            with open(graph_filename, 'wb') as graph_fobj:
-                plt.savefig(graph_fobj, format='png')
-            figure.clear()
+                figure = plot_graph(
+                    self.graph,
+                    layout='pos', map_img=map_img, limits=coord_limits, topological_map=True, is_sparse=is_sparse,
+                )
+                graph_filename = join(map_extra, 'graph.png')
+                with open(graph_filename, 'wb') as graph_fobj:
+                    plt.savefig(graph_fobj, format='png')
+                figure.clear()
 
-            results.graph_filename = graph_filename
+                results.graph_filename = graph_filename
 
-        assert num_to_keep > 0
-        previous_checkpoints = glob.glob(f'{checkpoint_dir}/{prefix}*')
-        previous_checkpoints.sort()
-        previous_checkpoints = deque(previous_checkpoints)
+            assert num_to_keep > 0
+            previous_checkpoints = glob.glob(f'{checkpoint_dir}/{prefix}*')
+            previous_checkpoints.sort()
+            previous_checkpoints = deque(previous_checkpoints)
 
-        while len(previous_checkpoints) > num_to_keep:
-            checkpoint_to_delete = previous_checkpoints[0]
-            log.info('Deleting old map checkpoint %s', checkpoint_to_delete)
-            shutil.rmtree(checkpoint_to_delete)
-            previous_checkpoints.popleft()
+            while len(previous_checkpoints) > num_to_keep:
+                checkpoint_to_delete = previous_checkpoints[0]
+                log.info('Deleting old map checkpoint %s', checkpoint_to_delete)
+                shutil.rmtree(checkpoint_to_delete)
+                previous_checkpoints.popleft()
 
+        log.info('Map save checkpoint took %s', t)
         return results
 
     def maybe_load_checkpoint(self, checkpoint_dir):

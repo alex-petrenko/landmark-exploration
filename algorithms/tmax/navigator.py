@@ -5,9 +5,9 @@ from utils.utils import min_with_idx, log, scale_to_range
 
 def edge_weight(i1, i2, d):
     if d['loop_closure']:
-        return 3
+        return 300
     if i2 < i1:
-        return 3
+        return 300
     return 1
 
 

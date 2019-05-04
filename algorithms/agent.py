@@ -75,10 +75,10 @@ class AgentLearner(Agent):
 
             self.stats_episodes = 100  # how many rewards to average to measure performance
 
-            self.gif_save_rate = 150  # number of seconds to wait before saving another gif to tensorboard
+            self.gif_save_rate = 200  # number of seconds to wait before saving another gif to tensorboard
             self.gif_summary_num_envs = 2
             self.num_position_histograms = 200  # number of position heatmaps to aggregate
-            self.heatmap_save_rate = 60
+            self.heatmap_save_rate = 120
 
             self.episode_horizon = -1  # standard environment horizon
 

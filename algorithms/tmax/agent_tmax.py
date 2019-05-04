@@ -419,10 +419,11 @@ class TmaxManager:
         m = self.current_dense_maps[env_i]
         nodes = list(m.graph.nodes)
         random_goal = random.choice(nodes)
-        log.info('Locomotion final goal for locomotion is %d, env %d', random_goal, env_i)
-        return random_goal
+        final_goal = random_goal
+        log.info('Locomotion final goal for locomotion is %d, env %d', final_goal, env_i)
+        return final_goal
 
-    def _get_locomotion_final_goal_exploration_stage(self, env_i):
+    def _get_locomotion_final_goal_exploration_stage(self, env_i, increase_samples=True):
         """Sample target according to UCB of value estimate."""
         curr_sparse_map = self.current_sparse_maps[env_i]
 
@@ -444,7 +445,7 @@ class TmaxManager:
         for target in potential_targets:
             value = curr_sparse_map.graph.nodes[target]['value_estimate']
             num_samples = curr_sparse_map.graph.nodes[target]['num_samples']
-            ucb_degree = 2.0  # exploration/exploitation tradeoff (TODO: move to params)
+            ucb_degree = 1.0  # exploration/exploitation tradeoff (TODO: move to params)
             ucb = value + ucb_degree * math.sqrt(math.log(total_num_samples) / num_samples)
             if ucb > max_ucb:
                 max_ucb = ucb
@@ -467,7 +468,9 @@ class TmaxManager:
             'Locomotion final goal for exploration is %d (%d) with value %.3f, samples %d and UCB %.3f',
             locomotion_goal_idx, max_ucb_target, node_data['value_estimate'], node_data['num_samples'], max_ucb,
         )
-        node_data['num_samples'] += 1
+
+        if increase_samples:
+            node_data['num_samples'] += 1
 
         return locomotion_goal_idx
 
@@ -1190,7 +1193,7 @@ class AgentTMAX(AgentLearner):
 
     def _maybe_tmax_summaries(self, tmax_mgr, env_steps):
         time_since_last = time.time() - self._last_tmax_map_summary
-        tmax_map_summary_rate_seconds = 180
+        tmax_map_summary_rate_seconds = 200
         if time_since_last > tmax_map_summary_rate_seconds:
             dense_map_summary_start = time.time()
             map_summaries(
@@ -1775,3 +1778,6 @@ class AgentTMAX(AgentLearner):
 # TODO: use UCB also for locomotion stage?
 # TODO: check Gautam's heuristics
 # TODO: try 32 channels 1st layer
+# TODO: remove previous frame from the locomotion policy
+# TODO: weight loop closures
+# TODO: choose only trajectories we can reliably traverse
