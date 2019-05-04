@@ -257,6 +257,9 @@ class DistanceBuffer:
                         if data_added > self.params.distance_target_buffer_size // 4:  # to limit memory usage
                             break
 
+                    if len(self.buffer) > self.params.distance_target_buffer_size:
+                        break
+
                     close_i = min(i + close, len(trajectory))
                     far_i = min(i + far, len(trajectory))
 
