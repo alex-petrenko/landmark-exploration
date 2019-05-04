@@ -7,8 +7,6 @@ import tensorflow as tf
 from algorithms.curiosity.curiosity_module import CuriosityModule
 from algorithms.curiosity.ecr.episodic_memory import EpisodicMemory
 from algorithms.distance.distance import DistanceNetwork, DistanceBuffer
-from algorithms.utils.tf_utils import merge_summaries
-from utils.timing import Timing
 from utils.utils import log
 
 
@@ -37,13 +35,6 @@ class ECRModule(CuriosityModule):
 
         self.distance = DistanceNetwork(env, params)
 
-        self._add_summaries()
-        self.summaries = merge_summaries(collections=['distance'])
-
-        self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='reach_step')
-        reach_opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='reach_opt')
-        self.train_distance = reach_opt.minimize(self.distance.loss, global_step=self.step)
-
         self.trajectory_buffer = None
         self.distance_buffer = DistanceBuffer(self.params)
 
@@ -52,13 +43,6 @@ class ECRModule(CuriosityModule):
         self.episode_bonuses = deque([])
 
         self._last_trained = 0
-
-    def _add_summaries(self):
-        with tf.name_scope('distance'):
-            distance_scalar = partial(tf.summary.scalar, collections=['distance'])
-            distance_scalar('dist_loss', self.distance.dist_loss)
-            distance_scalar('reach_correct', self.distance.correct)
-            distance_scalar('reg_loss', self.distance.reg_loss)
 
     def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos):
         obs_enc = self.distance.encode_observation(session, obs)
@@ -166,7 +150,7 @@ class ECRModule(CuriosityModule):
             return
 
         summary = tf.Summary()
-        section = 'curiosity_distance'
+        section = 'ecr'
 
         def curiosity_summary(tag, value):
             summary.value.add(tag=f'{section}/{tag}', simple_value=float(value))
@@ -196,5 +180,6 @@ def buffer_summaries(buffers, env_steps, summary_writer, section):
         summary.value.add(tag=f'{section}/{tag}', simple_value=float(value))
     curiosity_summary('avg_num_obs', sum(num_obs) / len(num_obs))
     curiosity_summary('max_num_obs', max(num_obs))
+    curiosity_summary('min_num_obs', min(num_obs))
 
     summary_writer.add_summary(summary, env_steps)
