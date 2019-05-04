@@ -1768,3 +1768,10 @@ class AgentTMAX(AgentLearner):
 # TODO: branch off from locomotion trajectory?
 # TODO: separate coverage for different stages
 # TODO: don't sparsify trajectories
+
+
+# TODO: gamma 0.999
+# TODO: run random policy to estimate potential of landmarks?
+# TODO: use UCB also for locomotion stage?
+# TODO: check Gautam's heuristics
+# TODO: try 32 channels 1st layer

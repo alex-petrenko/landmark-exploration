@@ -9,12 +9,8 @@ from os.path import join
 import cv2
 import numpy as np
 import tensorflow as tf
-# from keras import Input, Model
-# from keras.layers import Lambda, concatenate
-#
-# noinspection PyProtectedMember
-# from algorithms.architectures.resnet_keras import ResnetBuilder, _top_network
-from algorithms.tmax.tmax_utils import TmaxTrajectory
+
+from algorithms.tmax.tmax_utils import TmaxTrajectory, TmaxMode
 from algorithms.topological_maps.topological_map import hash_observation
 from algorithms.utils.buffer import Buffer
 from algorithms.utils.encoders import make_encoder, EncoderParams
@@ -223,6 +219,12 @@ class DistanceNetwork:
 class DistanceNetworkResnet:
     # noinspection PyUnusedLocal
     def __init__(self, env, params):
+        from keras import Input, Model
+        from keras.layers import Lambda, concatenate
+
+        # noinspection PyProtectedMember
+        from algorithms.architectures.resnet_keras import ResnetBuilder, _top_network
+
         width, height, channels = main_observation_space(env)
         size_embedding = 512
 
