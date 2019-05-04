@@ -1,6 +1,6 @@
 import numpy as np
 
-from utils.utils import min_with_idx, log
+from utils.utils import min_with_idx, log, scale_to_range
 
 
 def edge_weight(i1, i2, d):
@@ -95,12 +95,16 @@ class Navigator:
         # create a batch of all neighborhood observations from all envs for fast processing on GPU
         neighborhood_obs, neighborhood_hashes, current_obs = [], [], []
         neighbor_indices = [[]] * len(maps)
+        neighbor_diff = []
         for env_i, m in enumerate(maps):
             if m is None or goals[env_i] is None:
                 continue
 
             neighbors = self._path_lookahead(env_i)
             neighbor_indices[env_i] = neighbors
+            # curr_landmark = self.current_landmarks[env_i] # not robust to very large diffs in node numbers (e.g. with loop closures)
+            # neighbor_diff.extend([n - curr_landmark for n in neighbors])
+            neighbor_diff.extend(np.arange(len(neighbors)))
             neighborhood_obs.extend([m.get_observation(i) for i in neighbors])
             neighborhood_hashes.extend([m.get_hash(i) for i in neighbors])
             current_obs.extend([obs[env_i]] * len(neighbors))
@@ -113,6 +117,17 @@ class Navigator:
             obs_first=neighborhood_obs, obs_second=current_obs,
             hashes_first=neighborhood_hashes, hashes_second=None,  # calculate curr obs hashes on the fly
         )
+
+        c_frames = 0  # set to 0 to disable
+        if c_frames != 0:  # mix of both num_frames_diff and distances
+            new_dist = 1 * np.array(distances) + \
+                        c_frames * np.array(neighbor_diff) * self.confidently_reachable / self.max_lookahead
+
+            # keep this new_dist param in the same (min,max) range as distances above.
+            # Downstream thresholds are dependent on it
+            distances = scale_to_range(new_dist, np.min(distances), np.max(distances))
+            # distances = new_dist
+            # print('new metric {0}'.format(distances))
 
         lookahead_distances = [None] * self.params.num_envs
         j = 0

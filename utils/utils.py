@@ -49,6 +49,15 @@ class AttrDict(dict):
                 self[key] = value
 
 
+def scale_to_range(np_array, min, max):
+    min_arr = np.min(np_array)
+    max_arr = np.max(np_array)
+    ret_array = (np_array - min_arr) / (max_arr - min_arr)  # scale to (0,1)
+
+    ret_array = ret_array * (max - min) + min  # scale to (min, max)
+    return ret_array
+
+
 def op_with_idx(x, op):
     assert len(x) > 0
 
