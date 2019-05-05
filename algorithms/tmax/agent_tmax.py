@@ -365,7 +365,9 @@ class TmaxManager:
                 continue
 
             # calculate total intrinsic reward over the trajectory
-            total_intrinsic_reward = sum(r for r in t.intrinsic_reward)
+            total_intrinsic_reward = sum(
+                t.intrinsic_reward[i] for i in range(len(t)) if t.mode[i] == TmaxMode.EXPLORATION
+            )
 
             self.exploration_trajectories.append((total_intrinsic_reward, t))
 
