@@ -482,7 +482,13 @@ class TmaxManager:
             return self._get_locomotion_final_goal_exploration_stage(env_i)
 
     @staticmethod
-    def _pick_best_exploration_trajectory(agent, trajectories, curr_sparse_map):
+    def _pick_best_exploration_trajectory(agent, trajectories, trajectory_rewards, curr_sparse_map):
+        best_reward, best_trajectory_idx = max_with_idx(trajectory_rewards)
+        log.debug('Selected traj %d with reward %.3f', best_trajectory_idx, best_reward)
+        return best_trajectory_idx, best_reward
+
+        # TODO
+
         map_builder = MapBuilder(agent)
 
         max_dist_between_landmarks = agent.params.max_frames_between_landmarks
@@ -556,13 +562,14 @@ class TmaxManager:
             log.info('Trimmed trajectory %d at %d frames', t_idx, len(t))
 
         curr_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
-        best_trajectory_idx, max_landmarks = self._pick_best_exploration_trajectory(
-            self.agent, trajectories, curr_sparse_map,
+        best_trajectory_idx, best_tr_reward = self._pick_best_exploration_trajectory(
+            self.agent, trajectories, trajectory_rewards, curr_sparse_map,
         )
 
-        if max_landmarks == 0:
-            log.debug('Could not find any trajectory with nonzero novel landmarks')
-            return False
+        # TODO
+        # if max_landmarks == 0:
+        #     log.debug('Could not find any trajectory with nonzero novel landmarks')
+        #     return False
 
         best_trajectory = trajectories[best_trajectory_idx]
         best_trajectory.save(self.params.experiment_dir())
@@ -1313,7 +1320,7 @@ class AgentTMAX(AgentLearner):
         assert len(goal_obs) == len(envs_with_goal)
 
         masks[env_i] = 0
-        deterministic = False if random.random() < 0.1 else True
+        deterministic = False if random.random() < 0.5 else True
 
         if len(envs_with_goal) > 0:
             is_random[envs_with_goal] = 0
