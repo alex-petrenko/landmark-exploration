@@ -265,7 +265,7 @@ class TmaxManager:
         # if persistent map is provided, then we can skip the entire exploration stage
         self.stage_change_required = self.params.persistent_map_checkpoint is not None
 
-        self.exploration_trajectories = deque([], maxlen=150)
+        self.exploration_trajectories = deque([], maxlen=300)
 
         self.locomotion_success = deque([], maxlen=300)
 
