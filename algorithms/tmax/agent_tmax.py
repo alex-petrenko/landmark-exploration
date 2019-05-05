@@ -297,6 +297,7 @@ class TmaxManager:
             self._new_episode(i)
 
         self.initialized = True
+        log.info('Tmax manager initialized')
         return self.mode
 
     def _maybe_load_map(self, current_map, map_type):
@@ -445,7 +446,7 @@ class TmaxManager:
         for target in potential_targets:
             value = curr_sparse_map.graph.nodes[target]['value_estimate']
             num_samples = curr_sparse_map.graph.nodes[target]['num_samples']
-            ucb_degree = 1.0  # exploration/exploitation tradeoff (TODO: move to params)
+            ucb_degree = self.params.ucb_degree  # exploration/exploitation tradeoff
             ucb = value + ucb_degree * math.sqrt(math.log(total_num_samples) / num_samples)
             if ucb > max_ucb:
                 max_ucb = ucb
@@ -735,14 +736,6 @@ class TmaxManager:
                 )
                 end_locomotion = True
 
-            since_last_made_progress = self.episode_frames[env_i] - self.navigator.last_made_progress[env_i]
-            if since_last_made_progress > 100:
-                log.warning(
-                    'Agent in env %d did not make any progress in %d frames while trying to reach %d',
-                    env_i, since_last_made_progress, self.locomotion_final_targets[env_i],
-                )
-                end_locomotion = True
-
             if self.episode_frames[env_i] > self.params.max_episode / 2:
                 log.error(
                     'Takes too much time (%d) to get to %d',
@@ -869,6 +862,8 @@ class AgentTMAX(AgentLearner):
             self.reliable_path_probability = 0.4  # product of probs along the path for it to be considered reliable
             self.reliable_edge_probability = 0.1
             self.successful_traversal_frames = 50  # if we traverse an edge in less than that, we succeeded
+
+            self.ucb_degree = 0.1  # exploration/exploitation tradeoff
 
             self.exploration_budget = 1000
             self.random_frames_at_the_end = 400
@@ -1781,3 +1776,4 @@ class AgentTMAX(AgentLearner):
 # TODO: remove previous frame from the locomotion policy
 # TODO: weight loop closures
 # TODO: choose only trajectories we can reliably traverse
+# TODO: measure number of landmark on the entire trajectory, not only on the piece we're adding

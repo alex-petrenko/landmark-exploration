@@ -65,7 +65,11 @@ def doom_env_by_name(name):
     raise Exception('Unknown Doom env')
 
 
-def make_doom_env(doom_cfg, mode='train', skip_frames=True, human_input=False, show_automap=False, episode_horizon=None, **kwargs):
+# noinspection PyUnusedLocal
+def make_doom_env(
+        doom_cfg, mode='train',
+        skip_frames=True, human_input=False, show_automap=False, episode_horizon=None, **kwargs,
+):
     skip_frames = 4 if skip_frames else 1
     env = gym.make(doom_cfg.env_id, show_automap=show_automap, skip_frames=skip_frames)
 

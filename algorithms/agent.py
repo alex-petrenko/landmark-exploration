@@ -69,6 +69,8 @@ class AgentLearner(Agent):
     class AgentParams(Params):
         def __init__(self, experiment_name):
             super(AgentLearner.AgentParams, self).__init__(experiment_name)
+            self.seed = -1  # don't use fixed seed by default
+
             self.use_gpu = True
             self.gpu_mem_fraction = 1.0
             self.initial_save_rate = 2500
@@ -90,6 +92,9 @@ class AgentLearner(Agent):
         self.saver = None
 
         tf.reset_default_graph()
+
+        if self.params.seed >= 0:
+            tf.random.set_random_seed(self.params.seed)
 
         self.summary_rate_decay = LinearDecay([(0, 100), (1000000, 2000), (10000000, 10000)], staircase=100)
         self.save_rate_decay = LinearDecay([(0, self.params.initial_save_rate), (1000000, 5000)], staircase=100)
@@ -133,7 +138,6 @@ class AgentLearner(Agent):
         )
         self.session = tf.Session(config=config)
         self.initialize_variables()
-        self.params.serialize()
 
         log.info('Initialized!')
 

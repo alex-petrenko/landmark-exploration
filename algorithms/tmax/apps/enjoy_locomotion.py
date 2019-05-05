@@ -20,8 +20,8 @@ from utils.timing import Timing
 from utils.utils import log, min_with_idx
 
 terminate = False
-current_actions = []
 key_to_action = None
+pause = False
 
 
 # noinspection PyCallingNonCallable
@@ -31,20 +31,13 @@ def on_press(key):
         terminate = True
         return False
 
-    global current_actions
-    action = key_to_action(key)
-    if action is not None:
-        if action not in current_actions:
-            current_actions.append(action)
+    if key == Key.space:
+        global pause
+        pause = not pause
 
 
-# noinspection PyCallingNonCallable
-def on_release(key):
-    global current_actions
-    action = key_to_action(key)
-    if action is not None:
-        if action in current_actions:
-            current_actions.remove(action)
+def on_release(_):
+    pass
 
 
 def edge_weight(i1, i2, d):
@@ -222,9 +215,10 @@ def test_locomotion(params, env_id):
         e.seed(0)
         return e
 
+    params = params.load()
     params.num_envs = 1
-    # params.with_timer = False  # TODO!!!
     agent = AgentTMAX(make_env_func, params)
+
     agent.initialize()
 
     env = make_env_func()
@@ -246,7 +240,7 @@ def test_locomotion(params, env_id):
     frame_repeat = 4
     action = 0
 
-    final_goal_idx = 496
+    final_goal_idx = 473
 
     log.info('Locomotion goal is %d', final_goal_idx)
 
@@ -275,43 +269,43 @@ def test_locomotion(params, env_id):
     while not done and not terminate:
         with t.timeit('one_frame'):
             env.render()
-
-            if frame % frame_repeat == 0:
-                if random.random() < 0.1:
-                    deterministic = False
-                else:
-                    deterministic = True
-
-                action = agent.locomotion.navigate(
-                    agent.session, [obs_prev], [obs], [next_target_obs], deterministic=deterministic,
-                )
-
-            env_obs, rew, done, info = env.step(action)
-
-            if frame % frame_repeat == 0:
-                log.info('Action is %d', action)
-                obs_prev = obs
-                obs = main_observation(env_obs)
-
-                if test_navigator:
-                    next_target, next_target_d = navigator.get_next_target(
-                        [m], [obs], [final_goal_idx], [frame // frame_repeat],
-                    )
-                    next_target, next_target_d = next_target[0], next_target_d[0]
-                    if next_target is None:
-                        log.error('We are lost!')
-                        continue
+            if not pause:
+                if frame % frame_repeat == 0:
+                    if random.random() < 0.1:
+                        deterministic = False
                     else:
-                        log.info('Next target is %d with distance %.3f!', next_target, next_target_d)
-                else:
-                    next_target = localizer.get_next_target(obs, final_goal_idx)
+                        deterministic = True
 
-                if next_target is not None:
-                    next_target_obs = m.get_observation(next_target)
+                    action = agent.locomotion.navigate(
+                        agent.session, [obs_prev], [obs], [next_target_obs], deterministic=deterministic,
+                    )
 
-                display_obs('next_target', next_target_obs)
-                cv2.waitKey(1)
-                log.info('Frame %d...', frame)
+                env_obs, rew, done, info = env.step(action)
+
+                if frame % frame_repeat == 0:
+                    log.info('Action is %d', action)
+                    obs_prev = obs
+                    obs = main_observation(env_obs)
+
+                    if test_navigator:
+                        next_target, next_target_d = navigator.get_next_target(
+                            [m], [obs], [final_goal_idx], [frame // frame_repeat],
+                        )
+                        next_target, next_target_d = next_target[0], next_target_d[0]
+                        if next_target is None:
+                            log.error('We are lost!')
+                            continue
+                        else:
+                            log.info('Next target is %d with distance %.3f!', next_target, next_target_d)
+                    else:
+                        next_target = localizer.get_next_target(obs, final_goal_idx)
+
+                    if next_target is not None:
+                        next_target_obs = m.get_observation(next_target)
+
+                    display_obs('next_target', next_target_obs)
+                    cv2.waitKey(1)
+                    log.info('Frame %d...', frame)
 
         took_seconds = t.one_frame
         desired_fps = 40
@@ -319,11 +313,15 @@ def test_locomotion(params, env_id):
         wait_seconds = max(0.0, wait_seconds)
         if wait_seconds > EPS:
             time.sleep(wait_seconds)
+            # cv2.waitKey(int(wait_seconds * 1000))
 
-        frame += 1
+        if not pause:
+            frame += 1
+
+    log.info('After loop')
 
     env.render()
-    time.sleep(0.2)
+    time.sleep(0.05)
 
     env.close()
     agent.finalize()

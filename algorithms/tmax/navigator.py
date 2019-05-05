@@ -27,8 +27,9 @@ class Navigator:
         # navigation parameters
         self.max_neighborhood_dist = 0.5
         self.max_lookahead = 7
-        self.confidently_reachable = 0.1
-        self.max_lost_localization = 20
+        self.confidently_reachable = 0.05
+        self.max_lost_localization = 40
+        self.max_no_progress = 50
 
     def reset(self, env_i, m):
         self.current_landmarks[env_i] = 0  # assuming we always start from the same location
@@ -120,8 +121,9 @@ class Navigator:
 
         c_frames = 0  # set to 0 to disable
         if c_frames != 0:  # mix of both num_frames_diff and distances
+            trajectory_penalty = 0.1
             new_dist = 1 * np.array(distances) + \
-                        c_frames * np.array(neighbor_diff) * self.confidently_reachable / self.max_lookahead
+                c_frames * np.array(neighbor_diff) * trajectory_penalty / self.max_lookahead
 
             # keep this new_dist param in the same (min,max) range as distances above.
             # Downstream thresholds are dependent on it
@@ -165,9 +167,7 @@ class Navigator:
             else:
                 self.lost_localization_frames[env_i] = 0
 
-                if min_d_idx > 0 or len(distance) <= 1 or distance[1] > 0.04:
-                    pass
-                else:
+                if min_d_idx == 0 and len(distance) > 1 and distance[1] < 0.04:
                     # current landmark (distance[0]) is the closest, but next landmark is also super close
                     # set current landmark to be the next landmark on the path to make some progress
                     min_d_idx = 1
@@ -185,10 +185,11 @@ class Navigator:
             target_node = lookahead_path[0]
             target_d = distance[0]
             confidently_reachable = np.random.random() * 0.05 + 0.01
+            # confidently_reachable = self.confidently_reachable
 
-            if len(maps) < 5:
+            if len(maps) <= 1:
                 # debug
-                log.info('Curr landmark %d, path %r',  self.current_landmarks[env_i], lookahead_path)
+                log.info('Curr landmark %d, path %r', self.current_landmarks[env_i], lookahead_path)
                 log.info('Distances %r', [f'{d:.3f}' for d in distance])
 
             if len(lookahead_path) > 1 and distance[1] < self.max_neighborhood_dist:
@@ -206,5 +207,13 @@ class Navigator:
 
             if prev_landmark != self.current_landmarks[env_i]:
                 self.last_made_progress[env_i] = episode_frames[env_i]
+
+            since_last_progress = episode_frames[env_i] - self.last_made_progress[env_i]
+            if since_last_progress > self.max_no_progress:
+                log.warning(
+                    'Agent %d did not make any progress in %d frames, locomotion failed',
+                    env_i, since_last_progress,
+                )
+                next_target[env_i] = None
 
         return next_target, next_target_d
