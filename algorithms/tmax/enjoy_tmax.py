@@ -109,15 +109,12 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
 
         episode_reward, episode_frames = 0, 0
 
-        if agent.tmax_mgr.initialized:
-            _, _ = agent.tmax_mgr.update([obs], [obs], [0], [True], [info], num_frames, verbose=True)
-        else:
+        if not agent.tmax_mgr.initialized:
             agent.tmax_mgr.initialize([obs], [info], env_steps=0)
             persistent_map = agent.tmax_mgr.dense_persistent_maps[-1]
             sparse_persistent_map = agent.tmax_mgr.sparse_persistent_maps[-1]
             log.debug('Num landmarks in sparse map: %d', sparse_persistent_map.num_landmarks())
 
-        # TODO
         agent.curiosity.initialized = True
         agent.tmax_mgr.mode[0] = TmaxMode.EXPLORATION
         agent.tmax_mgr.locomotion_final_targets[0] = None
@@ -171,7 +168,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
                 episode_frames += 1
 
             took_seconds = t.one_frame
-            desired_fps = 15
+            desired_fps = 15  # (4-repeated here, which means actually 60fps)
             wait_seconds = (1.0 / desired_fps) - took_seconds
             wait_seconds = max(0.0, wait_seconds)
             if wait_seconds > EPS:

@@ -128,11 +128,11 @@ class DistanceNetwork:
         )
         return probabilities
 
-    def distances(self, session, obs_first_encoded, obs_second_encoded):
+    def distances(self, session, obs_first_encoded, obs_second_encoded, **kwargs):
         probs = self.get_probabilities(session, obs_first_encoded, obs_second_encoded)
         return [p[1] for p in probs]
 
-    def distances_from_obs(self, session, obs_first, obs_second, hashes_first=None, hashes_second=None):
+    def distances_from_obs(self, session, obs_first, obs_second, hashes_first=None, hashes_second=None, **kwargs):
         """Use encoder to get embedding vectors first."""
         obs_encoder = self.obs_encoder
 

@@ -42,6 +42,7 @@ class Localizer:
 
         # create a batch of all neighborhood observations from all envs for fast processing on GPU
         neighborhood_obs, neighborhood_hashes, current_obs = [], [], []
+        neighborhood_infos, current_infos = [], []
         total_num_neighbors = 0
         neighborhood_sizes = [0] * len(maps)
         for env_i, m in enumerate(maps):
@@ -51,19 +52,23 @@ class Localizer:
             neighbor_indices = m.neighborhood()
             neighborhood_sizes[env_i] = len(neighbor_indices)
             neighborhood_obs.extend([m.get_observation(i) for i in neighbor_indices])
+            neighborhood_infos.extend([m.get_info(i) for i in neighbor_indices])
             neighborhood_hashes.extend([m.get_hash(i) for i in neighbor_indices])
             current_obs.extend([obs[env_i]] * len(neighbor_indices))
+            current_infos.extend([info[env_i]] * len(neighbor_indices))
             total_num_neighbors += len(neighbor_indices)
 
         assert len(neighborhood_obs) == len(current_obs)
         assert len(neighborhood_obs) == len(neighborhood_hashes)
         assert len(current_obs) == total_num_neighbors
+        assert len(neighborhood_infos) == len(current_infos)
 
         with timing.add_time('neighbor_dist'):
             distances = distance_net.distances_from_obs(
                 session,
                 obs_first=neighborhood_obs, obs_second=current_obs,
                 hashes_first=neighborhood_hashes, hashes_second=None,  # calculate curr obs hashes on the fly
+                infos_first=neighborhood_infos, infos_second=current_infos,
             )
 
         assert len(distances) == total_num_neighbors
@@ -118,8 +123,10 @@ class Localizer:
                         m.set_curr_landmark(closest_landmark_idx[env_i])
 
         del neighborhood_obs
+        del neighborhood_infos
         del neighborhood_hashes
         del current_obs
+        del current_infos
 
         # Agents in some environments discovered landmarks that are far away from all landmarks in the immediate
         # vicinity. There are two possibilities:
@@ -129,6 +136,7 @@ class Localizer:
         non_neighborhood_obs, non_neighborhood_hashes = [], []
         non_neighborhoods = {}
         current_obs = []
+        non_neighborhood_infos, current_infos = [], []
         for env_i in new_landmark_candidates:
             m = maps[env_i]
             if m is None:
@@ -137,8 +145,10 @@ class Localizer:
             non_neighbor_indices = m.curr_non_neighbors()
             non_neighborhoods[env_i] = non_neighbor_indices
             non_neighborhood_obs.extend([m.get_observation(i) for i in non_neighbor_indices])
+            non_neighborhood_infos.extend([m.get_info(i) for i in non_neighbor_indices])
             non_neighborhood_hashes.extend([m.get_hash(i) for i in non_neighbor_indices])
             current_obs.extend([obs[env_i]] * len(non_neighbor_indices))
+            current_infos.extend([info[env_i]] * len(non_neighbor_indices))
 
         assert len(non_neighborhood_obs) == len(current_obs)
         assert len(non_neighborhood_obs) == len(non_neighborhood_hashes)
@@ -154,6 +164,7 @@ class Localizer:
                     session,
                     obs_first=non_neighborhood_obs[start:end], obs_second=current_obs[start:end],
                     hashes_first=non_neighborhood_hashes[start:end], hashes_second=None,
+                    infos_first=non_neighborhood_infos[start:end], infos_second=current_infos[start:end],
                 )
                 distances.extend(distances_batch)
 

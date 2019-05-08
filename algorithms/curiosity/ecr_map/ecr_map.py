@@ -7,6 +7,7 @@ import tensorflow as tf
 
 from algorithms.curiosity.curiosity_module import CuriosityModule
 from algorithms.distance.distance import DistanceNetwork, DistanceNetworkParams, DistanceBuffer
+from algorithms.distance.distance_oracle import DistanceOracle
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
 from utils.utils import log, model_dir
@@ -25,12 +26,17 @@ class ECRMapModule(CuriosityModule):
             self.expand_explored_region = False
             self.expand_explored_region_frames = 4000000
 
+            self.oracle_distance = False  # debug mode, using ground truth coordinates from the env.
+
     def __init__(self, env, params):
         self.params = params
 
         self.initialized = False
 
-        self.distance = DistanceNetwork(env, params)
+        if self.params.oracle_distance:
+            self.distance = DistanceOracle(env, params)
+        else:
+            self.distance = DistanceNetwork(env, params)
 
         self.trajectory_buffer = None
         self.distance_buffer = DistanceBuffer(self.params)
@@ -51,6 +57,7 @@ class ECRMapModule(CuriosityModule):
     def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos, mask=None):
         for i, episodic_map in enumerate(self.episodic_maps):
             if episodic_map is None:
+                # noinspection PyTypeChecker
                 self.episodic_maps[i] = TopologicalMap(obs[i], directed_graph=False, initial_info=infos[i])
 
         for i in range(self.params.num_envs):

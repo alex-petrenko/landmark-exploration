@@ -134,6 +134,20 @@ class TopologicalMap:
     def get_hash(self, landmark_idx):
         return self.graph.node[landmark_idx]['hash']
 
+    # noinspection PyUnresolvedReferences
+    def get_info(self, landmark_idx):
+        x = y = angle = 0
+        try:
+            x, y = self.graph.node[landmark_idx]['pos']
+            angle = self.graph.node[landmark_idx]['angle']
+        except (KeyError, TypeError):
+            log.warning(f'No coordinate information in landmark {landmark_idx}')
+
+        pos = {
+            'agent_x': x, 'agent_y': y, 'agent_a': angle,
+        }
+        return {'pos': pos}
+
     def neighbors(self, landmark_idx):
         return list(nx.neighbors(self.graph, landmark_idx))
 

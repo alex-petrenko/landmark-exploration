@@ -40,169 +40,170 @@ def on_release(_):
     pass
 
 
-def edge_weight(i1, i2, d):
-    if d['loop_closure']:
-        return 3
-    if i2 < i1:
-        return 3
-    return 1
-
-
-class Localizer:
-    def __init__(self, m, agent):
-        self.m = m
-        self.agent = agent
-        self.current_landmark = None
-
-        self.max_neighborhood = 4
-        self.max_neighborhood_dist = 1.0  # should be 0.4-0.5
-        self.max_lookahead = 7
-        self.confidently_reachable = 0.1
-
-        self.neighbors = [None] * self.m.num_landmarks()
-        for i in range(self.m.num_landmarks()):
-            self.neighbors[i] = self.m.topological_neighborhood(i, max_dist=self.max_neighborhood)
-
-        self.paths = [None] * self.m.num_landmarks()
-
-        self.max_neighborhood_to_search = 1
-
-    def _ensure_path_to_goal_calculated(self, curr_landmark, final_goal):
-        if self.paths[curr_landmark] is not None:
-            return self.paths[curr_landmark]
-
-        path = self.m.get_path(curr_landmark, final_goal, edge_weight=edge_weight)
-        self.paths[curr_landmark] = path
-        return path
-
-    def _distances(self, obs, to_map, to_nodes):
-        from_obs = [obs] * len(to_nodes)
-        to_obs = [to_map.get_observation(node) for node in to_nodes]
-
-        assert len(to_obs) == len(to_nodes)
-        assert len(from_obs) == len(to_nodes)
-
-        distances = self.agent.curiosity.distance.distances_from_obs(
-            self.agent.session, obs_first=from_obs, obs_second=to_obs,
-        )
-        assert len(distances) == len(to_nodes)
-        return distances
-
-    def _find_nn_among(self, obs, nodes):
-        distances = self._distances(obs, self.m, nodes)
-        min_d, min_d_idx = min_with_idx(distances)
-        return min_d, min_d_idx
-
-    def localize_neighborhood(self, obs, goal):
-        if self.current_landmark is None:
-            # we don't know where we are, so we cannot use neighborhood heuristic
-            return None
-
-        path = self._ensure_path_to_goal_calculated(self.current_landmark, goal)
-        path = path[:self.max_lookahead + 1]
-        min_d, min_d_idx = self._find_nn_among(obs, path)
-
-        if min_d > self.max_neighborhood_dist:
-            # could not find close enough landmark in the neighborhood
-            return None
-
-        nearest_neighbor = path[min_d_idx]
-        log.debug('Neighborhood search closest landmark is %d with dist %.3f', nearest_neighbor, min_d)
-        self.max_neighborhood_to_search //= 2
-        self.max_neighborhood_to_search = max(1, self.max_neighborhood_to_search)
-        return nearest_neighbor
-
-    def localize_global(self, obs):
-        all_nodes = list(self.m.graph.nodes)
-        distances = self._distances(obs, self.m, all_nodes)
-        distances = np.asarray(distances)
-
-        if self.current_landmark is None:
-            neighborhood_size = self.m.num_landmarks()
-        else:
-            neighborhood_size = 2
-
-        while True:
-            if self.current_landmark is None:
-                all_landmarks = list(self.m.graph.nodes)
-                prev_neighbors = all_landmarks
-            else:
-                prev_neighbors = self.m.topological_neighborhood(self.current_landmark, max_dist=neighborhood_size)
-
-            log.warning('Global search in neighborhood of size %d (%d)...', neighborhood_size, len(prev_neighbors))
-
-            candidates = []
-            max_distance = 1.0 if len(prev_neighbors) >= self.m.num_landmarks() else self.max_neighborhood_dist
-
-            for i in prev_neighbors:
-                if distances[i] > max_distance:
-                    continue
-
-                d = distances[self.neighbors[i]]
-                dist = 0.5 * (np.median(d) + distances[i])
-                candidates.append((dist, distances[i], i))
-
-            neighborhood_size *= 2
-            if len(candidates) <= 0:
-                continue
-
-            candidates.sort()
-            dist, d, nearest_neighbor = candidates[0]
-
-            log.info('Best candidate %d: %.3f %.3f', nearest_neighbor, dist, d)
-
-            if len(prev_neighbors) >= self.m.num_landmarks():
-                break
-
-            if d < self.max_neighborhood_dist:
-                break
-
-            if neighborhood_size > self.max_neighborhood_to_search:
-                nearest_neighbor = self.current_landmark
-                self.max_neighborhood_to_search *= 2
-                self.max_neighborhood_to_search = min(self.max_neighborhood_to_search, self.m.num_landmarks())
-                break
-
-        log.warning(
-            'Global search closest landmark is %d with neigh. dist %.3f and dist %.3f',
-            nearest_neighbor, dist, d,
-        )
-        return nearest_neighbor
-
-    def get_next_target(self, obs, final_goal):
-        curr_landmark = self.localize_neighborhood(obs, final_goal)
-
-        if curr_landmark is None:
-            curr_landmark = self.localize_global(obs)
-
-        self.current_landmark = curr_landmark
-
-        path = self._ensure_path_to_goal_calculated(self.current_landmark, final_goal)
-        log.debug('Shortest path to global goal %d is %r', final_goal, path)
-
-        path = path[:self.max_lookahead + 1]
-        distances = self._distances(obs, self.m, path)
-
-        target_node = path[0]
-        target_d = distances[0]
-
-        confidently_reachable = np.random.random() * 0.1 + 0.1
-
-        if len(path) > 1:
-            target_node = path[1]
-            target_d = distances[1]
-            for i, node in enumerate(path):
-                if i <= 1:
-                    continue
-
-                if distances[i] > confidently_reachable:
-                    break
-                target_node = node
-                target_d = distances[i]
-
-        log.debug('Selected target node %d, dist %.3f', target_node, target_d)
-
-        return target_node
+# Experimental "Localizer", replaced with "Navigator" in TMAX
+# def edge_weight(i1, i2, d):
+#     if d['loop_closure']:
+#         return 3
+#     if i2 < i1:
+#         return 3
+#     return 1
+#
+#
+# class Localizer:
+#     def __init__(self, m, agent):
+#         self.m = m
+#         self.agent = agent
+#         self.current_landmark = None
+#
+#         self.max_neighborhood = 4
+#         self.max_neighborhood_dist = 1.0  # should be 0.4-0.5
+#         self.max_lookahead = 7
+#         self.confidently_reachable = 0.1
+#
+#         self.neighbors = [None] * self.m.num_landmarks()
+#         for i in range(self.m.num_landmarks()):
+#             self.neighbors[i] = self.m.topological_neighborhood(i, max_dist=self.max_neighborhood)
+#
+#         self.paths = [None] * self.m.num_landmarks()
+#
+#         self.max_neighborhood_to_search = 1
+#
+#     def _ensure_path_to_goal_calculated(self, curr_landmark, final_goal):
+#         if self.paths[curr_landmark] is not None:
+#             return self.paths[curr_landmark]
+#
+#         path = self.m.get_path(curr_landmark, final_goal, edge_weight=edge_weight)
+#         self.paths[curr_landmark] = path
+#         return path
+#
+#     def _distances(self, obs, to_map, to_nodes):
+#         from_obs = [obs] * len(to_nodes)
+#         to_obs = [to_map.get_observation(node) for node in to_nodes]
+#
+#         assert len(to_obs) == len(to_nodes)
+#         assert len(from_obs) == len(to_nodes)
+#
+#         distances = self.agent.curiosity.distance.distances_from_obs(
+#             self.agent.session, obs_first=from_obs, obs_second=to_obs,
+#         )
+#         assert len(distances) == len(to_nodes)
+#         return distances
+#
+#     def _find_nn_among(self, obs, nodes):
+#         distances = self._distances(obs, self.m, nodes)
+#         min_d, min_d_idx = min_with_idx(distances)
+#         return min_d, min_d_idx
+#
+#     def localize_neighborhood(self, obs, goal):
+#         if self.current_landmark is None:
+#             # we don't know where we are, so we cannot use neighborhood heuristic
+#             return None
+#
+#         path = self._ensure_path_to_goal_calculated(self.current_landmark, goal)
+#         path = path[:self.max_lookahead + 1]
+#         min_d, min_d_idx = self._find_nn_among(obs, path)
+#
+#         if min_d > self.max_neighborhood_dist:
+#             # could not find close enough landmark in the neighborhood
+#             return None
+#
+#         nearest_neighbor = path[min_d_idx]
+#         log.debug('Neighborhood search closest landmark is %d with dist %.3f', nearest_neighbor, min_d)
+#         self.max_neighborhood_to_search //= 2
+#         self.max_neighborhood_to_search = max(1, self.max_neighborhood_to_search)
+#         return nearest_neighbor
+#
+#     def localize_global(self, obs):
+#         all_nodes = list(self.m.graph.nodes)
+#         distances = self._distances(obs, self.m, all_nodes)
+#         distances = np.asarray(distances)
+#
+#         if self.current_landmark is None:
+#             neighborhood_size = self.m.num_landmarks()
+#         else:
+#             neighborhood_size = 2
+#
+#         while True:
+#             if self.current_landmark is None:
+#                 all_landmarks = list(self.m.graph.nodes)
+#                 prev_neighbors = all_landmarks
+#             else:
+#                 prev_neighbors = self.m.topological_neighborhood(self.current_landmark, max_dist=neighborhood_size)
+#
+#             log.warning('Global search in neighborhood of size %d (%d)...', neighborhood_size, len(prev_neighbors))
+#
+#             candidates = []
+#             max_distance = 1.0 if len(prev_neighbors) >= self.m.num_landmarks() else self.max_neighborhood_dist
+#
+#             for i in prev_neighbors:
+#                 if distances[i] > max_distance:
+#                     continue
+#
+#                 d = distances[self.neighbors[i]]
+#                 dist = 0.5 * (np.median(d) + distances[i])
+#                 candidates.append((dist, distances[i], i))
+#
+#             neighborhood_size *= 2
+#             if len(candidates) <= 0:
+#                 continue
+#
+#             candidates.sort()
+#             dist, d, nearest_neighbor = candidates[0]
+#
+#             log.info('Best candidate %d: %.3f %.3f', nearest_neighbor, dist, d)
+#
+#             if len(prev_neighbors) >= self.m.num_landmarks():
+#                 break
+#
+#             if d < self.max_neighborhood_dist:
+#                 break
+#
+#             if neighborhood_size > self.max_neighborhood_to_search:
+#                 nearest_neighbor = self.current_landmark
+#                 self.max_neighborhood_to_search *= 2
+#                 self.max_neighborhood_to_search = min(self.max_neighborhood_to_search, self.m.num_landmarks())
+#                 break
+#
+#         log.warning(
+#             'Global search closest landmark is %d with neigh. dist %.3f and dist %.3f',
+#             nearest_neighbor, dist, d,
+#         )
+#         return nearest_neighbor
+#
+#     def get_next_target(self, obs, final_goal):
+#         curr_landmark = self.localize_neighborhood(obs, final_goal)
+#
+#         if curr_landmark is None:
+#             curr_landmark = self.localize_global(obs)
+#
+#         self.current_landmark = curr_landmark
+#
+#         path = self._ensure_path_to_goal_calculated(self.current_landmark, final_goal)
+#         log.debug('Shortest path to global goal %d is %r', final_goal, path)
+#
+#         path = path[:self.max_lookahead + 1]
+#         distances = self._distances(obs, self.m, path)
+#
+#         target_node = path[0]
+#         target_d = distances[0]
+#
+#         confidently_reachable = np.random.random() * 0.1 + 0.1
+#
+#         if len(path) > 1:
+#             target_node = path[1]
+#             target_d = distances[1]
+#             for i, node in enumerate(path):
+#                 if i <= 1:
+#                     continue
+#
+#                 if distances[i] > confidently_reachable:
+#                     break
+#                 target_node = node
+#                 target_d = distances[i]
+#
+#         log.debug('Selected target node %d, dist %.3f', target_node, target_d)
+#
+#         return target_node
 
 
 def display_obs(win_name, obs):
