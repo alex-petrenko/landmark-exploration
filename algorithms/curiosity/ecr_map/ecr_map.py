@@ -35,8 +35,8 @@ class ECRMapModule(CuriosityModule):
         self.trajectory_buffer = None
         self.distance_buffer = DistanceBuffer(self.params)
 
-        self.episodic_maps = None
-        self.current_episode_bonus = None
+        self.episodic_maps = [None] * params.num_envs
+        self.current_episode_bonus = np.zeros(self.params.num_envs)
         self.episode_bonuses = deque([])
 
         self.localizer = Localizer(self.params)
@@ -49,11 +49,9 @@ class ECRMapModule(CuriosityModule):
         self._last_map_summary = 0
 
     def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos, mask=None):
-        if self.episodic_maps is None:
-            self.current_episode_bonus = np.zeros(self.params.num_envs)  # for statistics
-            self.episodic_maps = []
-            for i in range(self.params.num_envs):
-                self.episodic_maps.append(TopologicalMap(obs[i], directed_graph=False, initial_info=infos[i]))
+        for i, episodic_map in enumerate(self.episodic_maps):
+            if episodic_map is None:
+                self.episodic_maps[i] = TopologicalMap(obs[i], directed_graph=False, initial_info=infos[i])
 
         for i in range(self.params.num_envs):
             if dones[i]:
@@ -90,6 +88,12 @@ class ECRMapModule(CuriosityModule):
             distances_to_memory = self.localizer.localize(
                 session, next_obs, infos, maps, self.distance, on_new_landmark=on_new_landmark,
             )
+
+            # if bonuses[0] > 0:
+            #     log.warning('Distances to memory: %.3f, bonuses: %.3f', distances_to_memory[0], bonuses[0])
+            # else:
+            #     log.info('Distances to memory: %.3f, bonuses: %.3f', distances_to_memory[0], bonuses[0])
+
             assert len(distances_to_memory) == len(next_obs)
             threshold = 0.5
             dense_rewards = np.array([

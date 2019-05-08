@@ -6,7 +6,7 @@ from threading import Thread
 import cv2
 from pynput.keyboard import Key, Listener, KeyCode
 
-from algorithms.utils.algo_utils import main_observation, goal_observation
+from algorithms.utils.algo_utils import main_observation, goal_observation, EPS
 from algorithms.utils.env_wrappers import reset_with_info
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.tmax_utils import parse_args_tmax, TmaxMode
@@ -14,6 +14,7 @@ from algorithms.topological_maps.topological_map import TopologicalMap
 from utils.envs.atari import atari_utils
 from utils.envs.doom import doom_utils
 from utils.envs.envs import create_env
+from utils.timing import Timing
 from utils.utils import log
 
 
@@ -23,10 +24,8 @@ class PolicyType:
     KEYS = {t: KeyCode.from_char(c) for t, c in KEY_CHARS.items()}
 
 
-store_landmark = True
 persistent_map = None
 current_landmark = None
-show_locomotion_goal = False
 
 pause = False
 terminate = False
@@ -51,39 +50,6 @@ def on_press(key):
     if action is not None:
         if action not in current_actions:
             current_actions.append(action)
-
-    global store_landmark
-    if key == Key.space:
-        randomly_pick_node = False
-        if randomly_pick_node:
-            nodes = list(persistent_map.graph.nodes)
-            landmark_node = random.choice(nodes)
-        else:
-            pause = True
-            try:
-                input_value = input('Please enter current landmark number')
-                current_landmark_idx = int(input_value)
-                input_value = input('Please enter landmark number')
-                landmark_node = int(input_value)
-
-                path = persistent_map.get_path(current_landmark_idx, landmark_node)
-                if len(path) > 1:
-                    landmark_node = path[1]
-                log.info('Path %r, node %d', path, landmark_node)
-            except ValueError:
-                landmark_node = 0
-
-            pause = False
-
-        log.info('Selecting node %d for navigation', landmark_node)
-        try:
-            global current_landmark
-            current_landmark = persistent_map.get_observation(landmark_node)
-        except KeyError:
-            current_landmark = persistent_map.get_observation(0)
-
-        global show_locomotion_goal
-        show_locomotion_goal = True
 
     global policy_type
     for t, k in PolicyType.KEYS.items():
@@ -120,7 +86,6 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
         persistent_map.maybe_load_checkpoint(agent.params.persistent_map_checkpoint)
 
     global current_landmark
-    global show_locomotion_goal
 
     episode_rewards = []
     num_frames = 0
@@ -145,90 +110,72 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
         episode_reward, episode_frames = 0, 0
 
         if agent.tmax_mgr.initialized:
-            # bonus, _ = agent.tmax_mgr.update([obs], [obs], [0], [True], [info], num_frames, verbose=True)
-            pass
+            _, _ = agent.tmax_mgr.update([obs], [obs], [0], [True], [info], num_frames, verbose=True)
         else:
             agent.tmax_mgr.initialize([obs], [info], env_steps=0)
-            persistent_map = agent.tmax_mgr.dense_persistent_maps[0]
+            persistent_map = agent.tmax_mgr.dense_persistent_maps[-1]
+            sparse_persistent_map = agent.tmax_mgr.sparse_persistent_maps[-1]
+            log.debug('Num landmarks in sparse map: %d', sparse_persistent_map.num_landmarks())
+
+        # TODO
+        agent.curiosity.initialized = True
+        agent.tmax_mgr.mode[0] = TmaxMode.EXPLORATION
+        agent.tmax_mgr.locomotion_final_targets[0] = None
+        agent.tmax_mgr.locomotion_targets[0] = None
 
         start_episode = time.time()
+        t = Timing()
         while not done and not terminate and not max_frames_reached(num_frames):
-            env.render()
-            cv2.waitKey(1)  # to prevent window from fading
-            if show_automap:
-                automap = env.unwrapped.get_automap_buffer()  # (600, 800, 3)
-                if automap is not None:
-                    cv2.namedWindow('Landmark Map')
-                    for landmark_pos in agent.tmax_mgr.episodic_maps[0].positions:
-                        if 'agent_x' in landmark_pos:
-                            x = int(landmark_pos['agent_x'])
-                            y = -int(landmark_pos['agent_y'])
-                            automap = cv2.circle(automap, (y, x), 1, (0, 0, 0), thickness=-1)
-                    for landmark_pos in agent.tmax_mgr.maps[0].positions:
-                        if 'agent_x' in landmark_pos:
-                            x = int(landmark_pos['agent_x'])
-                            y = -int(landmark_pos['agent_y'])
-                            automap = cv2.circle(automap, (y, x), 1, (0, 0, 0), thickness=-1)
-                    cv2.imshow('Landmark Map', automap)
-                    cv2.waitKey(1)
+            with t.timeit('one_frame'):
+                env.render()
+                cv2.waitKey(1)  # to prevent window from fading
 
-            if pause:
-                time.sleep(0.01)
-                continue
+                if pause:
+                    time.sleep(0.01)
+                    continue
 
-            if len(current_actions) > 0:
-                # key combinations are not handled, but this is purely for testing
-                action = current_actions[-1]
-            else:
-                action = 0
+                if len(current_actions) > 0:
+                    # key combinations are not handled, but this is purely for testing
+                    action = current_actions[-1]
+                else:
+                    action = 0
 
-            if policy_type == PolicyType.RANDOM:
-                action = env.action_space.sample()
-            elif policy_type == PolicyType.AGENT:
-                agent.tmax_mgr.mode[0] = TmaxMode.EXPLORATION
-                action, *_ = agent.policy_step([prev_obs], [obs], [goal_obs], None, None)
-                action = action[0]
-            elif policy_type == PolicyType.LOCOMOTION:
-                agent.tmax_mgr.mode[0] = TmaxMode.LOCOMOTION
-                action, _, _ = agent.loco_actor_critic.invoke(
-                    agent.session, [obs], [current_landmark], None, None, [1.0],
+                if policy_type == PolicyType.PLAYER:
+                    pass
+                elif policy_type == PolicyType.RANDOM:
+                    action = env.action_space.sample()
+                elif policy_type == PolicyType.AGENT:
+                    agent.tmax_mgr.mode[0] = TmaxMode.EXPLORATION
+                    action, *_ = agent.policy_step([prev_obs], [obs], [goal_obs], None, None)
+                    action = action[0]
+                elif policy_type == PolicyType.LOCOMOTION:
+                    agent.tmax_mgr.mode[0] = TmaxMode.LOCOMOTION
+                    action, _, _ = agent.loco_actor_critic.invoke(
+                        agent.session, [obs], [current_landmark], None, None, [1.0],
+                    )
+                    action = action[0]
+
+                env_obs, rew, done, info = env.step(action)
+                next_obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
+
+                _, _ = agent.tmax_mgr.update(
+                    [obs], [next_obs], [rew], [done], [info], num_frames, t, verbose=True,
                 )
-                action = action[0]
 
-            env_obs, rew, done, info = env.step(action)
-            next_obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
+                prev_obs = obs
+                obs = next_obs
 
-            prev_obs = obs
-            obs = next_obs
+                episode_reward += rew
 
-            episode_reward += rew
+                num_frames += 1
+                episode_frames += 1
 
-            num_frames += 1
-            episode_frames += 1
-
-            global store_landmark
-            if store_landmark:
-                log.warning('Store new landmark!')
-                current_landmark = obs
-                store_landmark = False
-                show_locomotion_goal = True
-
-            if show_locomotion_goal:
-                locomotion_goal_obs = cv2.cvtColor(current_landmark, cv2.COLOR_RGB2BGR)
-                locomotion_goal_obs = cv2.resize(locomotion_goal_obs, (420, 420))
-                cv2.imshow('locomotion_goal', locomotion_goal_obs)
-                cv2.waitKey(1)
-                show_locomotion_goal = False
-
-            print_distance = num_frames % 3 == 0
-            if print_distance:
-                distance = agent.curiosity.distance.distances_from_obs(
-                    agent.session, [current_landmark], [obs],
-                )[0]
-                distance_to_self = agent.curiosity.distance.distances_from_obs(
-                    agent.session, [obs], [obs],
-                )[0]
-                log.info('Distance %.3f, to self: %.3f', distance, distance_to_self)
+            took_seconds = t.one_frame
+            desired_fps = 15
+            wait_seconds = (1.0 / desired_fps) - took_seconds
+            wait_seconds = max(0.0, wait_seconds)
+            if wait_seconds > EPS:
+                time.sleep(wait_seconds)
 
         env.render()
         log.info('Actual fps: %.1f', episode_frames / (time.time() - start_episode))

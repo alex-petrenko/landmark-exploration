@@ -59,6 +59,7 @@ class TopologicalMap:
 
         # variables needed for online localization
         self.new_landmark_candidate_frames = 0
+        self.loop_closure_candidate_frames = 0
         self.closest_landmarks = []
 
         # number of trajectories that were used to build the map (used in TMAX)
@@ -107,6 +108,7 @@ class TopologicalMap:
 
     def new_episode(self):
         self.new_landmark_candidate_frames = 0
+        self.loop_closure_candidate_frames = 0
         self.closest_landmarks = []
         self.curr_landmark_idx = 0  # assuming we're being put into the exact same starting spot every time
         self.path_so_far = [0]

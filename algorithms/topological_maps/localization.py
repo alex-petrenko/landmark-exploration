@@ -110,6 +110,7 @@ class Localizer:
             else:
                 # we're still sufficiently close to our neighborhood, but maybe "current landmark" has changed
                 m.new_landmark_candidate_frames = 0
+                m.loop_closure_candidate_frames = 0
 
                 # crude localization
                 if all(lm == closest_landmark_idx[env_i] for lm in m.closest_landmarks[-self.localize_frames:]):
@@ -175,16 +176,24 @@ class Localizer:
             if min_d < self.loop_closure_threshold:
                 # current observation is close to some other landmark, "close the loop" by creating a new edge
                 m.new_landmark_candidate_frames = 0
+                m.loop_closure_candidate_frames += 1
 
                 closest_landmark_idx[env_i] = non_neighbor_indices[min_d_idx]
 
                 # crude localization
-                if all(lm == closest_landmark_idx[env_i] for lm in m.closest_landmarks[-self.localize_frames:]):
-                    # we found a new edge! Cool!
-                    m.set_curr_landmark(closest_landmark_idx[env_i])
-                    if on_new_edge is not None:
-                        on_new_edge(env_i)
-            else:
+                if m.loop_closure_candidate_frames >= self.localize_frames:
+                    if all(lm == closest_landmark_idx[env_i] for lm in m.closest_landmarks[-self.localize_frames:]):
+                        # we found a new edge! Cool!
+                        m.loop_closure_candidate_frames = 0
+                        m.set_curr_landmark(closest_landmark_idx[env_i])
+
+                        if on_new_edge is not None:
+                            on_new_edge(env_i)
+
+            elif min_d >= self.new_landmark_threshold:
+                m.loop_closure_candidate_frames = 0
+                m.new_landmark_candidate_frames += 1
+
                 # vertex is relatively far away from all vertices in the graph, we've found a new landmark!
                 if m.new_landmark_candidate_frames >= self.localize_frames:
                     new_landmark_idx = m.add_landmark(obs[env_i], info[env_i], update_curr_landmark=True)
@@ -193,8 +202,9 @@ class Localizer:
 
                     if on_new_landmark is not None:
                         on_new_landmark(env_i, new_landmark_idx)
-                else:
-                    m.new_landmark_candidate_frames += 1
+            else:
+                m.new_landmark_candidate_frames = 0
+                m.loop_closure_candidate_frames = 0
 
         # update localization info
         for env_i in range(num_envs):
@@ -204,5 +214,12 @@ class Localizer:
 
             assert closest_landmark_idx[env_i] >= 0
             m.closest_landmarks.append(closest_landmark_idx[env_i])
+
+        # visualize "closest" landmark
+        # import cv2
+        # closest_lm = maps[0].closest_landmarks[-1]
+        # closest_obs = maps[0].get_observation(closest_lm)
+        # cv2.imshow('closest_obs', cv2.resize(cv2.cvtColor(closest_obs, cv2.COLOR_RGB2BGR), (420, 420)))
+        # cv2.waitKey(1)
 
         return closest_landmark_dist

@@ -1774,15 +1774,19 @@ class AgentTMAX(AgentLearner):
 
 # TODO: branch off from locomotion trajectory?
 # TODO: separate coverage for different stages
-# TODO: don't sparsify trajectories
 
 
-# TODO: gamma 0.999
 # TODO: run random policy to estimate potential of landmarks?
 # TODO: use UCB also for locomotion stage?
-# TODO: check Gautam's heuristics
-# TODO: try 32 channels 1st layer
 # TODO: remove previous frame from the locomotion policy
 # TODO: weight loop closures
 # TODO: choose only trajectories we can reliably traverse
 # TODO: measure number of landmark on the entire trajectory, not only on the piece we're adding
+
+
+# May 7, 2019
+# TODO: try oracle ECR
+# TODO: try naive Locomotion
+# TODO: random exploration policy
+# TODO: human policy on a converged run, can I get more reward?
+# TODO: don't save dense map all the time

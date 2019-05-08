@@ -313,7 +313,6 @@ def test_locomotion(params, env_id):
         wait_seconds = max(0.0, wait_seconds)
         if wait_seconds > EPS:
             time.sleep(wait_seconds)
-            # cv2.waitKey(int(wait_seconds * 1000))
 
         if not pause:
             frame += 1
