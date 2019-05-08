@@ -1,5 +1,5 @@
 # sleep time, hours
-sleep_t=0.002
+sleep_t=2
 times=0
 filters=$2
 port=$1
