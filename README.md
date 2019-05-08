@@ -11,6 +11,8 @@ libopenal-dev timidity libwildmidi-dev unzip
 
 sudo apt-get install libboost-all-dev
 
+sudo apt install ffmpeg   <-- for gif summaries
+
 2) go to project dir and install python packages:
 
 pipenv install
