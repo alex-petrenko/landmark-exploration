@@ -226,7 +226,7 @@ class Localizer:
             assert closest_landmark_idx[env_i] >= 0
             m.closest_landmarks.append(closest_landmark_idx[env_i])
 
-        # visualize "closest" landmark
+        # # visualize "closest" landmark
         # import cv2
         # closest_lm = maps[0].closest_landmarks[-1]
         # closest_obs = maps[0].get_observation(closest_lm)

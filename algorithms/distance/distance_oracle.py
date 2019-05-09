@@ -58,7 +58,3 @@ class DistanceOracle(DistanceNetwork):
                 session, obs_first, obs_second,
                 infos_first=infos_first, infos_second=infos_second,
             )
-
-    def train(self, buffer, env_steps, agent, timing=None):
-        """We do not train the oracle."""
-        return 0

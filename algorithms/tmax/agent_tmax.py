@@ -1781,12 +1781,10 @@ class AgentTMAX(AgentLearner):
 # TODO: remove previous frame from the locomotion policy
 # TODO: weight loop closures
 # TODO: choose only trajectories we can reliably traverse
-# TODO: measure number of landmark on the entire trajectory, not only on the piece we're adding
+# TODO: measure number of landmarks on the entire trajectory, not only on the piece we're adding
 
 
 # May 7, 2019
-# TODO: try oracle ECR
 # TODO: try naive Locomotion
 # TODO: random exploration policy
-# TODO: human policy on a converged run, can I get more reward?
 # TODO: don't save dense map all the time
