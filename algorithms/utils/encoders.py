@@ -95,6 +95,25 @@ class EncoderCNN(Encoder):
         return layer
 
 
+class EncoderResnet(Encoder):
+    def __init__(self, normalized_obs, regularizer, enc_params, name):
+        super().__init__(regularizer, name)
+
+        encoder = ResnetEncoder()
+        self.encoded_input = encoder(normalized_obs, enc_params.ph_is_training)
+
+        resnet_variables = tf.get_collection(
+            key=tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name + '/resnet_model',
+        )
+
+        # f*ck batch norm
+        l2_loss_variables = [v for v in resnet_variables if 'batch_normalization' not in v.name]
+
+        # loss is computed using fp32 for numerical stability.
+        weight_decay = 1e-4
+        self.reg_loss = weight_decay * tf.add_n([tf.nn.l2_loss(tf.cast(v, tf.float32)) for v in l2_loss_variables])
+
+
 def is_normalized(obs_space):
     return obs_space.dtype == np.float32 and obs_space.low in [-1.0, 0.0] and obs_space.high == 1.0
 
@@ -132,8 +151,7 @@ def make_encoder(ph_observations, obs_space, regularizer, enc_params, name='enc'
             obs_normalized = tf_normalize(ph_observations, obs_space)
 
         if 'resnet' in enc_params.enc_name:
-            encoder = ResnetEncoder()
-            encoder = encoder(obs_normalized, enc_params.ph_is_training)
+            encoder = EncoderResnet(obs_normalized, regularizer, enc_params, name)
         else:
             encoder = EncoderCNN(obs_normalized, regularizer, enc_params, name)
     else:

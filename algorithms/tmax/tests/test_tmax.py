@@ -33,8 +33,6 @@ class TestTMAX(TestCase):
         params.ppo_epochs = 2
         params.distance_bootstrap = 10
         params.stage_duration = 100
-
-        # TODO!!!
         params.distance_encoder = 'resnet'
 
         tmax_train_dir = join(experiments_dir(), params.experiments_root)

@@ -575,10 +575,18 @@ class ResnetEncoder(Model):
 
             first_layer_kernel_size = 5
 
-            inputs = conv2d_fixed_padding(
-                inputs=inputs, filters=self.num_filters, kernel_size=first_layer_kernel_size,
-                strides=self.conv_stride, data_format=self.data_format,
+            # inputs = conv2d_fixed_padding(
+            #     inputs=inputs, filters=self.num_filters, kernel_size=first_layer_kernel_size,
+            #     strides=self.conv_stride, data_format=self.data_format,
+            # )
+
+            inputs = tf.compat.v1.layers.conv2d(
+                inputs=inputs, filters=self.num_filters, kernel_size=first_layer_kernel_size, strides=self.conv_stride,
+                padding='VALID', use_bias=False,
+                kernel_initializer=tf.compat.v1.variance_scaling_initializer(),
+                data_format=self.data_format
             )
+
             inputs = tf.identity(inputs, 'initial_conv')
 
             # We do not include batch normalization or activation functions in V2

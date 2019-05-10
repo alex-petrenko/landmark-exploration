@@ -12,9 +12,9 @@ from utils.utils import log
 
 class TestResnet(TestCase):
     # noinspection PyMethodMayBeStatic
-    def skipped_test_resnet(self):
-        # shape = (3 * 3, 84, 84)
-        shape = (3, 84, 84)
+    def test_resnet(self):
+        shape = (3 * 3, 160, 120)
+        # shape = (3, 84, 84)
 
         with tf.variable_scope('reach'):
             resnet = ResnetBuilder.build_resnet_18(shape, 2)

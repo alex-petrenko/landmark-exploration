@@ -33,9 +33,9 @@ class DistanceNetworkParams:
         self.distance_symmetric = True  # useful in 3D environments like Doom and DMLab
 
         self.distance_encoder = 'convnet_84px'
-        self.distance_use_batch_norm = False
-        self.distance_fc_num = 2
-        self.distance_fc_size = 256
+        self.distance_use_batch_norm = True
+        self.distance_fc_num = 4
+        self.distance_fc_size = 512
 
 
 class DistanceNetwork:
@@ -67,6 +67,10 @@ class DistanceNetwork:
             self.first_encoded = obs_first_enc.encoded_input
             self.second_encoded = obs_second_enc.encoded_input
 
+            encoder_reg_loss = 0.0
+            if hasattr(obs_first_enc, 'reg_loss'):
+                encoder_reg_loss = obs_first_enc.reg_loss
+
             observations_encoded = tf.concat([self.first_encoded, self.second_encoded], axis=1)
 
             fc_layers = [params.distance_fc_size] * params.distance_fc_num
@@ -88,7 +92,7 @@ class DistanceNetwork:
             reg_losses = tf.losses.get_regularization_losses(scope=scope.name)
             self.reg_loss = tf.reduce_sum(reg_losses)
 
-            self.loss = self.dist_loss + self.reg_loss
+            self.loss = self.dist_loss + self.reg_loss + encoder_reg_loss
 
             # helpers to encode observations (saves time)
             # does not matter if we use first vs second here
