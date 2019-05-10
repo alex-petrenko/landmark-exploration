@@ -140,7 +140,13 @@ class LocomotionBuffer:
                 max_total_experience, len(trajectories), max_num_segments,
             )
 
+            attempts = 0
+
             while len(training_data) < max_num_segments:
+                attempts += 1
+                if attempts > 100 * max_num_segments:
+                    break
+
                 trajectory_idx = random.choice(range(len(trajectories)))
                 trajectory = trajectories[trajectory_idx]
                 if len(random_frames[trajectory_idx]) <= 0:

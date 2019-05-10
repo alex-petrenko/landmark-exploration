@@ -5,6 +5,7 @@ Tensorflow encoders used in different trainable models.
 import numpy as np
 import tensorflow as tf
 
+from algorithms.architectures.resnet import ResnetEncoder
 from algorithms.utils.env_wrappers import has_image_observations
 from algorithms.utils.tf_utils import dense, conv, put_kernels_on_grid, tf_shape
 
@@ -130,7 +131,11 @@ def make_encoder(ph_observations, obs_space, regularizer, enc_params, name='enc'
         else:
             obs_normalized = tf_normalize(ph_observations, obs_space)
 
-        encoder = EncoderCNN(obs_normalized, regularizer, enc_params, name)
+        if 'resnet' in enc_params.enc_name:
+            encoder = ResnetEncoder()
+            encoder = encoder(obs_normalized, enc_params.ph_is_training)
+        else:
+            encoder = EncoderCNN(obs_normalized, regularizer, enc_params, name)
     else:
         raise NotImplementedError
 

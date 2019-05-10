@@ -477,8 +477,7 @@ class Model(object):
       A variable scope for the model.
     """
 
-        return tf.compat.v1.variable_scope('resnet_model',
-                                           custom_getter=self._custom_dtype_getter)
+        return tf.compat.v1.variable_scope('resnet_model', custom_getter=self._custom_dtype_getter)
 
     def __call__(self, inputs, training):
         """Add operations to classify a batch of input images.
@@ -545,4 +544,83 @@ class Model(object):
             inputs = tf.squeeze(inputs, axes)
             inputs = tf.compat.v1.layers.dense(inputs=inputs, units=self.num_classes)
             inputs = tf.identity(inputs, 'final_dense')
+            return inputs
+
+
+class ResnetEncoder(Model):
+    def __init__(self):
+        super().__init__(
+            resnet_size='small_resnet',  # not used
+            bottleneck=False,
+            num_classes=-1,  # we add classification layers later
+            num_filters=64,
+            kernel_size=3,
+            conv_stride=2,
+            first_pool_size=None,
+            first_pool_stride=None,
+            block_sizes=[2, 2, 2, 2],
+            block_strides=[1, 2, 2, 2],
+            resnet_version=DEFAULT_VERSION,
+            data_format=None,
+            dtype=DEFAULT_DTYPE,
+        )
+
+    def __call__(self, inputs, training):
+        with self._model_variable_scope():
+            if self.data_format == 'channels_first':
+                # Convert the inputs from channels_last (NHWC) to channels_first (NCHW).
+                # This provides a large performance boost on GPU. See
+                # https://www.tensorflow.org/performance/performance_guide#data_formats
+                inputs = tf.transpose(a=inputs, perm=[0, 3, 1, 2])
+
+            first_layer_kernel_size = 5
+
+            inputs = conv2d_fixed_padding(
+                inputs=inputs, filters=self.num_filters, kernel_size=first_layer_kernel_size,
+                strides=self.conv_stride, data_format=self.data_format,
+            )
+            inputs = tf.identity(inputs, 'initial_conv')
+
+            # We do not include batch normalization or activation functions in V2
+            # for the initial conv1 because the first ResNet unit will perform these
+            # for both the shortcut and non-shortcut paths as part of the first
+            # block's projection. Cf. Appendix of [2].
+            if self.resnet_version == 1:
+                inputs = batch_norm(inputs, training, self.data_format)
+                inputs = tf.nn.relu(inputs)
+
+            if self.first_pool_size:
+                inputs = tf.compat.v1.layers.max_pooling2d(
+                    inputs=inputs, pool_size=self.first_pool_size,
+                    strides=self.first_pool_stride, padding='SAME',
+                    data_format=self.data_format)
+                inputs = tf.identity(inputs, 'initial_max_pool')
+
+            for i, num_blocks in enumerate(self.block_sizes):
+                num_filters = self.num_filters * (2 ** i)
+                inputs = block_layer(
+                    inputs=inputs, filters=num_filters, bottleneck=self.bottleneck,
+                    block_fn=self.block_fn, blocks=num_blocks,
+                    strides=self.block_strides[i], training=training,
+                    name='block_layer{}'.format(i + 1), data_format=self.data_format)
+
+            # Only apply the BN and ReLU for model that does pre_activation in each
+            # building/bottleneck block, eg resnet V2.
+            if self.pre_activation:
+                inputs = batch_norm(inputs, training, self.data_format)
+                inputs = tf.nn.relu(inputs)
+
+            # The current top layer has shape
+            # `batch_size x pool_size x pool_size x final_size`.
+            # ResNet does an Average Pooling layer over pool_size,
+            # but that is the same as doing a reduce_mean. We do a reduce_mean
+            # here because it performs better than AveragePooling2D.
+            axes = [2, 3] if self.data_format == 'channels_first' else [1, 2]
+            inputs = tf.reduce_mean(input_tensor=inputs, axis=axes, keepdims=True)
+            inputs = tf.identity(inputs, 'final_reduce_mean')
+            inputs = tf.squeeze(inputs, axes)
+
+            # inputs = tf.compat.v1.layers.dense(inputs=inputs, units=self.num_classes)
+            # inputs = tf.identity(inputs, 'final_dense')
+
             return inputs

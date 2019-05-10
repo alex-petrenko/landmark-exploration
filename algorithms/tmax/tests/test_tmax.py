@@ -34,6 +34,9 @@ class TestTMAX(TestCase):
         params.distance_bootstrap = 10
         params.stage_duration = 100
 
+        # TODO!!!
+        params.distance_encoder = 'resnet'
+
         tmax_train_dir = join(experiments_dir(), params.experiments_root)
         ensure_dir_exists(tmax_train_dir)
         shutil.rmtree(tmax_train_dir)
