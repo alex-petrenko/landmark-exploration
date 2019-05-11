@@ -1788,3 +1788,9 @@ class AgentTMAX(AgentLearner):
 # May 7, 2019
 # TODO: try naive Locomotion
 # TODO: random exploration policy
+
+# May 10, 2019
+# TODO: modify env_v2 to have sparse textures
+# TODO: remove locomotion stage (because locomotion is pretrained)
+# TODO: remove random frames in exploration stage
+# TODO: load pretrained locomotion network

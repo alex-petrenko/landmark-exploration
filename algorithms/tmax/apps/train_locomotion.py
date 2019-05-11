@@ -97,7 +97,9 @@ def train_loop(agent, multi_env):
                 new_obs, rewards, dones, new_infos = multi_env.step(actions)
 
             with t.timeit('misc'):
-                trajectory_buffer.add(observations, actions, infos, dones, tmax_mgr=agent.tmax_mgr)
+                trajectory_buffer.add(
+                    observations, actions, infos, dones, tmax_mgr=agent.tmax_mgr, is_random=[True] * params.num_envs,
+                )
 
                 observations = main_observation(new_obs)
                 infos = new_infos
@@ -112,6 +114,9 @@ def train_loop(agent, multi_env):
                     locomotion_buffer.reset()
 
                 trajectory_buffer.reset_trajectories()
+
+            if t.train > 1.0:
+                log.debug('Train time: %s', t)
 
         loop_time.append(t.loop)
         advanced_steps.append(num_steps_delta)

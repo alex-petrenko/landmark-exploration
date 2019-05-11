@@ -20,16 +20,16 @@ from utils.utils import log, vis_dir, ensure_dir_exists
 
 class LocomotionNetworkParams:
     def __init__(self):
-        self.locomotion_experience_replay_buffer = 100000
+        self.locomotion_experience_replay_buffer = 140000
         self.locomotion_experience_replay_epochs = 10
-        self.locomotion_experience_replay_batch = 128
+        self.locomotion_experience_replay_batch = 64
         self.locomotion_experience_replay_max_kl = 0.05
         self.locomotion_max_trajectory = 5  # max trajectory length to be utilized during training
 
-        self.locomotion_encoder = 'convnet_84px'
-        self.locomotion_use_batch_norm = False
-        self.locomotion_fc_num = 2
-        self.locomotion_fc_size = 256
+        self.locomotion_encoder = 'resnet'
+        self.locomotion_use_batch_norm = True
+        self.locomotion_fc_num = 1
+        self.locomotion_fc_size = 512
 
 
 class LocomotionNetwork:
@@ -39,8 +39,10 @@ class LocomotionNetwork:
         self.ph_actions = placeholder_from_space(env.action_space)
         self.ph_is_training = tf.placeholder(dtype=tf.bool, shape=[])
 
-        with tf.variable_scope('loco'):
+        with tf.variable_scope('loco') as scope:
             self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_step')
+
+            reg = tf.contrib.layers.l2_regularizer(scale=1e-5)
 
             # encoder = tf.make_template(
             #     'siamese_enc_loco', make_encoder, create_scope_now_=True,
@@ -59,17 +61,22 @@ class LocomotionNetwork:
 
             encoder = tf.make_template(
                 'joined_enc_loco', make_encoder, create_scope_now_=True,
-                obs_space=obs_space, regularizer=None, enc_params=enc_params,
+                obs_space=obs_space, regularizer=reg, enc_params=enc_params,
             )
 
             obs_concat = tf.concat([self.ph_obs_prev, self.ph_obs_curr, self.ph_obs_goal], axis=2)
-            obs_encoded = encoder(obs_concat).encoded_input
+            obs_encoder = encoder(obs_concat)
+            obs_encoded = obs_encoder.encoded_input
+
+            encoder_reg_loss = 0.0
+            if hasattr(obs_encoder, 'reg_loss'):
+                encoder_reg_loss = obs_encoder.reg_loss
 
             fc_layers = [params.locomotion_fc_size] * params.locomotion_fc_num
             x = obs_encoded
             for fc_layer_size in fc_layers:
                 x = dense(
-                    x, fc_layer_size,
+                    x, fc_layer_size, regularizer=reg,
                     batch_norm=params.locomotion_use_batch_norm, is_training=self.ph_is_training,
                 )
 
@@ -80,7 +87,11 @@ class LocomotionNetwork:
 
             actions_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.ph_actions, logits=action_logits)
             self.actions_loss = tf.reduce_mean(actions_loss)
-            self.loss = self.actions_loss
+
+            reg_losses = tf.losses.get_regularization_losses(scope=scope.name)
+            self.reg_loss = tf.reduce_sum(reg_losses)
+
+            self.loss = self.actions_loss + self.reg_loss + encoder_reg_loss
 
             loco_opt = tf.train.AdamOptimizer(learning_rate=params.learning_rate, name='loco_opt')
 
@@ -144,7 +155,7 @@ class LocomotionBuffer:
 
             while len(training_data) < max_num_segments:
                 attempts += 1
-                if attempts > 100 * max_num_segments:
+                if attempts > 100 * max_num_segments:  # just in case
                     break
 
                 trajectory_idx = random.choice(range(len(trajectories)))
@@ -181,7 +192,7 @@ class LocomotionBuffer:
 
                 training_data.append(traj_buffer)
 
-                if data_so_far > self.params.locomotion_experience_replay_buffer:
+                if len(self.buffer) + data_so_far > self.params.locomotion_experience_replay_buffer * 1.5:
                     break
 
         if len(training_data) <= 0:
