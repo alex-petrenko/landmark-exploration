@@ -95,7 +95,7 @@ class LocomotionNetwork:
 
             loco_opt = tf.train.AdamOptimizer(learning_rate=params.learning_rate, name='loco_opt')
 
-            with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+            with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope='loco')):
                 self.train_loco = loco_opt.minimize(self.loss, global_step=self.step)
 
     def navigate(self, session, obs_prev, obs_curr, obs_goal, deterministic=False):

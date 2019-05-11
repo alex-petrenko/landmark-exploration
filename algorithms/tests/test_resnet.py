@@ -12,7 +12,7 @@ from utils.utils import log
 
 class TestResnet(TestCase):
     # noinspection PyMethodMayBeStatic
-    def test_resnet(self):
+    def skipped_test_resnet(self):
         shape = (3 * 3, 160, 120)
         # shape = (3, 84, 84)
 

@@ -345,11 +345,12 @@ class TmaxManager:
             assert not exploration_mode or self.end_episode[env_i] >= self.params.exploration_budget
 
             if self.end_episode[env_i] < 0 or not exploration_mode:
-                timer[env_i] = 1.0  # does not matter, because it's never used
+                timer[env_i] = 1.0  # does not matter, because it isn't used
             else:
                 assert exploration_mode
                 assert self.exploration_started[env_i] >= 0
 
+                # remaining frame budget for the exploration policy
                 frames_so_far = self.episode_frames[env_i] - self.exploration_started[env_i]
                 remaining_frames = self.params.exploration_budget - frames_so_far
                 timer[env_i] = max(remaining_frames / self.params.exploration_budget, 0.0)
@@ -631,9 +632,14 @@ class TmaxManager:
 
         landmark_observations = [m.get_observation(node) for node in m.graph.nodes]
         timer = [1.0 for _ in m.graph.nodes]
-        _, _, values = self.agent.actor_critic.invoke(
-            self.agent.session, landmark_observations, None, None, None, timer,  # does not work with goals!
-        )
+
+        if self.agent.actor_critic.has_goal:
+            log.warning('Cannot estimate value of the landmark without a goal')
+            return
+        else:
+            _, _, values = self.agent.actor_critic.invoke(
+                self.agent.session, landmark_observations, None, None, None, timer,  # does not work with goals!
+            )
 
         assert len(values) == len(landmark_observations)
         for i, node in enumerate(m.graph.nodes):
@@ -697,6 +703,8 @@ class TmaxManager:
 
     def _update_stage(self, env_steps):
         if env_steps - self.last_stage_change > self.params.stage_duration or self.stage_change_required:
+            self.stage_change_required = False
+
             if self.global_stage == TmaxMode.LOCOMOTION:
                 self.global_stage = TmaxMode.EXPLORATION
                 self._prepare_persistent_map_for_exploration()
@@ -706,15 +714,17 @@ class TmaxManager:
                 if self.params.persistent_map_checkpoint is not None:
                     # we want to switch back to locomotion right away
                     self.stage_change_required = True
-                else:
-                    self.stage_change_required = False
             else:
-                self.stage_change_required = False
                 success = self._prepare_persistent_map_for_locomotion()
                 if success:
                     self.global_stage = TmaxMode.LOCOMOTION
                     self.last_stage_change = env_steps
                     log.debug('Stage changed to Locomotion')
+
+                    if self.params.locomotion_network_checkpoint is not None:
+                        # we want to switch back to exploration right away
+                        # locomotion stage not required, because locomotion network is already trained
+                        self.stage_change_required = True
                 else:
                     log.warning('Failed to switch stage to locomotion, environment not explored enough!')
                     # little hack to give us more time for exploration
@@ -876,7 +886,7 @@ class AgentTMAX(AgentLearner):
             self.ucb_degree = 0.1  # exploration/exploitation tradeoff
 
             self.exploration_budget = 1000
-            self.random_frames_at_the_end = 400
+            self.random_frames_at_the_end = 0  # don't use
             self.max_exploration_trajectory = 500  # should be less than exploration budget
             self.max_frames_between_landmarks = 100
             self.max_episode = 20000
@@ -886,6 +896,7 @@ class AgentTMAX(AgentLearner):
             self.stage_duration = 3000000
 
             self.distance_network_checkpoint = None
+            self.locomotion_network_checkpoint = None
             self.persistent_map_checkpoint = None
 
             # summaries, etc.
@@ -1170,6 +1181,17 @@ class AgentTMAX(AgentLearner):
             )
             self.curiosity.initialized = True
             log.debug('Done loading distance network from checkpoint!')
+
+        # restore only locomotion network if we have checkpoint for it
+        if self.params.locomotion_network_checkpoint is not None:
+            log.debug('Restoring locomotion net variables from %s', self.params.locomotion_network_checkpoint)
+            variables = slim.get_variables_to_restore()
+            locomotion_net_variables = [v for v in variables if v.name.split('/')[0] == 'loco']
+            locomotion_net_saver = tf.train.Saver(locomotion_net_variables)
+            locomotion_net_saver.restore(
+                self.session, tf.train.latest_checkpoint(self.params.locomotion_network_checkpoint),
+            )
+            log.debug('Done loading locomotion network from checkpoint!')
 
         log.debug('Computation graph is initialized!')
 
@@ -1621,27 +1643,14 @@ class AgentTMAX(AgentLearner):
                             self.critic_summaries,
                         )
 
-        # Locomotion with reinforcement learning - currently not supported
-        # if self.params.rl_locomotion:
-        #     with timing.timeit('loco_rl'):
-        #         self._train_actor(
-        #             buffers[TmaxMode.LOCOMOTION], env_steps,
-        #             self.loco_objectives, self.loco_actor_critic, self.train_loco_actor,
-        #             self.loco_actor_step, self.loco_actor_summaries,
-        #         )
-        #         self._train_critic(
-        #             buffers[TmaxMode.LOCOMOTION], env_steps,
-        #             self.loco_objectives, self.loco_actor_critic, self.train_loco_critic,
-        #             self.loco_critic_step, self.loco_critic_summaries,
-        #         )
-
-        # train locomotion with self imitation from trajectories
-        with timing.timeit('train_loco'):
-            if len(locomotion_buffer.buffer) >= self.params.locomotion_experience_replay_buffer:
-                self._maybe_train_locomotion(locomotion_buffer, env_steps)
-                locomotion_buffer.reset()
-            else:
-                log.info('Locomotion buffer size: %d', len(locomotion_buffer.buffer))
+        if self.params.locomotion_network_checkpoint is None:
+            # train locomotion with self imitation from trajectories
+            with timing.timeit('train_loco'):
+                if len(locomotion_buffer.buffer) >= self.params.locomotion_experience_replay_buffer:
+                    self._maybe_train_locomotion(locomotion_buffer, env_steps)
+                    locomotion_buffer.reset()
+                else:
+                    log.info('Locomotion buffer size: %d', len(locomotion_buffer.buffer))
 
         if self.params.distance_network_checkpoint is None:
             # distance net not provided - train distance metric online
@@ -1788,9 +1797,3 @@ class AgentTMAX(AgentLearner):
 # May 7, 2019
 # TODO: try naive Locomotion
 # TODO: random exploration policy
-
-# May 10, 2019
-# TODO: modify env_v2 to have sparse textures
-# TODO: remove locomotion stage (because locomotion is pretrained)
-# TODO: remove random frames in exploration stage
-# TODO: load pretrained locomotion network

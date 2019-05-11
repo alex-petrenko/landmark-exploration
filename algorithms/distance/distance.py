@@ -103,7 +103,8 @@ class DistanceNetwork:
             self.summaries = merge_summaries(collections=summary_collections)
 
             opt = tf.train.AdamOptimizer(learning_rate=params.learning_rate, name='dist_opt')
-            with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+
+            with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope='distance')):
                 self.train_op = opt.minimize(self.loss, global_step=self.step)
 
         # other stuff not related to computation graph

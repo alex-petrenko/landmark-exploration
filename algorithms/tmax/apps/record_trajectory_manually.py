@@ -51,7 +51,7 @@ def on_release(key):
 
 def record_trajectory(params, env_id):
     def make_env_func():
-        e = create_env(env_id, skip_frames=False)
+        e = create_env(env_id, skip_frames=True)
         e.seed(0)
         return e
 
@@ -66,8 +66,6 @@ def record_trajectory(params, env_id):
 
     trajectory = Trajectory(env_idx=-1)
     frame = 0
-    frame_repeat = 4
-    action = 0
 
     t = Timing()
 
@@ -75,20 +73,19 @@ def record_trajectory(params, env_id):
         with t.timeit('one_frame'):
             env.render()
 
-            if frame % frame_repeat == 0:
-                if len(current_actions) > 0:
-                    action = current_actions[-1]
-                else:
-                    action = 0
+            if len(current_actions) > 0:
+                action = current_actions[-1]
+            else:
+                action = 0
 
-                trajectory.add(obs, action, info)
-                m.add_landmark(obs, info, update_curr_landmark=True)
+            trajectory.add(obs, action, info)
+            m.add_landmark(obs, info, update_curr_landmark=True)
 
             env_obs, rew, done, info = env.step(action)
             obs = main_observation(env_obs)
 
         took_seconds = t.one_frame
-        desired_fps = 40
+        desired_fps = 15
         wait_seconds = (1.0 / desired_fps) - took_seconds
         wait_seconds = max(0.0, wait_seconds)
         time.sleep(wait_seconds)

@@ -6,7 +6,6 @@ import numpy as np
 
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from algorithms.tmax.agent_tmax import AgentTMAX
-from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.utils.buffer import Buffer
 from utils.envs.doom.doom_utils import doom_env_by_name, make_doom_env
 from utils.timing import Timing
@@ -21,7 +20,7 @@ class TestDistance(TestCase):
             return make_doom_env(doom_env_by_name(TEST_ENV_NAME))
 
         params = AgentTMAX.Params('__test_dist_train__')
-        params.distance_target_buffer_size = 2000
+        params.distance_target_buffer_size = 1000
 
         with t.timeit('generate_data'):
             # first: generate fake random data
@@ -52,12 +51,12 @@ class TestDistance(TestCase):
             agent.initialize()
 
             params.distance_train_epochs = 1
-            params.distance_batch_size = 512
+            params.distance_batch_size = 256
             agent.distance.train(buffer, 1, agent)
 
         with t.timeit('train'):
             params.distance_train_epochs = 2
-            params.distance_batch_size = 128
+            params.distance_batch_size = 64
             agent.distance.train(buffer, 1, agent, t)
 
         agent.finalize()
