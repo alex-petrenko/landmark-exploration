@@ -25,6 +25,7 @@ def train_locomotion_net(agent, data, params, env_steps):
     log.info('Training loco_her %d pairs, batch %d, epochs %d', len(data.buffer), batch_size, num_epochs)
 
     for epoch in range(num_epochs):
+        log.info('Epoch %d...', epoch + 1)
         losses = []
 
         obs_prev, obs_curr, obs_goal = data.buffer.obs_prev, data.buffer.obs_curr, data.buffer.obs_goal
@@ -123,7 +124,6 @@ def train_loop(agent, multi_env):
 def train_locomotion(params, env_id):
     def make_env_func():
         e = create_env(env_id)
-        e.seed(0)
         return e
 
     agent = AgentTMAX(make_env_func, params)

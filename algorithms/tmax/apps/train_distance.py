@@ -140,7 +140,6 @@ def train_loop(agent, multi_env):
 def train_distance(params, env_id):
     def make_env_func():
         e = create_env(env_id)
-        e.seed(0)
         return e
 
     agent = AgentTMAX(make_env_func, params)
