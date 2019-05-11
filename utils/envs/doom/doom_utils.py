@@ -94,8 +94,6 @@ def make_doom_env(
         timeout = episode_horizon
     env = TimeLimitWrapper(env, limit=timeout, random_variation_steps=49)
 
-
-
     if doom_cfg.reward_scaling != 1.0:
         env = RewardScalingWrapper(env, doom_cfg.reward_scaling)
 

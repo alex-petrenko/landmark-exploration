@@ -27,12 +27,12 @@ class DistanceNetworkParams:
         self.far_threshold = 25  # num. of frames between obs, such that one is far from the other
         self.distance_target_buffer_size = 140000  # target number of training examples to store
         self.distance_train_epochs = 8
-        self.distance_batch_size = 128
+        self.distance_batch_size = 64
         self.distance_bootstrap = 4000000
         self.distance_train_interval = 1000000
         self.distance_symmetric = True  # useful in 3D environments like Doom and DMLab
 
-        self.distance_encoder = 'convnet_84px'
+        self.distance_encoder = 'resnet'
         self.distance_use_batch_norm = True
         self.distance_fc_num = 4
         self.distance_fc_size = 512

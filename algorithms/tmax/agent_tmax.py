@@ -622,6 +622,7 @@ class TmaxManager:
         self.dense_persistent_maps.append(new_dense_map)
         self.sparse_persistent_maps.append(new_sparse_map)
 
+        self.save()
         log.debug('Prepared maps for exploration')
 
     def _update_value_estimates(self, m):
@@ -1174,7 +1175,7 @@ class AgentTMAX(AgentLearner):
 
     def _save(self, step, env_steps):
         super()._save(step, env_steps)
-        self.tmax_mgr.save()
+        # self.tmax_mgr.save()
 
     def _maybe_aux_summaries(self, env_steps, avg_reward, avg_length, fps):
         self._report_basic_summaries(fps, env_steps)
@@ -1787,4 +1788,3 @@ class AgentTMAX(AgentLearner):
 # May 7, 2019
 # TODO: try naive Locomotion
 # TODO: random exploration policy
-# TODO: don't save dense map all the time

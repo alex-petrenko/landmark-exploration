@@ -126,6 +126,9 @@ def train_loop(agent, multi_env):
                         buffer, num_steps, agent,
                     )
 
+            if t.train > 1.0:
+                log.debug('Training time: %s', t)
+
         loop_time.append(t.loop)
         advanced_steps.append(num_steps_delta)
 
