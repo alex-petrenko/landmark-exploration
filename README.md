@@ -15,6 +15,10 @@ sudo apt install ffmpeg   <-- for gif summaries
 
 2) go to project dir and install python packages:
 
+git clone https://github.com/alex-petrenko/landmark-exploration.git
+
+cd landmark-exploration/
+
 pipenv install
 
 3) install pynput for evaluation scripts (not installed with pipenv because of incompatibility between mac/linux)
@@ -26,6 +30,7 @@ sudo apt-get install python3-tk-dbg
 
 To train PPO on a simple DOOM environment:
 ```
+pipenv shell # activate virtualenv
 python -m algorithms.baselines.ppo.train_ppo --env doom_basic --gpu_mem_fraction=0.3
 python -m algorithms.baselines.ppo.train_ppo --env doom_maze --gpu_mem_fraction=0.3
 python -m algorithms.baselines.ppo.train_ppo --env doom_maze_very_sparse --gpu_mem_fraction=0.3
