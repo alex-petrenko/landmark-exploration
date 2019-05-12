@@ -116,4 +116,10 @@ class Buffer:
         return self._size
 
     def __getattr__(self, key):
-        return self._data[key][:self._size]
+        try:
+            return self._data[key][:self._size]
+        except KeyError:
+            raise AttributeError
+
+    def nbytes(self):
+        return sum(v.nbytes for v in self._data.values())

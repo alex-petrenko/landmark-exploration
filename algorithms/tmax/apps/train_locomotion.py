@@ -165,7 +165,13 @@ def train_loop(agent, multi_env):
                     if len(locomotion_buffer_test.buffer) <= 0:
                         log.info('Prepare test data that we will never see during training...')
                         locomotion_buffer.shuffle_data()
-                        locomotion_buffer_test.buffer.add_buff(locomotion_buffer, max_to_add=num_test_data)
+                        locomotion_buffer_test.buffer.add_buff(locomotion_buffer.buffer, max_to_add=num_test_data)
+
+                        # noinspection PyProtectedMember
+                        log.info(
+                            'Test buffer size %d, capacity %d',
+                            locomotion_buffer_test.buffer._size, locomotion_buffer_test.buffer._capacity,
+                        )
                     else:
                         step = train_locomotion_net(agent, locomotion_buffer, params, env_steps)
 
@@ -187,7 +193,7 @@ def train_loop(agent, multi_env):
 
 def train_locomotion(params, env_id):
     def make_env_func():
-        e = create_env(env_id)
+        e = create_env(env_id, episode_horizon=params.episode_horizon)
         return e
 
     agent = AgentTMAX(make_env_func, params)

@@ -47,7 +47,7 @@ class DistanceNetwork:
 
         with tf.variable_scope('distance') as scope:
             self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='dist_step')
-            reg = tf.contrib.layers.l2_regularizer(scale=1e-5)
+            reg = tf.contrib.layers.l2_regularizer(scale=1e-4)
             summary_collections = ['dist']
 
             enc_params = EncoderParams()

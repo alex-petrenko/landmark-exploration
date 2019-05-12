@@ -1115,6 +1115,7 @@ class AgentTMAX(AgentLearner):
                 locomotion_scalar('loco_steps', self.locomotion.step)
                 locomotion_scalar('loss', self.locomotion.loss)
                 locomotion_scalar('entropy', tf.reduce_mean(self.locomotion.actions_distribution.entropy()))
+                locomotion_scalar('reg_loss', self.locomotion.reg_loss)
 
     def add_ppo_summaries(self, actor_critic, obj, actor_step, critic_step, actor_scope='actor', critic_scope='critic'):
         with tf.name_scope(actor_scope):
