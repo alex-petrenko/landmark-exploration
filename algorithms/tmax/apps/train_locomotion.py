@@ -44,7 +44,6 @@ def calc_test_error(agent, data, params, env_steps):
                 }
             )
 
-            loco_step += 1
             losses.append(loss)
 
         avg_loss = np.mean(losses)
@@ -166,15 +165,11 @@ def train_loop(agent, multi_env):
                     if len(locomotion_buffer_test.buffer) <= 0:
                         log.info('Prepare test data that we will never see during training...')
                         locomotion_buffer.shuffle_data()
-                        locomotion_buffer_test.buffer = locomotion_buffer.buffer
-                        locomotion_buffer_test.buffer.trim_at(num_test_data)
-
-                        locomotion_buffer.buffer = Buffer()
+                        locomotion_buffer_test.buffer.add_buff(locomotion_buffer, max_to_add=num_test_data)
                     else:
                         step = train_locomotion_net(agent, locomotion_buffer, params, env_steps)
 
                     locomotion_buffer.reset()
-
                     calc_test_error(agent, locomotion_buffer_test, params, env_steps)
 
                 trajectory_buffer.reset_trajectories()

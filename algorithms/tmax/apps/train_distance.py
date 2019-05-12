@@ -88,8 +88,7 @@ def train_loop(agent, multi_env):
 
     trajectory_buffer = TrajectoryBuffer(multi_env.num_envs)
 
-    num_steps = 0
-    training_steps = 0
+    step, env_steps = agent.session.run([agent.curiosity.distance.step, agent.total_env_steps])
 
     loop_time = deque([], maxlen=2500)
     advanced_steps = deque([], maxlen=2500)
@@ -98,6 +97,9 @@ def train_loop(agent, multi_env):
 
     complete_trajectories = []
     num_to_process = 20
+
+    test_buffer = Buffer()
+    num_test_data = 5000
 
     while True:
         with t.timeit('loop'):
@@ -112,7 +114,7 @@ def train_loop(agent, multi_env):
                 infos = new_infos
 
                 num_steps_delta = num_env_steps(infos)
-                num_steps += num_steps_delta
+                env_steps += num_steps_delta
 
                 complete_trajectories.extend(trajectory_buffer.complete_trajectories)
                 trajectory_buffer.reset_trajectories()
@@ -122,9 +124,15 @@ def train_loop(agent, multi_env):
                     buffer = generate_training_data(complete_trajectories[:num_to_process], params)
                     complete_trajectories = complete_trajectories[num_to_process:]
 
-                    training_steps = agent.curiosity.distance.train(
-                        buffer, num_steps, agent,
-                    )
+                    if len(test_buffer) <= 0:
+                        buffer.shuffle_data()
+
+                        test_buffer = Buffer()
+                        test_buffer.add_buff(buffer, max_to_add=num_test_data)
+                    else:
+                        step = agent.curiosity.distance.train(buffer, env_steps, agent)
+
+                    agent.curiosity.distance.calc_test_error(test_buffer, env_steps, agent)
 
             if t.train > 1.0:
                 log.debug('Training time: %s', t)
@@ -132,9 +140,9 @@ def train_loop(agent, multi_env):
         loop_time.append(t.loop)
         advanced_steps.append(num_steps_delta)
 
-        if num_steps % 100 == 0:
+        if env_steps % 100 == 0:
             avg_fps = sum(advanced_steps) / sum(loop_time)
-            log.info('Step %d, avg. fps %.1f, training steps %d, timing: %s', num_steps, avg_fps, training_steps, t)
+            log.info('Step %d, avg. fps %.1f, training steps %d, timing: %s', env_steps, avg_fps, step, t)
 
 
 def train_distance(params, env_id):

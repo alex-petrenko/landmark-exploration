@@ -220,6 +220,50 @@ class DistanceNetwork:
 
         return dist_step
 
+    def calc_test_error(self, buffer, env_steps, agent, timing=None):
+        log.info('Calculating distance net test error...')
+
+        if timing is None:
+            timing = Timing()
+
+        params = agent.params
+        batch_size = params.distance_batch_size
+        dist_step = self.step.eval(session=agent.session)
+
+        with timing.timeit('dist_test_error'):
+            losses = []
+            obs_first, obs_second, labels = buffer.obs_first, buffer.obs_second, buffer.labels
+
+            for i in range(0, len(obs_first) - 1, batch_size):
+                start, end = i, i + batch_size
+
+                loss = agent.session.run(
+                    self.loss,
+                    feed_dict={
+                        self.ph_obs_first: obs_first[start:end],
+                        self.ph_obs_second: obs_second[start:end],
+                        self.ph_labels: labels[start:end],
+                        self.ph_is_training: False,
+                    }
+                )
+
+                losses.append(loss)
+
+            avg_loss = np.mean(losses)
+            log.info('Avg loss at %d steps is %.3f', dist_step, avg_loss)
+
+            summary_obj_env_steps = tf.Summary()
+            summary_obj_env_steps.value.add(tag='distance/test_loss_env_steps', simple_value=avg_loss)
+            agent.summary_writer.add_summary(summary_obj_env_steps, env_steps)
+
+            summary_obj_training_steps = tf.Summary()
+            summary_obj_training_steps.value.add(tag='distance/test_loss_train_steps', simple_value=avg_loss)
+            agent.summary_writer.add_summary(summary_obj_training_steps, dist_step)
+
+            agent.summary_writer.flush()
+
+        log.debug('Took %s', timing)
+
 
 class DistanceBuffer:
     """Training data for the distance network (observation pairs and labels)."""
