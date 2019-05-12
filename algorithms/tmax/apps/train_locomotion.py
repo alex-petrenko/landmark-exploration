@@ -25,7 +25,7 @@ def calc_test_error(agent, data, params, env_steps):
     loco_step = locomotion.step.eval(session=agent.session)
 
     with t.timeit('test_error'):
-        losses = []
+        losses, reg_losses = [], []
 
         obs_prev, obs_curr, obs_goal = data.buffer.obs_prev, data.buffer.obs_curr, data.buffer.obs_goal
         actions = data.buffer.actions
@@ -33,8 +33,8 @@ def calc_test_error(agent, data, params, env_steps):
         for i in range(0, len(obs_curr) - 1, batch_size):
             start, end = i, i + batch_size
 
-            loss = agent.session.run(
-                locomotion.loss,
+            loss, reg_loss = agent.session.run(
+                [locomotion.loss, locomotion.reg_loss],
                 feed_dict={
                     locomotion.ph_obs_prev: obs_prev[start:end],
                     locomotion.ph_obs_curr: obs_curr[start:end],
@@ -45,9 +45,11 @@ def calc_test_error(agent, data, params, env_steps):
             )
 
             losses.append(loss)
+            reg_losses.append(reg_loss)
 
         avg_loss = np.mean(losses)
-        log.info('Avg loss at %d steps is %.3f', loco_step, avg_loss)
+        avg_reg_loss = np.mean(reg_losses)
+        log.info('Avg loss at %d steps is %.3f (reg %.3f)', loco_step, avg_loss, avg_reg_loss)
 
         summary_obj_env_steps = tf.Summary()
         summary_obj_env_steps.value.add(tag='locomotion/test_loss_env_steps', simple_value=avg_loss)
@@ -112,6 +114,8 @@ def train_locomotion_net(agent, data, params, env_steps):
 
         # check loss improvement at the end of each epoch, early stop if necessary
         avg_loss = np.mean(losses)
+        log.info('Avg train loss is %.3f', avg_loss)
+
         if avg_loss >= prev_loss:
             log.info('Stopping loco_her after %d epochs because locomotion did not improve', epoch)
             log.info('Was %.4f now %.4f, ratio %.3f', prev_loss, avg_loss, avg_loss / prev_loss)
