@@ -64,7 +64,7 @@ class LocomotionNetwork:
                 obs_space=obs_space, regularizer=reg, enc_params=enc_params,
             )
 
-            obs_concat = tf.concat([self.ph_obs_prev, self.ph_obs_curr, self.ph_obs_goal], axis=2)
+            obs_concat = tf.concat([self.ph_obs_prev, self.ph_obs_curr, self.ph_obs_goal], axis=3)
             obs_encoder = encoder(obs_concat)
             obs_encoded = obs_encoder.encoded_input
 
@@ -108,6 +108,7 @@ class LocomotionNetwork:
                 self.ph_is_training: False,
             },
         )
+
         return actions
 
 

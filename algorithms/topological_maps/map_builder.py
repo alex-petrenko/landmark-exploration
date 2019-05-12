@@ -305,6 +305,8 @@ class MapBuilder:
     def add_trajectory_to_sparse_map(self, existing_map, traj):
         m = existing_map
         localizer = Localizer(self.agent.params)
+        # localizer.loop_closure_threshold = 0.2
+
         is_new_landmark = [False] * len(traj)  # is frame a novel landmark
 
         nodes = m.graph.nodes

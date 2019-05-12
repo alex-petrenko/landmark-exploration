@@ -4,7 +4,6 @@ import time
 from threading import Thread
 
 import cv2
-import numpy as np
 from pynput.keyboard import Key, Listener
 
 from algorithms.tmax.agent_tmax import AgentTMAX
@@ -17,7 +16,7 @@ from utils.envs.atari import atari_utils
 from utils.envs.doom import doom_utils
 from utils.envs.envs import create_env
 from utils.timing import Timing
-from utils.utils import log, min_with_idx
+from utils.utils import log
 
 terminate = False
 key_to_action = None
@@ -212,7 +211,7 @@ def display_obs(win_name, obs):
 
 def test_locomotion(params, env_id):
     def make_env_func():
-        e = create_env(env_id, skip_frames=False)
+        e = create_env(env_id, skip_frames=True)
         e.seed(0)
         return e
 
@@ -235,18 +234,16 @@ def test_locomotion(params, env_id):
         agent.tmax_mgr.initialize([obs], [info], 1)
         loaded_persistent_map = agent.tmax_mgr.dense_persistent_maps[-1]
 
+    m = loaded_persistent_map
+
     t = Timing()
 
-    frame = 0
-    frame_repeat = 4
-    action = 0
-
-    final_goal_idx = 473
+    log.info('Num landmarks: %d', m.num_landmarks())
+    final_goal_idx = 1110
 
     log.info('Locomotion goal is %d', final_goal_idx)
 
-    m = loaded_persistent_map
-    localizer = Localizer(m, agent)
+    # localizer = Localizer(m, agent)
 
     final_goal_obs = m.get_observation(final_goal_idx)
     cv2.namedWindow('next_target')
@@ -257,59 +254,58 @@ def test_locomotion(params, env_id):
     display_obs('final_goal', final_goal_obs)
     cv2.waitKey(1)
 
-    localizer.current_landmark = 0
-    next_target = localizer.get_next_target(obs, final_goal_idx)
-    next_target_obs = m.get_observation(next_target)
+    # localizer.current_landmark = 0
+    # next_target = localizer.get_next_target(obs, final_goal_idx)
+    # next_target_obs = m.get_observation(next_target)
 
-    navigator = None
-    test_navigator = True
-    if test_navigator:
-        navigator = Navigator(agent)
-        navigator.reset(0, m)
+    frame = 0
+
+    navigator = Navigator(agent)
+    navigator.reset(0, m)
+
+    next_target, next_target_d = navigator.get_next_target(
+        [m], [obs], [final_goal_idx], [frame],
+    )
+    next_target, next_target_d = next_target[0], next_target_d[0]
+    next_target_obs = m.get_observation(next_target)
 
     while not done and not terminate:
         with t.timeit('one_frame'):
             env.render()
             if not pause:
-                if frame % frame_repeat == 0:
-                    if random.random() < 0.1:
-                        deterministic = False
-                    else:
-                        deterministic = True
+                if random.random() < 0.5:
+                    deterministic = False
+                else:
+                    deterministic = True
 
-                    action = agent.locomotion.navigate(
-                        agent.session, [obs_prev], [obs], [next_target_obs], deterministic=deterministic,
-                    )
+                action = agent.locomotion.navigate(
+                    agent.session, [obs_prev], [obs], [next_target_obs], deterministic=deterministic,
+                )
 
                 env_obs, rew, done, info = env.step(action)
 
-                if frame % frame_repeat == 0:
-                    log.info('Action is %d', action)
-                    obs_prev = obs
-                    obs = main_observation(env_obs)
+                log.info('Action is %d', action)
+                obs_prev = obs
+                obs = main_observation(env_obs)
 
-                    if test_navigator:
-                        next_target, next_target_d = navigator.get_next_target(
-                            [m], [obs], [final_goal_idx], [frame // frame_repeat],
-                        )
-                        next_target, next_target_d = next_target[0], next_target_d[0]
-                        if next_target is None:
-                            log.error('We are lost!')
-                            continue
-                        else:
-                            log.info('Next target is %d with distance %.3f!', next_target, next_target_d)
-                    else:
-                        next_target = localizer.get_next_target(obs, final_goal_idx)
-
-                    if next_target is not None:
-                        next_target_obs = m.get_observation(next_target)
-
+                next_target, next_target_d = navigator.get_next_target(
+                    [m], [obs], [final_goal_idx], [frame],
+                )
+                next_target, next_target_d = next_target[0], next_target_d[0]
+                if next_target is None:
+                    log.error('We are lost!')
+                else:
+                    log.info('Next target is %d with distance %.3f!', next_target, next_target_d)
                     display_obs('next_target', next_target_obs)
                     cv2.waitKey(1)
-                    log.info('Frame %d...', frame)
+
+                if next_target is not None:
+                    next_target_obs = m.get_observation(next_target)
+
+                log.info('Frame %d...', frame)
 
         took_seconds = t.one_frame
-        desired_fps = 40
+        desired_fps = 10
         wait_seconds = (1.0 / desired_fps) - took_seconds
         wait_seconds = max(0.0, wait_seconds)
         if wait_seconds > EPS:
