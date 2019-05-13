@@ -34,6 +34,8 @@ class TestTMAX(TestCase):
         params.distance_bootstrap = 10
         params.stage_duration = 100
         params.distance_encoder = 'resnet'
+        params.locomotion_encoder = 'resnet'
+        params.locomotion_siamese = True
 
         tmax_train_dir = join(experiments_dir(), params.experiments_root)
         ensure_dir_exists(tmax_train_dir)

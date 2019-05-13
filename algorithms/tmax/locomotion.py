@@ -53,9 +53,13 @@ class LocomotionNetwork:
             )
 
             if params.locomotion_siamese:
-                obs_curr_encoded = encoder(self.ph_obs_curr).encoded_input
-                obs_goal_encoded = encoder(self.ph_obs_goal).encoded_input
-                obs_encoder = obs_curr_encoded  # any of the two
+                obs_curr_encoder = encoder(self.ph_obs_curr)
+                obs_curr_encoded = obs_curr_encoder.encoded_input
+
+                obs_goal_encoder = encoder(self.ph_obs_goal)
+                obs_goal_encoded = obs_goal_encoder.encoded_input
+
+                obs_encoder = obs_curr_encoder  # any of the two
                 obs_encoded = tf.concat([obs_curr_encoded, obs_goal_encoded], axis=1)
             else:
                 # obs_concat = tf.concat([self.ph_obs_prev, self.ph_obs_curr, self.ph_obs_goal], axis=3)
