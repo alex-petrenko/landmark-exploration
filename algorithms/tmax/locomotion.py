@@ -22,6 +22,7 @@ class LocomotionNetworkParams:
 
         self.locomotion_encoder = 'resnet'
         self.locomotion_siamese = False
+        self.locomotion_use_prev = True  # not supported by siamese
         self.locomotion_use_batch_norm = True
         self.locomotion_fc_num = 1
         self.locomotion_fc_size = 512
@@ -62,8 +63,11 @@ class LocomotionNetwork:
                 obs_encoder = obs_curr_encoder  # any of the two
                 obs_encoded = tf.concat([obs_curr_encoded, obs_goal_encoded], axis=1)
             else:
-                # obs_concat = tf.concat([self.ph_obs_prev, self.ph_obs_curr, self.ph_obs_goal], axis=3)
-                obs_concat = tf.concat([self.ph_obs_curr, self.ph_obs_goal], axis=3)
+                if params.locomotion_use_prev:
+                    obs_concat = tf.concat([self.ph_obs_prev, self.ph_obs_curr, self.ph_obs_goal], axis=3)
+                else:
+                    obs_concat = tf.concat([self.ph_obs_curr, self.ph_obs_goal], axis=3)
+
                 obs_encoder = encoder(obs_concat)
                 obs_encoded = obs_encoder.encoded_input
 
@@ -105,7 +109,7 @@ class LocomotionNetwork:
         actions = session.run(
             self.best_action_deterministic if deterministic else self.act,
             feed_dict={
-                # self.ph_obs_prev: obs_prev,
+                self.ph_obs_prev: obs_prev,
                 self.ph_obs_curr: obs_curr,
                 self.ph_obs_goal: obs_goal,
                 self.ph_is_training: False,
