@@ -39,10 +39,10 @@ class RandomNetworkDistillation(CuriosityModule):
                 obs_space=obs_space, regularizer=reg, enc_params=target_enc_params,
             )
 
-            encoder_obs = encoder_template(ph_obs)
+            encoder_obs = encoder_template(ph_obs, name='encoder')
             encoded_obs = encoder_obs.encoded_input
 
-            tgt_encoder_obs = encoder_template(ph_obs)
+            tgt_encoder_obs = encoder_template(ph_obs, trainable=False, name='tgt_encoder')  # TODO: how to set this as non trainiable
             tgt_encoded_obs = tgt_encoder_obs.encoded_input
 
             self.feature_vector_size = encoded_obs.get_shape().as_list()[-1]
@@ -58,10 +58,15 @@ class RandomNetworkDistillation(CuriosityModule):
 
             self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='rnd_step')
 
-            opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='rnd_opt')
+            enc_variables = tf.get_collection(
+                key=tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name + '/encoder',
+            )  # TODO: Make sure it's correct var list
+
+            opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate,
+                                         name='rnd_opt', var_list=enc_variables)
             self.train_rnd = opt.minimize(self.objectives.loss, global_step=self.step)
 
-    def _objectives(self):  # TODO
+    def _objectives(self):
         # model losses
         l2_loss_obs = tf.nn.l2_loss(self.tgt_encoded_obs - self.predicted_features)  # TODO: better name
         prediction_loss = tf.reduce_mean(l2_loss_obs)
