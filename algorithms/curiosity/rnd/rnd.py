@@ -14,7 +14,6 @@ class RandomNetworkDistillation(CuriosityModule):
 
     class Params:  # TODO: Remove what you don't need
         def __init__(self):
-            self.cm_beta = 0.5
             self.cm_lr_scale = 10.0
             self.clip_bonus = 0.1
             self.prediction_bonus_coeff = 0.05  # scaling factor for prediction bonus vs env rewards
@@ -34,7 +33,7 @@ class RandomNetworkDistillation(CuriosityModule):
 
             obs_space = main_observation_space(env)
 
-            target_enc_params = get_enc_params(params, 'rnd_target')
+            target_enc_params = get_enc_params(params, 'rnd_target')  # fixed but random enc
             encoder_template = tf.make_template(
                 'obs_encoder', make_encoder, create_scope_now_=True,
                 obs_space=obs_space, regularizer=reg, enc_params=target_enc_params,
@@ -43,44 +42,34 @@ class RandomNetworkDistillation(CuriosityModule):
             encoder_obs = encoder_template(ph_obs)
             encoded_obs = encoder_obs.encoded_input
 
+            tgt_encoder_obs = encoder_template(ph_obs)
+            tgt_encoded_obs = tgt_encoder_obs.encoded_input
+
             self.feature_vector_size = encoded_obs.get_shape().as_list()[-1]
             log.info('Feature vector size in RND module: %d', self.feature_vector_size)
 
-            # forward model
-            forward_model_input = tf.concat([encoded_obs, actions_one_hot], axis=1)
-            forward_model_hidden = dense(forward_model_input, forward_fc, reg)
-            forward_model_hidden = dense(forward_model_hidden, forward_fc, reg)
-            forward_model_output = tf.contrib.layers.fully_connected(
-                forward_model_hidden, self.feature_vector_size, activation_fn=None,
-            )
-            self.predicted_features = forward_model_output
+            self.predicted_features = encoded_obs
+            self.tgt_encoded_obs = tgt_encoded_obs
 
             self.objectives = self._objectives()
 
             self._add_summaries()
-            self.summaries = merge_summaries(collections=['icm'])
+            self.summaries = merge_summaries(collections=['rnd'])
 
-            self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='icm_step')
+            self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='rnd_step')
 
-            opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='icm_opt')
+            opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='rnd_opt')
             self.train_rnd = opt.minimize(self.objectives.loss, global_step=self.step)
 
     def _objectives(self):  # TODO
         # model losses
-        forward_loss_batch = 0.5 * tf.square(self.encoded_next_obs - self.predicted_features)
-        forward_loss_batch = tf.reduce_mean(forward_loss_batch, axis=1) * self.feature_vector_size
-        forward_loss = tf.reduce_mean(forward_loss_batch)
+        l2_loss_obs = tf.nn.l2_loss(self.tgt_encoded_obs - self.predicted_features)  # TODO: better name
+        prediction_loss = tf.reduce_mean(l2_loss_obs)
 
-        bonus = self.params.prediction_bonus_coeff * forward_loss_batch
+        bonus = self.params.prediction_bonus_coeff * prediction_loss
         self.prediction_curiosity_bonus = tf.clip_by_value(bonus, -self.params.clip_bonus, self.params.clip_bonus)
 
-        inverse_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
-            logits=self.predicted_actions, labels=self.ph_actions,
-        ))
-
-        cm_beta = self.params.cm_beta
-        loss = forward_loss * cm_beta + inverse_loss * (1.0 - cm_beta)
-        loss = self.params.cm_lr_scale * loss
+        loss = self.params.cm_lr_scale * prediction_loss
         return AttrDict(locals())
 
     def _add_summaries(self):
