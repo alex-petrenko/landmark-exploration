@@ -883,7 +883,7 @@ class AgentTMAX(AgentLearner):
             self.reliable_edge_probability = 0.1
             self.successful_traversal_frames = 50  # if we traverse an edge in less than that, we succeeded
 
-            self.ucb_degree = 0.1  # exploration/exploitation tradeoff
+            self.ucb_degree = 0.5  # exploration/exploitation tradeoff
 
             self.exploration_budget = 1000
             self.random_frames_at_the_end = 0  # don't use
@@ -893,7 +893,7 @@ class AgentTMAX(AgentLearner):
 
             self.locomotion_experience_replay = True
 
-            self.stage_duration = 3000000
+            self.stage_duration = 20000000
 
             self.distance_network_checkpoint = None
             self.locomotion_network_checkpoint = None
@@ -1116,6 +1116,7 @@ class AgentTMAX(AgentLearner):
                 locomotion_scalar('loss', self.locomotion.loss)
                 locomotion_scalar('entropy', tf.reduce_mean(self.locomotion.actions_distribution.entropy()))
                 locomotion_scalar('reg_loss', self.locomotion.reg_loss)
+                locomotion_scalar('loco_correct', self.locomotion.correct)
 
     def add_ppo_summaries(self, actor_critic, obj, actor_step, critic_step, actor_scope='actor', critic_scope='critic'):
         with tf.name_scope(actor_scope):

@@ -46,8 +46,10 @@ class DistanceNetwork:
         self.ph_is_training = tf.placeholder(dtype=tf.bool, shape=[])
 
         with tf.variable_scope('distance') as scope:
+            log.info('Distance network graph...')
+
             self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='dist_step')
-            reg = tf.contrib.layers.l2_regularizer(scale=1e-4)
+            reg = tf.contrib.layers.l2_regularizer(scale=1e-5)
             summary_collections = ['dist']
 
             enc_params = EncoderParams()
@@ -90,9 +92,9 @@ class DistanceNetwork:
             self.dist_loss = tf.reduce_mean(self.dist_loss)
 
             reg_losses = tf.losses.get_regularization_losses(scope=scope.name)
-            self.reg_loss = tf.reduce_sum(reg_losses)
+            self.reg_loss = tf.reduce_sum(reg_losses) + encoder_reg_loss
 
-            self.loss = self.dist_loss + self.reg_loss + encoder_reg_loss
+            self.loss = self.dist_loss + self.reg_loss
 
             # helpers to encode observations (saves time)
             # does not matter if we use first vs second here

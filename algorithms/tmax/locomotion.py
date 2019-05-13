@@ -21,6 +21,7 @@ class LocomotionNetworkParams:
         self.locomotion_max_trajectory = 5  # max trajectory length to be utilized during training
 
         self.locomotion_encoder = 'resnet'
+        self.locomotion_siamese = False
         self.locomotion_use_batch_norm = True
         self.locomotion_fc_num = 1
         self.locomotion_fc_size = 512
@@ -34,18 +35,11 @@ class LocomotionNetwork:
         self.ph_is_training = tf.placeholder(dtype=tf.bool, shape=[])
 
         with tf.variable_scope('loco') as scope:
+            log.info('Locomotion network graph...')
+
             self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='loco_step')
 
-            reg = tf.contrib.layers.l2_regularizer(scale=1e-4)
-
-            # encoder = tf.make_template(
-            #     'siamese_enc_loco', make_encoder, create_scope_now_=True,
-            #     obs_space=obs_space, regularizer=None, params=params,
-            # )
-            #
-            # obs_curr_encoded = encoder(self.ph_obs_curr).encoded_input
-            # obs_goal_encoded = encoder(self.ph_obs_goal).encoded_input
-            # obs_encoded = tf.concat([obs_curr_encoded, obs_goal_encoded], axis=1)
+            reg = tf.contrib.layers.l2_regularizer(scale=1e-5)
 
             enc_params = EncoderParams()
             enc_params.enc_name = params.locomotion_encoder
@@ -54,13 +48,20 @@ class LocomotionNetwork:
             enc_params.summary_collections = ['loco']
 
             encoder = tf.make_template(
-                'joined_enc_loco', make_encoder, create_scope_now_=True,
+                'enc_loco', make_encoder, create_scope_now_=True,
                 obs_space=obs_space, regularizer=reg, enc_params=enc_params,
             )
 
-            obs_concat = tf.concat([self.ph_obs_prev, self.ph_obs_curr, self.ph_obs_goal], axis=3)
-            obs_encoder = encoder(obs_concat)
-            obs_encoded = obs_encoder.encoded_input
+            if params.locomotion_siamese:
+                obs_curr_encoded = encoder(self.ph_obs_curr).encoded_input
+                obs_goal_encoded = encoder(self.ph_obs_goal).encoded_input
+                obs_encoder = obs_curr_encoded  # any of the two
+                obs_encoded = tf.concat([obs_curr_encoded, obs_goal_encoded], axis=1)
+            else:
+                # obs_concat = tf.concat([self.ph_obs_prev, self.ph_obs_curr, self.ph_obs_goal], axis=3)
+                obs_concat = tf.concat([self.ph_obs_curr, self.ph_obs_goal], axis=3)
+                obs_encoder = encoder(obs_concat)
+                obs_encoded = obs_encoder.encoded_input
 
             encoder_reg_loss = 0.0
             if hasattr(obs_encoder, 'reg_loss'):
@@ -79,6 +80,10 @@ class LocomotionNetwork:
             self.best_action_deterministic = tf.argmax(action_logits, axis=1)
             self.act = self.actions_distribution.sample()
 
+            self.correct = tf.reduce_mean(
+                tf.to_float(tf.equal(self.ph_actions, tf.cast(tf.argmax(action_logits, axis=1), tf.int32))),
+            )
+
             actions_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.ph_actions, logits=action_logits)
             self.actions_loss = tf.reduce_mean(actions_loss)
 
@@ -96,7 +101,7 @@ class LocomotionNetwork:
         actions = session.run(
             self.best_action_deterministic if deterministic else self.act,
             feed_dict={
-                self.ph_obs_prev: obs_prev,
+                # self.ph_obs_prev: obs_prev,
                 self.ph_obs_curr: obs_curr,
                 self.ph_obs_goal: obs_goal,
                 self.ph_is_training: False,
@@ -174,12 +179,14 @@ class LocomotionBuffer:
                     if not trajectory.is_random[i]:
                         continue
 
+                    assert 0 < goal_idx - i <= max_trajectory
                     self.buffer.add(
                         obs_prev=trajectory.obs[max(0, i - 1)],
                         obs_curr=trajectory.obs[i],
                         obs_goal=trajectory.obs[goal_idx],
                         actions=trajectory.actions[i],
                         mode=trajectory.mode[i],
+                        diff=goal_idx - i,
                     )
                     data_so_far += 1
 

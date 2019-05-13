@@ -239,7 +239,7 @@ def test_locomotion(params, env_id):
     t = Timing()
 
     log.info('Num landmarks: %d', m.num_landmarks())
-    final_goal_idx = 1110
+    final_goal_idx = 1111
 
     log.info('Locomotion goal is %d', final_goal_idx)
 

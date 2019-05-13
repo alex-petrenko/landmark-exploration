@@ -8,6 +8,7 @@ import tensorflow as tf
 from algorithms.architectures.resnet import ResnetEncoder
 from algorithms.utils.env_wrappers import has_image_observations
 from algorithms.utils.tf_utils import dense, conv, put_kernels_on_grid, tf_shape
+from utils.utils import log
 
 
 class EncoderParams:
@@ -109,8 +110,10 @@ class EncoderResnet(Encoder):
         # f*ck batch norm
         l2_loss_variables = [v for v in resnet_variables if 'batch_normalization' not in v.name]
 
+        # log.info('Resnet variables: %r', l2_loss_variables)
+
         # loss is computed using fp32 for numerical stability.
-        weight_decay = 1e-4
+        weight_decay = 1e-5
         self.reg_loss = weight_decay * tf.add_n([tf.nn.l2_loss(tf.cast(v, tf.float32)) for v in l2_loss_variables])
 
 

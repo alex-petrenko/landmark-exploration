@@ -192,10 +192,10 @@ class Navigator:
                 log.info('Curr landmark %d, path %r', self.current_landmarks[env_i], lookahead_path)
                 log.info('Distances %r', [f'{d:.3f}' for d in distance])
 
-            if len(lookahead_path) > 1 and distance[1] < self.max_neighborhood_dist:
+            if len(lookahead_path) > 1 and distance[1] < 2 * confidently_reachable:
                 target_node = lookahead_path[1]
                 target_d = distance[1]
-                for i, node in enumerate(lookahead_path[2:], start=2):
+                for i, node in enumerate(lookahead_path[2:3], start=2):
                     if distance[i] > confidently_reachable:
                         break
                     target_node = node

@@ -1,22 +1,20 @@
-import copy
 import sys
 from collections import deque
 
 import numpy as np
 import tensorflow as tf
 
-from algorithms.utils.algo_utils import main_observation, num_env_steps
 from algorithms.multi_env import MultiEnv
 from algorithms.tmax.agent_tmax import AgentTMAX
 from algorithms.tmax.locomotion import LocomotionBuffer
 from algorithms.tmax.tmax_utils import parse_args_tmax, TmaxTrajectoryBuffer
-from algorithms.utils.buffer import Buffer
+from algorithms.utils.algo_utils import main_observation, num_env_steps
 from utils.envs.envs import create_env
 from utils.timing import Timing
 from utils.utils import log
 
 
-def calc_test_error(agent, data, params, env_steps):
+def calc_test_error(agent, data, params, env_steps, bn_training=False):
     log.info('Calculating test error...')
 
     t = Timing()
@@ -25,7 +23,7 @@ def calc_test_error(agent, data, params, env_steps):
     loco_step = locomotion.step.eval(session=agent.session)
 
     with t.timeit('test_error'):
-        losses, reg_losses = [], []
+        losses, reg_losses, correct = [], [], []
 
         obs_prev, obs_curr, obs_goal = data.buffer.obs_prev, data.buffer.obs_curr, data.buffer.obs_goal
         actions = data.buffer.actions
@@ -33,33 +31,41 @@ def calc_test_error(agent, data, params, env_steps):
         for i in range(0, len(obs_curr) - 1, batch_size):
             start, end = i, i + batch_size
 
-            loss, reg_loss = agent.session.run(
-                [locomotion.loss, locomotion.reg_loss],
+            loss, reg_loss, is_correct = agent.session.run(
+                [locomotion.loss, locomotion.reg_loss, locomotion.correct],
                 feed_dict={
                     locomotion.ph_obs_prev: obs_prev[start:end],
                     locomotion.ph_obs_curr: obs_curr[start:end],
                     locomotion.ph_obs_goal: obs_goal[start:end],
                     locomotion.ph_actions: actions[start:end],
-                    locomotion.ph_is_training: False,
+                    locomotion.ph_is_training: bn_training,
                 }
             )
 
             losses.append(loss)
             reg_losses.append(reg_loss)
+            correct.append(is_correct)
 
         avg_loss = np.mean(losses)
         avg_reg_loss = np.mean(reg_losses)
-        log.info('Avg loss at %d steps is %.3f (reg %.3f)', loco_step, avg_loss, avg_reg_loss)
+        avg_correct = np.mean(correct)
 
-        summary_obj_env_steps = tf.Summary()
-        summary_obj_env_steps.value.add(tag='locomotion/test_loss_env_steps', simple_value=avg_loss)
-        agent.summary_writer.add_summary(summary_obj_env_steps, env_steps)
+        log.info(
+            'Avg loss at %d steps is %.3f (reg %.3f, correct %.3f)', loco_step, avg_loss, avg_reg_loss, avg_correct,
+        )
 
-        summary_obj_training_steps = tf.Summary()
-        summary_obj_training_steps.value.add(tag='locomotion/test_loss_train_steps', simple_value=avg_loss)
-        agent.summary_writer.add_summary(summary_obj_training_steps, loco_step)
+        if not bn_training:
+            summary_obj_env_steps = tf.Summary()
+            summary_obj_env_steps.value.add(tag='locomotion/test_loss_env_steps', simple_value=avg_loss)
+            summary_obj_env_steps.value.add(tag='locomotion/test_correct_env_steps', simple_value=avg_correct)
+            agent.summary_writer.add_summary(summary_obj_env_steps, env_steps)
 
-        agent.summary_writer.flush()
+            summary_obj_training_steps = tf.Summary()
+            summary_obj_training_steps.value.add(tag='locomotion/test_loss_train_steps', simple_value=avg_loss)
+            summary_obj_training_steps.value.add(tag='locomotion/test_correct_train_steps', simple_value=avg_correct)
+            agent.summary_writer.add_summary(summary_obj_training_steps, loco_step)
+
+            agent.summary_writer.flush()
 
     log.debug('Took %s', t)
 
@@ -164,6 +170,7 @@ def train_loop(agent, multi_env):
 
             with t.timeit('train'):
                 locomotion_buffer.extract_data(trajectory_buffer.complete_trajectories)
+                trajectory_buffer.reset_trajectories()
 
                 if len(locomotion_buffer.buffer) >= params.locomotion_experience_replay_buffer:
                     if len(locomotion_buffer_test.buffer) <= 0:
@@ -181,8 +188,7 @@ def train_loop(agent, multi_env):
 
                     locomotion_buffer.reset()
                     calc_test_error(agent, locomotion_buffer_test, params, env_steps)
-
-                trajectory_buffer.reset_trajectories()
+                    calc_test_error(agent, locomotion_buffer_test, params, env_steps, bn_training=True)
 
             if t.train > 1.0:
                 log.debug('Train time: %s', t)
