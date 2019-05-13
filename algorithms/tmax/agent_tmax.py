@@ -1577,7 +1577,13 @@ class AgentTMAX(AgentLearner):
 
         log.info('Training loco_her %d pairs, batch %d, epochs %d', len(data.buffer), batch_size, num_epochs)
 
+        t = Timing()
+
         for epoch in range(num_epochs):
+            with t.timeit('shuffle'):
+                data.shuffle_data()
+            log.info('Shuffling locomotion data took %s', t)
+
             losses = []
 
             obs_prev, obs_curr, obs_goal = data.buffer.obs_prev, data.buffer.obs_curr, data.buffer.obs_goal

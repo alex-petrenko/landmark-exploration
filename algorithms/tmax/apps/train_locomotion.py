@@ -80,9 +80,15 @@ def train_locomotion_net(agent, data, params, env_steps):
     loco_step = locomotion.step.eval(session=agent.session)
 
     log.info('Training loco_her %d pairs, batch %d, epochs %d', len(data.buffer), batch_size, num_epochs)
+    t = Timing()
 
     for epoch in range(num_epochs):
         log.info('Epoch %d...', epoch + 1)
+
+        with t.timeit('shuffle'):
+            data.shuffle_data()
+        log.info('Shuffling locomotion data took %s', t)
+
         losses = []
 
         obs_prev, obs_curr, obs_goal = data.buffer.obs_prev, data.buffer.obs_curr, data.buffer.obs_goal
