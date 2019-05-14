@@ -1,5 +1,8 @@
+import random
+
 import numpy as np
 
+from algorithms.utils.algo_utils import EPS
 from utils.utils import min_with_idx, log, scale_to_range
 
 
@@ -156,8 +159,11 @@ class Navigator:
             if m is None or goals[env_i] is None:
                 continue
 
+            # log.info('Neighbors: %r', neighbors[env_i])
+            # log.info('Distances: %s', ', '.join([f'{d:.3f}' for d in distances[env_i]]))
+
             distance = distances[env_i]
-            min_d, min_d_idx = min_with_idx(distance)
+            min_d, min_d_idx = min_with_idx(distance[:2])
             closest_landmark = neighbors[env_i][min_d_idx]
             prev_landmark = self.current_landmarks[env_i]
 
@@ -167,7 +173,7 @@ class Navigator:
             else:
                 self.lost_localization_frames[env_i] = 0
 
-                if min_d_idx == 0 and len(distance) > 1 and distance[1] < 0.04:
+                if min_d_idx == 0 and len(distance) > 1 and distance[1] < random.random() * 0.04:
                     # current landmark (distance[0]) is the closest, but next landmark is also super close
                     # set current landmark to be the next landmark on the path to make some progress
                     min_d_idx = 1
@@ -184,7 +190,7 @@ class Navigator:
 
             target_node = lookahead_path[0]
             target_d = distance[0]
-            confidently_reachable = np.random.random() * 0.05 + 0.01
+            # confidently_reachable = np.random.random() * 0.05 + 0.01
             # confidently_reachable = self.confidently_reachable
 
             if len(maps) <= 1:
@@ -192,14 +198,20 @@ class Navigator:
                 log.info('Curr landmark %d, path %r', self.current_landmarks[env_i], lookahead_path)
                 log.info('Distances %r', [f'{d:.3f}' for d in distance])
 
-            if len(lookahead_path) > 1 and distance[1] < 2 * confidently_reachable:
-                target_node = lookahead_path[1]
-                target_d = distance[1]
-                for i, node in enumerate(lookahead_path[2:3], start=2):
-                    if distance[i] > confidently_reachable:
-                        break
-                    target_node = node
-                    target_d = distance[i]
+            if len(lookahead_path) > 1 and distance[1] < self.max_neighborhood_dist:
+                if distance[1] < 2 * self.confidently_reachable or random.random() < 0.5:
+                    target_node = lookahead_path[1]
+                    target_d = distance[1]
+
+                # for i, node in enumerate(lookahead_path[2:3], start=2):
+                #     if distance[i] > confidently_reachable:
+                #         break
+                #     target_node = node
+                #     target_d = distance[i]
+            # elif len(lookahead_path) > 1 and distance[1] < self.max_neighborhood_dist:
+            #     if random.random() < 0.3:
+            #         target_node = lookahead_path[1]
+            #         target_d = distance[1]
 
             # noinspection PyTypeChecker
             next_target[env_i] = target_node
@@ -217,3 +229,41 @@ class Navigator:
                 next_target[env_i] = None
 
         return next_target, next_target_d
+
+
+class NavigatorNaive(Navigator):
+    """Just replaying the actions."""
+
+    def __init__(self, agent):
+        super().__init__(agent)
+        self.next_action_to_take = [0] * self.params.num_envs
+
+    def reset(self, env_i, m):
+        super().reset(env_i, m)
+        self.next_action_to_take = [0] * self.params.num_envs
+
+    def get_next_target(self, maps, obs, goals, episode_frames):
+        self._ensure_paths_to_goal_calculated(maps, goals)
+
+        next_target = [None] * self.params.num_envs
+        next_target_d = [None] * self.params.num_envs
+
+        for env_i, m in enumerate(maps):
+            if m is None or goals[env_i] is None:
+                continue
+
+            lookahead = self._path_lookahead(env_i)
+            if len(lookahead) > 1:
+                m[]
+                self.next_action_to_take[env_i] = action
+
+
+            next_target[env_i] = self.current_landmarks[env_i]
+            next_target_d[env_i] = EPS
+
+        return next_target, next_target_d
+
+    def replay_action(self, env_indicesmaps,):
+
+
+        return self.action_to_take

@@ -216,6 +216,8 @@ def test_locomotion(params, env_id):
         return e
 
     # params = params.load()
+    # params.ensure_serialized()
+
     params.num_envs = 1
     agent = AgentTMAX(make_env_func, params)
 

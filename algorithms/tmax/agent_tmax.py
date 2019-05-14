@@ -486,11 +486,9 @@ class TmaxManager:
 
     @staticmethod
     def _pick_best_exploration_trajectory(agent, trajectories, trajectory_rewards, curr_sparse_map):
-        best_reward, best_trajectory_idx = max_with_idx(trajectory_rewards)
-        log.debug('Selected traj %d with reward %.3f', best_trajectory_idx, best_reward)
-        return best_trajectory_idx, best_reward
-
-        # TODO
+        # best_reward, best_trajectory_idx = max_with_idx(trajectory_rewards)
+        # log.debug('Selected traj %d with reward %.3f', best_trajectory_idx, best_reward)
+        # return best_trajectory_idx, best_reward
 
         map_builder = MapBuilder(agent)
 
@@ -668,9 +666,10 @@ class TmaxManager:
         # Initialize curiosity episode map to be the current persistent map, this is to "push" the curious agent out
         # of the already explored region. Note - this only works with sparse ECR reward, otherwise the agent can get
         # stuck between two landmarks to maximize the immediate reward.
-        if self.curiosity.episodic_maps is not None:
-            self.curiosity.episodic_maps[env_i] = copy.deepcopy(self.sparse_persistent_maps[-1])
-            self.curiosity.episodic_maps[env_i].new_episode()
+        # if self.curiosity.episodic_maps is not None:
+        #     self.curiosity.episodic_maps[env_i] = copy.deepcopy(self.sparse_persistent_maps[-1])
+        #     self.curiosity.episodic_maps[env_i].reset()
+        #     self.curiosity.episodic_maps[env_i].new_episode()
 
         self.env_stage[env_i] = self.global_stage
 
@@ -893,7 +892,7 @@ class AgentTMAX(AgentLearner):
 
             self.locomotion_experience_replay = True
 
-            self.stage_duration = 20000000
+            self.stage_duration = 10000000
 
             self.distance_network_checkpoint = None
             self.locomotion_network_checkpoint = None

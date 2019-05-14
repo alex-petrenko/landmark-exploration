@@ -193,10 +193,12 @@ def evaluate_experiment(env_id, experiment_name, num_envs=96):
 
 def evaluate_locomotion():
     experiments = (
-        ('doom_textured_super_sparse', 'doom_textured_super_sparse-tmax_v035-64filt'),
-        ('doom_textured_super_sparse', 'doom_textured_super_sparse-tmax_v035-gamma-0998'),
-        ('doom_maze_no_goal', 'doom_maze_no_goal-tmax_v035_dist_expl'),
-        ('doom_maze_no_goal', 'doom_maze_no_goal-tmax_v035_no_spars'),
+        # ('doom_textured_super_sparse', 'doom_textured_super_sparse-tmax_v035-64filt'),
+        # ('doom_textured_super_sparse', 'doom_textured_super_sparse-tmax_v035-gamma-0998'),
+        # ('doom_maze_no_goal', 'doom_maze_no_goal-tmax_v035_dist_expl'),
+        # ('doom_maze_no_goal', 'doom_maze_no_goal-tmax_v035_no_spars'),
+
+        ('doom_textured_super_sparse_v2', 'doom_textured_super_sparse_v2_trajectory'),
     )
 
     t = Timing()

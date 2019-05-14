@@ -4,7 +4,7 @@ import tensorflow as tf
 
 from unittest import TestCase
 
-from utils.distributions import CategoricalProbabilityDistribution, EPS
+from utils.distributions import CategoricalProbabilityDistribution, _EPS
 
 
 class TestDistr(TestCase):
@@ -45,7 +45,7 @@ class TestDistr(TestCase):
         with tf.Session(graph=g) as sess:
             e, probs, kl_self_v, kl_uniform_v = sess.run([entropy, probs, kl_self, kl_uniform])
             self.assertAlmostEqual(kl_self_v, 0)
-            self.assertGreater(kl_uniform_v, EPS)
+            self.assertGreater(kl_uniform_v, _EPS)
 
             self.assertAlmostEqual(uniform.max_entropy(), distr.max_entropy())
 

@@ -49,7 +49,7 @@ class LocomotionNetwork:
             enc_params.summary_collections = ['loco']
 
             encoder = tf.make_template(
-                'joined_enc_loco', make_encoder, create_scope_now_=True,
+                'enc_loco', make_encoder, create_scope_now_=True,
                 obs_space=obs_space, regularizer=reg, enc_params=enc_params,
             )
 
