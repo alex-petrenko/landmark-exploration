@@ -741,7 +741,7 @@ class TmaxManager:
                     self.last_stage_change = env_steps
                     log.debug('Stage changed to Locomotion')
 
-                    if self.params.locomotion_network_checkpoint is not None:
+                    if self.params.locomotion_network_checkpoint is not None or self.params.naive_locomotion:
                         # we want to switch back to exploration right away
                         # locomotion stage not required, because locomotion network is already trained
                         self.stage_change_required = True
