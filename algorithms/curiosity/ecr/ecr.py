@@ -44,6 +44,19 @@ class ECRModule(CuriosityModule):
 
         self._last_trained = 0
 
+    def initialize(self, session):
+        # restore only distance network if we have checkpoint for it
+        if self.params.distance_network_checkpoint is not None:
+            log.debug('Restoring distance net variables from %s', self.params.distance_network_checkpoint)
+            variables = slim.get_variables_to_restore()
+            distance_net_variables = [v for v in variables if v.name.split('/')[0] == 'distance']
+            distance_net_saver = tf.train.Saver(distance_net_variables)
+            distance_net_saver.restore(
+                session, tf.train.latest_checkpoint(self.params.distance_network_checkpoint),
+            )
+            self.initialized = True
+            log.debug('Done loading distance network from checkpoint!')
+
     def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos):
         obs_enc = self.distance.encode_observation(session, obs)
         if self.episodic_memories is None:
