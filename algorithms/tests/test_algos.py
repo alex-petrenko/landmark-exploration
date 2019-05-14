@@ -7,7 +7,7 @@ import tensorflow as tf
 from unittest import TestCase
 
 from algorithms.agent import AgentLearner, AgentRandom
-from algorithms.utils.algo_utils import RunningMeanStd, extract_keys
+from algorithms.utils.algo_utils import RunningMeanStd, extract_keys, choice_weighted, softmax
 from algorithms.utils.buffer import Buffer
 from algorithms.utils.encoders import is_normalized, tf_normalize
 from algorithms.utils.env_wrappers import TimeLimitWrapper, main_observation_space
@@ -76,6 +76,21 @@ class TestAlgoUtils(TestCase):
         obs1, obs2 = extract_keys(test_obs, 'obs1', 'obs2')
         self.assertEqual(obs1, [1, 3])
         self.assertEqual(obs2, [2, 4])
+
+    def test_weighed_choice(self):
+        a = np.arange(10)
+        logits = np.arange(10)
+        logits[9] = -1e10
+
+        log.debug('Softmax: %r', softmax(logits))
+
+        values = []
+        for i in range(10):
+            x = choice_weighted(a, logits)
+            self.assertNotEqual(x, 9)
+            values.append(x)
+
+        log.debug('Sampled values: %r', values)
 
 
 class TestEncoders(TestCase):

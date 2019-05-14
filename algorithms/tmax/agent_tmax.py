@@ -17,11 +17,11 @@ from algorithms.distance.distance import DistanceBuffer
 from algorithms.multi_env import MultiEnv
 from algorithms.tmax.graph_encoders import make_graph_encoder
 from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer, LocomotionNetworkParams
-from algorithms.tmax.navigator import Navigator
+from algorithms.tmax.navigator import Navigator, NavigatorNaive
 from algorithms.tmax.tmax_utils import TmaxMode, TmaxTrajectoryBuffer
 from algorithms.topological_maps.map_builder import MapBuilder, MapBuilderParams
 from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
-from algorithms.utils.algo_utils import EPS, num_env_steps, main_observation, goal_observation
+from algorithms.utils.algo_utils import EPS, num_env_steps, main_observation, goal_observation, choice_weighted
 from algorithms.utils.encoders import make_encoder, make_encoder_with_goal, get_enc_params
 from algorithms.utils.env_wrappers import main_observation_space, is_goal_based_env
 from algorithms.utils.models import make_model
@@ -226,7 +226,10 @@ class TmaxManager:
         self.params = agent.params
         self.num_envs = self.params.num_envs
 
-        self.navigator = Navigator(agent)
+        if self.params.naive_locomotion:
+            self.navigator = NavigatorNaive(agent)
+        else:
+            self.navigator = Navigator(agent)
 
         # we need to potentially preserve a few most recent copies of the persistent map
         # because when we update the persistent map not all of the environments switch to it right away,
@@ -431,8 +434,6 @@ class TmaxManager:
         """Sample target according to UCB of value estimate."""
         curr_sparse_map = self.current_sparse_maps[env_i]
 
-        log.info('Sparse map for %d has %d landmarks', env_i, curr_sparse_map.num_landmarks())
-
         # don't allow locomotion to most far away targets right away
         # this is to force exploration policy to find shorter routes to interesting locations
         # total_frames = max(0, self.env_steps - self.params.distance_bootstrap)
@@ -448,23 +449,30 @@ class TmaxManager:
             num_samples = curr_sparse_map.graph.nodes[target]['num_samples']
             total_num_samples += num_samples
 
-        max_ucb = -math.inf
-        max_ucb_target = -1
+        # max_ucb = -math.inf
+        # max_ucb_target = -1
+
+        ucb_values = []
         for target in potential_targets:
             value = curr_sparse_map.graph.nodes[target]['value_estimate']
             num_samples = curr_sparse_map.graph.nodes[target]['num_samples']
             ucb_degree = self.params.ucb_degree  # exploration/exploitation tradeoff
             ucb = value + ucb_degree * math.sqrt(math.log(total_num_samples) / num_samples)
-            if ucb > max_ucb:
-                max_ucb = ucb
-                max_ucb_target = target
+            ucb_values.append(ucb)
+            # if ucb > max_ucb:
+            #     max_ucb = ucb
+            #     max_ucb_target = target
+
+        selected_target_idx = choice_weighted(np.arange(len(potential_targets)), ucb_values)
+        selected_target_ucb = ucb_values[selected_target_idx]
+        selected_target = potential_targets[selected_target_idx]
 
         # corresponding location in the dense map
-        node_data = curr_sparse_map.graph.nodes[max_ucb_target]
+        node_data = curr_sparse_map.graph.nodes[selected_target]
         traj_idx = node_data.get('traj_idx', 0)
         frame_idx = node_data.get('frame_idx', 0)
 
-        log.debug('Location %d is max_ucb_target for exploration (t: %d, f: %d)', max_ucb_target, traj_idx, frame_idx)
+        log.debug('Location %d is selected for exploration (t: %d, f: %d)', selected_target, traj_idx, frame_idx)
 
         curr_dense_map = self.current_dense_maps[env_i]
         dense_map_landmark = curr_dense_map.frame_to_node_idx[traj_idx][frame_idx]
@@ -474,7 +482,8 @@ class TmaxManager:
         locomotion_goal_idx = dense_map_landmark
         log.info(
             'Locomotion final goal for exploration is %d (%d) with value %.3f, samples %d and UCB %.3f',
-            locomotion_goal_idx, max_ucb_target, node_data['value_estimate'], node_data['num_samples'], max_ucb,
+            locomotion_goal_idx, selected_target, node_data['value_estimate'], node_data['num_samples'],
+            selected_target_ucb,
         )
 
         if increase_samples:
@@ -488,6 +497,7 @@ class TmaxManager:
         else:
             return self._get_locomotion_final_goal_exploration_stage(env_i)
 
+    # noinspection PyUnusedLocal
     @staticmethod
     def _pick_best_exploration_trajectory(agent, trajectories, trajectory_rewards, curr_sparse_map):
         # best_reward, best_trajectory_idx = max_with_idx(trajectory_rewards)
@@ -580,7 +590,8 @@ class TmaxManager:
         best_trajectory.save(self.params.experiment_dir())
 
         map_builder = MapBuilder(self.agent)
-        best_trajectory = map_builder.sparsify_trajectory(best_trajectory)
+
+        # best_trajectory = map_builder.sparsify_trajectory(best_trajectory)
 
         # reset exploration trajectories
         self.exploration_trajectories.clear()
@@ -880,6 +891,7 @@ class AgentTMAX(AgentLearner):
             self.with_timer = True
 
             self.rl_locomotion = False
+            self.naive_locomotion = False  # plain action repeat instead of SPTM
             self.locomotion_dense_reward = True  # TODO remove?
             self.locomotion_reached_threshold = 0.075  # if distance is less than that, we reached the target
             self.reliable_path_probability = 0.4  # product of probs along the path for it to be considered reliable
@@ -1346,16 +1358,15 @@ class AgentTMAX(AgentLearner):
         if len(envs_with_goal) > 0:
             is_random[envs_with_goal] = 0
             goals[envs_with_goal] = goal_obs  # replace goals with locomotion goals
-            actions[envs_with_goal] = self.locomotion.navigate(
-                self.session,
-                obs_prev[envs_with_goal], observations[envs_with_goal], goals[envs_with_goal],
-                deterministic=deterministic,
-            )
-            for env_index in envs_with_goal:
-                if actions[env_index] == 0:
-                    # discourage idle actions to avoid getting stuck
-                    if random.random() < 0.03:
-                        actions[env_index] = np.random.randint(0, self.actor_critic.num_actions)
+
+            if self.params.naive_locomotion:
+                actions[envs_with_goal] = tmax_mgr.navigator.replay_action(envs_with_goal)
+            else:
+                actions[envs_with_goal] = self.locomotion.navigate(
+                    self.session,
+                    obs_prev[envs_with_goal], observations[envs_with_goal], goals[envs_with_goal],
+                    deterministic=deterministic,
+                )
 
         if len(envs_without_goal) > 0:
             # use random actions
@@ -1645,7 +1656,7 @@ class AgentTMAX(AgentLearner):
                             self.critic_summaries,
                         )
 
-        if self.params.locomotion_network_checkpoint is None:
+        if self.params.locomotion_network_checkpoint is None and not self.params.naive_locomotion:
             # train locomotion with self imitation from trajectories
             with timing.timeit('train_loco'):
                 if len(locomotion_buffer.buffer) >= self.params.locomotion_experience_replay_buffer:

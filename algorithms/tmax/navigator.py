@@ -274,7 +274,7 @@ class NavigatorNaive(Navigator):
             action = 0
             self.next_target[env_i] = self.current_landmarks[env_i]
 
-            if len(lookahead) > 1:
+            if len(lookahead) > 1 and lookahead[0] != lookahead[1]:
                 self.next_target[env_i] = lookahead[1]
                 action = m.graph.adj[lookahead[0]][lookahead[1]]['action']
 

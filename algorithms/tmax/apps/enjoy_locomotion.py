@@ -7,7 +7,7 @@ import cv2
 from pynput.keyboard import Key, Listener
 
 from algorithms.tmax.agent_tmax import AgentTMAX
-from algorithms.tmax.navigator import Navigator
+from algorithms.tmax.navigator import Navigator, NavigatorNaive
 from algorithms.tmax.tmax_utils import parse_args_tmax
 from algorithms.topological_maps.topological_map import TopologicalMap
 from algorithms.utils.algo_utils import main_observation, EPS
@@ -219,6 +219,8 @@ def test_locomotion(params, env_id):
     # params.ensure_serialized()
 
     params.num_envs = 1
+    # params.naive_locomotion = True
+
     agent = AgentTMAX(make_env_func, params)
 
     agent.initialize()
@@ -262,7 +264,11 @@ def test_locomotion(params, env_id):
 
     frame = 0
 
-    navigator = Navigator(agent)
+    if params.naive_locomotion:
+        navigator = NavigatorNaive(agent)
+    else:
+        navigator = Navigator(agent)
+
     navigator.reset(0, m)
 
     next_target, next_target_d = navigator.get_next_target(
@@ -280,9 +286,12 @@ def test_locomotion(params, env_id):
                 else:
                     deterministic = True
 
-                action = agent.locomotion.navigate(
-                    agent.session, [obs_prev], [obs], [next_target_obs], deterministic=deterministic,
-                )
+                if params.naive_locomotion:
+                    action = navigator.replay_action([0])[0]
+                else:
+                    action = agent.locomotion.navigate(
+                        agent.session, [obs_prev], [obs], [next_target_obs], deterministic=deterministic,
+                    )[0]
 
                 env_obs, rew, done, info = env.step(action)
 

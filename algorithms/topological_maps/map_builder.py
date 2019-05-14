@@ -124,7 +124,7 @@ class MapBuilder:
 
     @staticmethod
     def _add_simple_path_to_map(m, traj, node_idx):
-        obs, infos = traj.obs, traj.infos
+        obs, actions, infos = traj.obs, traj.actions, traj.infos
         curr_trajectory_idx = m.num_trajectories
 
         nodes = m.graph.nodes
@@ -134,7 +134,7 @@ class MapBuilder:
         nodes[0]['frame_idx'] = 0
 
         for i in range(1, len(traj)):
-            idx = m.add_landmark(obs[i], infos[i], update_curr_landmark=True)
+            idx = m.add_landmark(obs[i], infos[i], update_curr_landmark=True, action=actions[i])
             assert node_idx[i] == -1
             assert idx >= i
             node_idx[i] = idx

@@ -181,15 +181,19 @@ class TopologicalMap:
         self.curr_landmark_idx = landmark_idx
         self.path_so_far.append(landmark_idx)
 
-    def add_landmark(self, obs, info=None, update_curr_landmark=False):
+    def add_landmark(self, obs, info=None, update_curr_landmark=False, action=None):
         new_landmark_idx = self._add_new_node(obs=obs, pos=get_position(info), angle=get_angle(info))
         self.add_edge(self.curr_landmark_idx, new_landmark_idx)
         self._log_verbose('Added new landmark %d', new_landmark_idx)
 
         if update_curr_landmark:
+            prev_landmark_idx = self.curr_landmark_idx
             self.set_curr_landmark(new_landmark_idx)
             self._node_set_path(new_landmark_idx)
             assert self.path_so_far[-1] == new_landmark_idx
+
+            if prev_landmark_idx != self.curr_landmark_idx and action is not None:
+                self.graph.adj[prev_landmark_idx][self.curr_landmark_idx]['action'] = action
 
         return new_landmark_idx
 

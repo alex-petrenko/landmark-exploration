@@ -144,3 +144,16 @@ def list_to_string(x, limit=6):
         res += ' ... ,'
         res += str(x[-2:]).replace('[', ' ')
         return res
+
+
+def softmax(x):
+    ex = np.exp(x)
+    sum_ex = np.sum(np.exp(x))
+    return ex / sum_ex
+
+
+def choice_weighted(arr, logits):
+    assert len(arr) == len(logits)
+
+    probs = softmax(logits)
+    return np.random.choice(arr, p=probs)

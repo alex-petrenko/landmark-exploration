@@ -95,7 +95,7 @@ def trajectory_to_map(params, env_id):
         )
 
     map_builder = MapBuilder(agent)
-    trajectories = [map_builder.sparsify_trajectory(t) for t in trajectories]
+    # trajectories = [map_builder.sparsify_trajectory(t) for t in trajectories]  # TODO
 
     sparse_map = trajectories_to_sparse_map(
         init_map, trajectories, trajectories_dir, agent, map_img, coord_limits,
