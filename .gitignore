@@ -124,3 +124,9 @@ train_dir_old/**
 
 # DMLab
 .dmlab_cache
+
+# vim
+*.swp
+*.swo
+*~
+
