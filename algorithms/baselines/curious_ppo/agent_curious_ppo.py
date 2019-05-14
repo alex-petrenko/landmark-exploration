@@ -5,6 +5,7 @@ import numpy as np
 
 from algorithms.utils.algo_utils import num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer
+from algorithms.curiosity.ecr.ecr import ECRModule
 from algorithms.curiosity.ecr_map.ecr_map import ECRMapModule
 from algorithms.curiosity.icm.icm import IntrinsicCuriosityModule
 from algorithms.utils.env_wrappers import main_observation_space
@@ -33,6 +34,7 @@ class AgentCuriousPPO(AgentPPO):
     """PPO with a curiosity module (ICM or RND)"""
     class Params(
         AgentPPO.Params,
+        ECRModule.Params,  # find "episodic curiosity" params here
         ECRMapModule.Params,  # find "episodic curiosity" params here
         IntrinsicCuriosityModule.Params,  # find "ICM" params here
     ):
@@ -41,6 +43,7 @@ class AgentCuriousPPO(AgentPPO):
         def __init__(self, experiment_name):
             # calling all parent constructors
             AgentPPO.Params.__init__(self, experiment_name)
+            ECRModule.Params.__init__(self)
             ECRMapModule.Params.__init__(self)
             IntrinsicCuriosityModule.Params.__init__(self)
 
@@ -65,6 +68,8 @@ class AgentCuriousPPO(AgentPPO):
             self.curiosity = IntrinsicCuriosityModule(
                 env, self.ph_observations, self.ph_next_observations, self.ph_actions, params.forward_fc, params,
             )
+        elif self.params.curiosity_type == 'ecr':
+            self.curiosity = ECRModule(env, params)
         elif self.params.curiosity_type == 'ecr_map':
             self.curiosity = ECRMapModule(env, params)
         else:
