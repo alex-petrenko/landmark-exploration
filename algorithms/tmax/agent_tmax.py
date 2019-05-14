@@ -452,18 +452,24 @@ class TmaxManager:
         # max_ucb = -math.inf
         # max_ucb_target = -1
 
+        ucb_degree = self.params.ucb_degree  # exploration/exploitation tradeoff
         ucb_values = []
+
         for target in potential_targets:
             value = curr_sparse_map.graph.nodes[target]['value_estimate']
             num_samples = curr_sparse_map.graph.nodes[target]['num_samples']
-            ucb_degree = self.params.ucb_degree  # exploration/exploitation tradeoff
             ucb = value + ucb_degree * math.sqrt(math.log(total_num_samples) / num_samples)
             ucb_values.append(ucb)
             # if ucb > max_ucb:
             #     max_ucb = ucb
             #     max_ucb_target = target
 
-        selected_target_idx = choice_weighted(np.arange(len(potential_targets)), ucb_values)
+        if ucb_degree < 0:
+            # don't use UCB
+            selected_target_idx = np.random.randint(0, len(potential_targets))
+        else:
+            selected_target_idx = choice_weighted(np.arange(len(potential_targets)), ucb_values)
+
         selected_target_ucb = ucb_values[selected_target_idx]
         selected_target = potential_targets[selected_target_idx]
 

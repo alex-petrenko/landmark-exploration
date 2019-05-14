@@ -286,10 +286,10 @@ class NavigatorNaive(Navigator):
         return next_target, next_target_d
 
     def replay_action(self, env_indices):
-        actions = np.zeros(len(env_indices), np.int32)
+        actions = []
 
         for env_i in env_indices:
-            actions[env_i] = self.next_action_to_take[env_i]
+            actions.append(self.next_action_to_take[env_i])
             self.current_landmarks[env_i] = self.next_target[env_i]
 
-        return actions
+        return np.array(actions)
