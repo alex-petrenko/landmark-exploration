@@ -6,7 +6,7 @@ from algorithms.utils.algo_utils import EPS
 from utils.utils import min_with_idx, log, scale_to_range
 
 
-def edge_weight(i1, i2, d):
+def default_edge_weight(i1, i2, d):
     if d['loop_closure']:
         return 300
     if i2 < i1:
@@ -34,6 +34,8 @@ class Navigator:
         self.max_lost_localization = 40
         self.max_no_progress = 50
 
+        self.edge_weight = default_edge_weight
+
     def reset(self, env_i, m):
         self.current_landmarks[env_i] = 0  # assuming we always start from the same location
         self.last_made_progress[env_i] = 0
@@ -54,7 +56,7 @@ class Navigator:
                 # shortest path for this environment is already calculated
                 continue
 
-            path = m.get_path(curr_landmark, goal, edge_weight=edge_weight)
+            path = m.get_path(curr_landmark, goal, edge_weight=self.edge_weight)
 
             if path is None or len(path) <= 0:
                 log.error('Nodes: %r', list(m.graph.nodes))
@@ -106,7 +108,9 @@ class Navigator:
 
             neighbors = self._path_lookahead(env_i)
             neighbor_indices[env_i] = neighbors
-            # curr_landmark = self.current_landmarks[env_i] # not robust to very large diffs in node numbers (e.g. with loop closures)
+
+            # not robust to very large diffs in node numbers (e.g. with loop closures)
+            # curr_landmark = self.current_landmarks[env_i]
             # neighbor_diff.extend([n - curr_landmark for n in neighbors])
             neighbor_diff.extend(np.arange(len(neighbors)))
             neighborhood_obs.extend([m.get_observation(i) for i in neighbors])
@@ -231,39 +235,61 @@ class Navigator:
         return next_target, next_target_d
 
 
-# class NavigatorNaive(Navigator):
-#     """Just replaying the actions."""
-#
-#     def __init__(self, agent):
-#         super().__init__(agent)
-#         self.next_action_to_take = [0] * self.params.num_envs
-#
-#     def reset(self, env_i, m):
-#         super().reset(env_i, m)
-#         self.next_action_to_take = [0] * self.params.num_envs
-#
-#     def get_next_target(self, maps, obs, goals, episode_frames):
-#         self._ensure_paths_to_goal_calculated(maps, goals)
-#
-#         next_target = [None] * self.params.num_envs
-#         next_target_d = [None] * self.params.num_envs
-#
-#         for env_i, m in enumerate(maps):
-#             if m is None or goals[env_i] is None:
-#                 continue
-#
-#             lookahead = self._path_lookahead(env_i)
-#             if len(lookahead) > 1:
-#                 m[]
-#                 self.next_action_to_take[env_i] = action
-#
-#
-#             next_target[env_i] = self.current_landmarks[env_i]
-#             next_target_d[env_i] = EPS
-#
-#         return next_target, next_target_d
-#
-#     def replay_action(self, env_indicesmaps,):
-#
-#
-#         return self.action_to_take
+class NavigatorNaive(Navigator):
+    """Just replaying the actions."""
+
+    def __init__(self, agent):
+        super().__init__(agent)
+        self.next_action_to_take = [0] * self.params.num_envs
+        self.next_target = [0] * self.params.num_envs
+
+        def edge_weight(i1, i2, d):
+            """Action replay can only use forward edges and no loop closures."""
+            if d['loop_closure']:
+                return 1e9
+            if i2 < i1:
+                return 1e9
+            return 1
+
+        self.edge_weight = edge_weight
+
+    def reset(self, env_i, m):
+        super().reset(env_i, m)
+        self.next_action_to_take = [0] * self.params.num_envs
+        self.next_target = [0] * self.params.num_envs
+
+    def get_next_target(self, maps, obs, goals, episode_frames):
+        self._ensure_paths_to_goal_calculated(maps, goals)
+
+        next_target = [None] * self.params.num_envs
+        next_target_d = [None] * self.params.num_envs
+
+        for env_i, m in enumerate(maps):
+            if m is None or goals[env_i] is None:
+                continue
+
+            lookahead = self._path_lookahead(env_i)
+            assert lookahead[0] == self.current_landmarks[env_i]
+
+            action = 0
+            self.next_target[env_i] = self.current_landmarks[env_i]
+
+            if len(lookahead) > 1:
+                self.next_target[env_i] = lookahead[1]
+                action = m.graph.adj[lookahead[0]][lookahead[1]]['action']
+
+            self.next_action_to_take[env_i] = action
+
+            next_target[env_i] = self.current_landmarks[env_i]
+            next_target_d[env_i] = EPS
+
+        return next_target, next_target_d
+
+    def replay_action(self, env_indices):
+        actions = np.zeros(len(env_indices), np.int32)
+
+        for env_i in env_indices:
+            actions[env_i] = self.next_action_to_take[env_i]
+            self.current_landmarks[env_i] = self.next_target[env_i]
+
+        return actions

@@ -431,12 +431,16 @@ class TmaxManager:
         """Sample target according to UCB of value estimate."""
         curr_sparse_map = self.current_sparse_maps[env_i]
 
+        log.info('Sparse map for %d has %d landmarks', env_i, curr_sparse_map.num_landmarks())
+
         # don't allow locomotion to most far away targets right away
         # this is to force exploration policy to find shorter routes to interesting locations
-        total_frames = max(0, self.env_steps - self.params.distance_bootstrap)
-        stage_idx = total_frames // (2 * self.params.stage_duration)
-        max_distance = max(5, stage_idx * 1000)
-        potential_targets = MapBuilder.sieve_landmarks_by_distance(curr_sparse_map, max_distance=max_distance)
+        # total_frames = max(0, self.env_steps - self.params.distance_bootstrap)
+        # stage_idx = total_frames // (2 * self.params.stage_duration)
+        # max_distance = max(5, stage_idx * 1000)
+        # potential_targets = MapBuilder.sieve_landmarks_by_distance(curr_sparse_map, max_distance=max_distance)
+
+        potential_targets = list(curr_sparse_map.graph.nodes)
 
         # calculate UCB of value estimate for all targets
         total_num_samples = 0
@@ -460,7 +464,7 @@ class TmaxManager:
         traj_idx = node_data.get('traj_idx', 0)
         frame_idx = node_data.get('frame_idx', 0)
 
-        # log.debug('Location %d is max_ucb_target for exploration (t: %d, f: %d)', max_ucb_target, traj_idx, frame_idx)
+        log.debug('Location %d is max_ucb_target for exploration (t: %d, f: %d)', max_ucb_target, traj_idx, frame_idx)
 
         curr_dense_map = self.current_dense_maps[env_i]
         dense_map_landmark = curr_dense_map.frame_to_node_idx[traj_idx][frame_idx]
@@ -894,7 +898,6 @@ class AgentTMAX(AgentLearner):
 
             self.stage_duration = 10000000
 
-            self.distance_network_checkpoint = None
             self.locomotion_network_checkpoint = None
             self.persistent_map_checkpoint = None
 
@@ -1163,6 +1166,10 @@ class AgentTMAX(AgentLearner):
             self.params.stats_episodes, avg_rewards, best_avg_reward,
         )
 
+    def initialize(self):
+        super().initialize()
+        self.curiosity.initialize(self.session)
+
     def initialize_variables(self):
         checkpoint_dir = model_dir(self.params.experiment_dir())
         try:
@@ -1170,18 +1177,6 @@ class AgentTMAX(AgentLearner):
         except ValueError:
             log.info('Didn\'t find a valid restore point, start from scratch')
             self.session.run(tf.global_variables_initializer())
-
-        # restore only distance network if we have checkpoint for it
-        if self.params.distance_network_checkpoint is not None:
-            log.debug('Restoring distance net variables from %s', self.params.distance_network_checkpoint)
-            variables = slim.get_variables_to_restore()
-            distance_net_variables = [v for v in variables if v.name.split('/')[0] == 'distance']
-            distance_net_saver = tf.train.Saver(distance_net_variables)
-            distance_net_saver.restore(
-                self.session, tf.train.latest_checkpoint(self.params.distance_network_checkpoint),
-            )
-            self.curiosity.initialized = True
-            log.debug('Done loading distance network from checkpoint!')
 
         # restore only locomotion network if we have checkpoint for it
         if self.params.locomotion_network_checkpoint is not None:

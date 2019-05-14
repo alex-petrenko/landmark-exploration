@@ -34,8 +34,10 @@ class DistanceNetworkParams:
 
         self.distance_encoder = 'resnet'
         self.distance_use_batch_norm = True
-        self.distance_fc_num = 4
+        self.distance_fc_num = 2
         self.distance_fc_size = 512
+
+        self.distance_network_checkpoint = None
 
 
 class DistanceNetwork:

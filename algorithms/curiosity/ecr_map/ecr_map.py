@@ -4,6 +4,7 @@ from collections import deque
 
 import numpy as np
 import tensorflow as tf
+from tensorflow.contrib import slim
 
 from algorithms.curiosity.curiosity_module import CuriosityModule
 from algorithms.distance.distance import DistanceNetwork, DistanceNetworkParams, DistanceBuffer
@@ -53,6 +54,19 @@ class ECRMapModule(CuriosityModule):
 
         self._last_trained = 0
         self._last_map_summary = 0
+
+    def initialize(self, session):
+        # restore only distance network if we have checkpoint for it
+        if self.params.distance_network_checkpoint is not None:
+            log.debug('Restoring distance net variables from %s', self.params.distance_network_checkpoint)
+            variables = slim.get_variables_to_restore()
+            distance_net_variables = [v for v in variables if v.name.split('/')[0] == 'distance']
+            distance_net_saver = tf.train.Saver(distance_net_variables)
+            distance_net_saver.restore(
+                session, tf.train.latest_checkpoint(self.params.distance_network_checkpoint),
+            )
+            self.initialized = True
+            log.debug('Done loading distance network from checkpoint!')
 
     def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos, mask=None):
         for i, episodic_map in enumerate(self.episodic_maps):
@@ -117,18 +131,21 @@ class ECRMapModule(CuriosityModule):
     def train(self, latest_batch_of_experience, env_steps, agent):
         # latest batch of experience is not used here
 
-        self.distance_buffer.extract_data(self.trajectory_buffer.complete_trajectories)
+        if self.params.distance_network_checkpoint is not None:
+            # don't train distance net if it's already provided
 
-        if env_steps - self._last_trained > self.params.distance_train_interval:
-            if self.distance_buffer.has_enough_data():
-                self.distance.train(self.distance_buffer.buffer, env_steps, agent)
-                self._last_trained = env_steps
+            self.distance_buffer.extract_data(self.trajectory_buffer.complete_trajectories)
 
-                # discard old experience
-                self.distance_buffer.reset()
+            if env_steps - self._last_trained > self.params.distance_train_interval:
+                if self.distance_buffer.has_enough_data():
+                    self.distance.train(self.distance_buffer.buffer, env_steps, agent)
+                    self._last_trained = env_steps
 
-                # invalidate observation features because distance network has changed
-                self.distance.obs_encoder.reset()
+                    # discard old experience
+                    self.distance_buffer.reset()
+
+                    # invalidate observation features because distance network has changed
+                    self.distance.obs_encoder.reset()
 
         if env_steps > self.params.distance_bootstrap and not self.is_initialized():
             log.debug('Curiosity is initialized @ %d steps!', env_steps)

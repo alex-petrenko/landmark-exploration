@@ -70,6 +70,10 @@ class AgentCuriousPPO(AgentPPO):
         else:
             raise Exception(f'Curiosity type {self.params.curiosity_type} not supported')
 
+    def initialize(self):
+        super().initialize()
+        self.curiosity.initialize(self.session)
+
     def _policy_step(self, obs, goals):
         if self.params.random_exploration:
             actions = np.random.randint(0, self.num_actions, self.params.num_envs)

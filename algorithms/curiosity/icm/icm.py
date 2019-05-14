@@ -107,6 +107,9 @@ class IntrinsicCuriosityModule(CuriosityModule):
             cm_scalar('curiosity_inverse_loss', obj.inverse_loss)
             cm_scalar('curiosity_module_loss', obj.loss)
 
+    def initialize(self, session):
+        pass
+
     def generate_bonus_rewards(self, session, observations, next_obs, actions, dones, infos):
         bonuses = session.run(
             self.prediction_curiosity_bonus,

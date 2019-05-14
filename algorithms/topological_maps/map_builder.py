@@ -4,7 +4,7 @@ from functools import partial
 
 import numpy as np
 
-from algorithms.tmax.navigator import edge_weight
+from algorithms.tmax.navigator import default_edge_weight
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import hash_observation
 from utils.timing import Timing
@@ -339,7 +339,7 @@ class MapBuilder:
             frame_idx = node_data.get('frame_idx', 0)
 
             dense_map_landmark = dense_map.frame_to_node_idx[traj_idx][frame_idx]
-            path = dense_map.get_path(0, dense_map_landmark, edge_weight=edge_weight)
+            path = dense_map.get_path(0, dense_map_landmark, edge_weight=default_edge_weight)
             sparse_map.graph.nodes[landmark]['distance'] = len(path)
 
     @staticmethod

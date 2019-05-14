@@ -83,6 +83,9 @@ class RandomNetworkDistillation(CuriosityModule):
             cm_scalar = partial(tf.summary.scalar, collections=['rnd'])
             cm_scalar('rnd_loss', obj.loss)
 
+    def initialize(self, session):
+        pass
+
     def generate_bonus_rewards(self, session, observations, next_obs, actions, dones, infos):
         bonuses = session.run(
             self.prediction_curiosity_bonus,
