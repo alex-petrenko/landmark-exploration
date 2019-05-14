@@ -131,7 +131,7 @@ class ECRMapModule(CuriosityModule):
     def train(self, latest_batch_of_experience, env_steps, agent):
         # latest batch of experience is not used here
 
-        if self.params.distance_network_checkpoint is not None:
+        if self.params.distance_network_checkpoint is None:
             # don't train distance net if it's already provided
 
             self.distance_buffer.extract_data(self.trajectory_buffer.complete_trajectories)
