@@ -231,39 +231,39 @@ class Navigator:
         return next_target, next_target_d
 
 
-class NavigatorNaive(Navigator):
-    """Just replaying the actions."""
-
-    def __init__(self, agent):
-        super().__init__(agent)
-        self.next_action_to_take = [0] * self.params.num_envs
-
-    def reset(self, env_i, m):
-        super().reset(env_i, m)
-        self.next_action_to_take = [0] * self.params.num_envs
-
-    def get_next_target(self, maps, obs, goals, episode_frames):
-        self._ensure_paths_to_goal_calculated(maps, goals)
-
-        next_target = [None] * self.params.num_envs
-        next_target_d = [None] * self.params.num_envs
-
-        for env_i, m in enumerate(maps):
-            if m is None or goals[env_i] is None:
-                continue
-
-            lookahead = self._path_lookahead(env_i)
-            if len(lookahead) > 1:
-                m[]
-                self.next_action_to_take[env_i] = action
-
-
-            next_target[env_i] = self.current_landmarks[env_i]
-            next_target_d[env_i] = EPS
-
-        return next_target, next_target_d
-
-    def replay_action(self, env_indicesmaps,):
-
-
-        return self.action_to_take
+# class NavigatorNaive(Navigator):
+#     """Just replaying the actions."""
+#
+#     def __init__(self, agent):
+#         super().__init__(agent)
+#         self.next_action_to_take = [0] * self.params.num_envs
+#
+#     def reset(self, env_i, m):
+#         super().reset(env_i, m)
+#         self.next_action_to_take = [0] * self.params.num_envs
+#
+#     def get_next_target(self, maps, obs, goals, episode_frames):
+#         self._ensure_paths_to_goal_calculated(maps, goals)
+#
+#         next_target = [None] * self.params.num_envs
+#         next_target_d = [None] * self.params.num_envs
+#
+#         for env_i, m in enumerate(maps):
+#             if m is None or goals[env_i] is None:
+#                 continue
+#
+#             lookahead = self._path_lookahead(env_i)
+#             if len(lookahead) > 1:
+#                 m[]
+#                 self.next_action_to_take[env_i] = action
+#
+#
+#             next_target[env_i] = self.current_landmarks[env_i]
+#             next_target_d[env_i] = EPS
+#
+#         return next_target, next_target_d
+#
+#     def replay_action(self, env_indicesmaps,):
+#
+#
+#         return self.action_to_take
