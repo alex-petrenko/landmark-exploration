@@ -25,8 +25,10 @@ class ECRModule(CuriosityModule):
             self.episodic_memory_size = 200
             self.ecr_dense_reward = True
             self.dense_reward_scaling_factor = 0.1
-            self.dense_reward_threshold = 1
+            self.dense_reward_threshold = 0.5
             self.add_to_memory_threshold = 0.9
+
+            self.memory_expansion_reward = 0.2  # reward for finding new memory entry
 
     def __init__(self, env, params):
         self.params = params
@@ -115,9 +117,13 @@ class ECRModule(CuriosityModule):
 
             assert len(distances_to_memory) == len(next_obs_enc)
 
+            sparse_rewards = np.zeros(self.params.num_envs)
             for i, dist in enumerate(distances_to_memory):
                 if dist > self.params.add_to_memory_threshold:
                     self.episodic_memories[i].add(next_obs_enc[i])
+                    sparse_rewards[i] += self.params.memory_expansion_reward
+
+            bonuses += sparse_rewards
 
             dense_rewards = np.array([
                 0.0 if done else dist - self.params.dense_reward_threshold for (dist, done) in zip(distances_to_memory, dones)
