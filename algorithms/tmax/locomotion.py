@@ -167,10 +167,12 @@ class LocomotionBuffer:
 
                 trajectory_idx = random.choice(range(len(trajectories)))
                 trajectory = trajectories[trajectory_idx]
-                if len(random_frames[trajectory_idx]) <= 0:
+                if len(random_frames[trajectory_idx]) <= max_trajectory:
                     continue
 
                 first_random_frame = random_frames[trajectory_idx][0]
+                if len(trajectory) - first_random_frame < max_trajectory:
+                    continue
 
                 # sample random interval in trajectory, treat the last frame as "imaginary" goal, use actions as
                 # ground truth

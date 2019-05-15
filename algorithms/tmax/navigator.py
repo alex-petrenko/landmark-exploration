@@ -255,8 +255,8 @@ class NavigatorNaive(Navigator):
 
     def reset(self, env_i, m):
         super().reset(env_i, m)
-        self.next_action_to_take = [0] * self.params.num_envs
-        self.next_target = [0] * self.params.num_envs
+        self.next_action_to_take[env_i] = 0
+        self.next_target[env_i] = 0
 
     def get_next_target(self, maps, obs, goals, episode_frames):
         self._ensure_paths_to_goal_calculated(maps, goals)

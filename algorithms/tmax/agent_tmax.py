@@ -338,6 +338,7 @@ class TmaxManager:
 
             if self.episode_frames[env_i] >= self.end_episode[env_i]:
                 reset[env_i] = True
+                log.info('Episode reset for env %d', env_i)
 
         return reset
 
@@ -646,7 +647,7 @@ class TmaxManager:
                     break
 
             t.trim_at(first_exploration_frame + self.params.max_exploration_trajectory)
-            log.info('Trimmed trajectory %d at %d frames', t_idx, len(t))
+            log.info('Trimmed trajectory %d at %d frames (first expl frame %d)', t_idx, len(t), first_exploration_frame)
 
         curr_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
 
@@ -746,6 +747,7 @@ class TmaxManager:
                 return
 
     def _new_episode(self, env_i):
+        log.info('New episode for %d', env_i)
         self.current_dense_maps[env_i] = self.dense_persistent_maps[-1]
         self.current_sparse_maps[env_i] = self.sparse_persistent_maps[-1]
 
@@ -830,6 +832,11 @@ class TmaxManager:
                 continue
 
             self.locomotion_targets[env_i] = next_target[env_i]
+            # log.info(
+            #     'Env %d locomotion target %d, frames %d',
+            #     env_i, self.locomotion_targets[env_i], self.episode_frames[env_i],
+            # )
+
             exploration_stage = self.env_stage[env_i] == TmaxMode.EXPLORATION
 
             end_locomotion, locomotion_success = False, False
@@ -861,6 +868,7 @@ class TmaxManager:
                 if exploration_stage:
                     self.mode[env_i] = TmaxMode.EXPLORATION
                     self.exploration_started[env_i] = self.episode_frames[env_i]
+                    log.info('Switched mode to exploration for env %d at %d', env_i, self.exploration_started[env_i])
                 else:
                     # after we reached locomotion goal we just collect random experience
                     self.random_mode[env_i] = True
@@ -914,14 +922,14 @@ class TmaxManager:
                 else:
                     self.episode_frames[env_i] += 1
 
-            timer = self.get_timer()
-            for env_i in range(self.num_envs):
-                if timer[env_i] < EPS:
-                    assert self.mode[env_i] == TmaxMode.EXPLORATION
-                    if not self.random_mode[env_i]:
-                        log.info('Environment %d exploration out of timer (%f)', env_i, timer[env_i])
-                        self.random_mode[env_i] = True
-                        done_flags[env_i] = True  # for RL purposes this is the end of the episode
+            # timer = self.get_timer()
+            # for env_i in range(self.num_envs):
+            #     if timer[env_i] < EPS:
+            #         assert self.mode[env_i] == TmaxMode.EXPLORATION
+            #         if not self.random_mode[env_i]:
+            #             log.info('Environment %d exploration out of timer (%f)', env_i, timer[env_i])
+            #             self.random_mode[env_i] = True
+            #             done_flags[env_i] = True  # for RL purposes this is the end of the episode
 
         self._update_stage(env_steps)
 
@@ -1781,7 +1789,7 @@ class AgentTMAX(AgentLearner):
                     # wait for all the workers to complete an environment step
                     with timing.add_time('env_step'):
                         reset = tmax_mgr.is_episode_reset()
-                        env_obs, rewards, dones, infos = multi_env.step(actions, reset)
+                        env_obs, rewards, dones, new_infos = multi_env.step(actions, reset)
 
                     trajectory_buffer.add(observations, actions, infos, dones, tmax_mgr=tmax_mgr, is_random=is_random)
 
@@ -1789,7 +1797,7 @@ class AgentTMAX(AgentLearner):
 
                     with timing.add_time('tmax'):
                         rewards, done_flags = tmax_mgr.update(
-                            observations, new_obs, rewards, dones, infos, env_steps, timing,
+                            observations, new_obs, rewards, dones, new_infos, env_steps, timing,
                         )
 
                     # add experience from all environments to the current buffer(s)
@@ -1800,7 +1808,7 @@ class AgentTMAX(AgentLearner):
                     )
 
                     obs_prev = observations
-                    observations, goals = new_obs, new_goals
+                    observations, goals, infos = new_obs, new_goals, new_infos
 
                     self.process_infos(infos)
                     num_steps_delta = num_env_steps(infos)
