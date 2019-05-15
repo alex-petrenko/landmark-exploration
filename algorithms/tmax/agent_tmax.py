@@ -20,7 +20,7 @@ from algorithms.tmax.locomotion import LocomotionNetwork, LocomotionBuffer, Loco
 from algorithms.tmax.navigator import Navigator, NavigatorNaive
 from algorithms.tmax.tmax_utils import TmaxMode, TmaxTrajectoryBuffer
 from algorithms.topological_maps.map_builder import MapBuilder, MapBuilderParams
-from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries
+from algorithms.topological_maps.topological_map import TopologicalMap, map_summaries, hash_observation
 from algorithms.utils.algo_utils import EPS, num_env_steps, main_observation, goal_observation, choice_weighted
 from algorithms.utils.encoders import make_encoder, make_encoder_with_goal, get_enc_params
 from algorithms.utils.env_wrappers import main_observation_space, is_goal_based_env
@@ -31,7 +31,7 @@ from utils.distributions import CategoricalProbabilityDistribution
 from utils.envs.generate_env_map import generate_env_map
 from utils.tensorboard import image_summary
 from utils.timing import Timing
-from utils.utils import log, AttrDict, numpy_all_the_way, model_dir, max_with_idx, ensure_dir_exists
+from utils.utils import log, AttrDict, numpy_all_the_way, model_dir, max_with_idx, ensure_dir_exists, min_with_idx
 
 
 class ActorCritic:
@@ -467,6 +467,7 @@ class TmaxManager:
         if ucb_degree < 0:
             # don't use UCB
             selected_target_idx = np.random.randint(0, len(potential_targets))
+            log.debug('Exploration target chosen randomly at %d', potential_targets[selected_target_idx])
         else:
             selected_target_idx = choice_weighted(np.arange(len(potential_targets)), ucb_values)
 
@@ -556,6 +557,71 @@ class TmaxManager:
 
         return best_trajectory_idx, max_landmarks
 
+    @staticmethod
+    def _pick_best_exploration_trajectory_avg_distance(agent, trajectories, curr_sparse_map):
+        distance_net = agent.curiosity.distance
+        map_obs = [curr_sparse_map.get_observation(node) for node in curr_sparse_map.graph.nodes]
+        map_obs_hash = [hash_observation(o) for o in map_obs]
+
+        avg_distances = []
+        timing = Timing()
+        for t_idx, t in enumerate(trajectories):
+            with timing.timeit('traj_distance'):
+                if hasattr(t, 'mode'):
+                    mode = t.mode
+                else:
+                    mode = [TmaxMode.EXPLORATION] * len(t)
+                    log.warning('Trajectory must have mode')
+
+                tr_obs = [t.obs[i] for i in range(len(t)) if mode[i] == TmaxMode.EXPLORATION]
+
+                batch_size = 1024
+                batch_size = max(batch_size, len(map_obs))
+
+                distances = []
+                j = 0
+                while j < len(tr_obs):
+                    obs, all_map_obs = [], []
+                    obs_hash, all_map_obs_hash = [], []
+                    while j < len(tr_obs) and len(obs) + len(map_obs) <= batch_size:
+                        tr_obs_hash = hash_observation(tr_obs[j])
+                        obs.extend([tr_obs[j]] * len(map_obs))
+                        obs_hash.extend([tr_obs_hash] * len(map_obs))
+                        all_map_obs.extend(map_obs)
+                        all_map_obs_hash.extend(map_obs_hash)
+                        j += 1
+
+                    d = distance_net.distances_from_obs(
+                        agent.session,
+                        obs_first=all_map_obs, obs_second=obs,
+                        hashes_first=all_map_obs_hash, hashes_second=obs_hash,
+                    )
+                    d = [d[k:k + len(map_obs)] for k in range(0, len(d), len(map_obs))]
+
+                    for obs_distance in d:
+                        min_d, min_d_idx = min_with_idx(obs_distance)
+                        distances.append(min_d)
+
+                assert len(distances) == len(tr_obs)
+                trajectory_avg_distance = np.mean(distances)
+                avg_distances.append(trajectory_avg_distance)
+
+            log.debug('Trajectory %d has avg_distance of %.3f (took %s)', t_idx, trajectory_avg_distance, timing)
+
+        max_d, max_d_idx = max_with_idx(avg_distances)
+        log.debug('Best trajectory %d with avg distance from memory %.3f', max_d_idx, max_d)
+
+        best_trajectory = trajectories[max_d_idx]
+        log.debug('%d total frames in best trajectory', len(best_trajectory))
+
+        if hasattr(best_trajectory, 'mode'):
+            log.debug(
+                '%d exploration frames in best trajectory',
+                sum(mode == TmaxMode.EXPLORATION for mode in best_trajectory.mode),
+            )
+
+        return max_d_idx, max_d
+
     def _prepare_persistent_map_for_locomotion(self):
         """Pick an exploration trajectory and turn it into a dense persistent map."""
         log.warning('Prepare persistent map for locomotion!')
@@ -564,8 +630,8 @@ class TmaxManager:
             # we don't have any trajectories yet, need more exploration
             return False
 
-        trajectory_rewards = [t[0] for t in self.exploration_trajectories]
-        log.info('Best trajectories rewards: %r', trajectory_rewards)
+        # trajectory_rewards = [t[0] for t in self.exploration_trajectories]
+        # log.info('Best trajectories rewards: %r', trajectory_rewards)
 
         trajectories = [t[1] for t in self.exploration_trajectories]
 
@@ -583,14 +649,14 @@ class TmaxManager:
             log.info('Trimmed trajectory %d at %d frames', t_idx, len(t))
 
         curr_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
-        best_trajectory_idx, best_tr_reward = self._pick_best_exploration_trajectory(
-            self.agent, trajectories, trajectory_rewards, curr_sparse_map,
+
+        best_trajectory_idx, best_trajectory_dist = self._pick_best_exploration_trajectory_avg_distance(
+            self.agent, trajectories, curr_sparse_map,
         )
 
-        # TODO
-        # if max_landmarks == 0:
-        #     log.debug('Could not find any trajectory with nonzero novel landmarks')
-        #     return False
+        # best_trajectory_idx, best_tr_reward = self._pick_best_exploration_trajectory(
+        #     self.agent, trajectories, trajectory_rewards, curr_sparse_map,
+        # )
 
         best_trajectory = trajectories[best_trajectory_idx]
         best_trajectory.save(self.params.experiment_dir())
@@ -605,7 +671,7 @@ class TmaxManager:
         curr_dense_map = copy.deepcopy(self.dense_persistent_maps[-1])
         curr_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
 
-        is_frame_a_landmark = map_builder.add_trajectory_to_sparse_map(curr_sparse_map, best_trajectory)
+        is_frame_a_landmark = map_builder.add_trajectory_to_sparse_map_fixed_landmarks(curr_sparse_map, best_trajectory)
         landmark_frames = np.nonzero(is_frame_a_landmark)[0]
         log.debug('Added best trajectory to sparse map, landmark frames: %r', landmark_frames)
 
@@ -617,7 +683,6 @@ class TmaxManager:
         self.dense_map_size_before_locomotion = self.dense_persistent_maps[-1].num_landmarks()
 
         map_builder.calc_distances_to_landmarks(curr_sparse_map, new_dense_map)
-        map_builder.sieve_landmarks_by_distance(curr_sparse_map)  # for test
 
         # just in case
         new_dense_map.new_episode()

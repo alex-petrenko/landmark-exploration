@@ -5,6 +5,7 @@ from functools import partial
 import numpy as np
 
 from algorithms.tmax.navigator import default_edge_weight
+from algorithms.tmax.tmax_utils import TmaxMode
 from algorithms.topological_maps.localization import Localizer
 from algorithms.topological_maps.topological_map import hash_observation
 from utils.timing import Timing
@@ -293,11 +294,12 @@ class MapBuilder:
             all_observations = [m.get_observation(node) for node in m.graph.nodes]
             obs_embeddings = self._calc_embeddings(all_observations)
 
-        with t.add_time('pairwise_distances'):
-            pairwise_distances = self._calc_pairwise_distances(obs_embeddings)
+        # with t.add_time('pairwise_distances'):
+        #     pairwise_distances = self._calc_pairwise_distances(obs_embeddings)
 
-        with t.timeit('loop_closures'):
-            self._add_shortcuts(m, pairwise_distances)
+        # TODO: so far no shortcuts
+        # with t.timeit('loop_closures'):
+        #     self._add_shortcuts(m, pairwise_distances)
 
         log.debug('Add trajectory to map, timing: %s', t)
         return m
@@ -325,6 +327,50 @@ class MapBuilder:
             localizer.localize(
                 self.agent.session, [obs], [info], [m], self.distance_net, on_new_landmark=new_landmark_func,
             )
+
+        m.num_trajectories += 1
+        return is_new_landmark
+
+    @staticmethod
+    def add_trajectory_to_sparse_map_fixed_landmarks(existing_map, traj, dist_between_landmarks=30):
+        m = existing_map
+
+        is_new_landmark = [False] * len(traj)  # is frame a landmark
+
+        nodes = m.graph.nodes
+        nodes[0]['traj_idx'] = 0
+        nodes[0]['frame_idx'] = 0
+
+        next_landmark = dist_between_landmarks
+        num_exploration_frames = 0
+
+        if not hasattr(traj, 'mode'):
+            log.warning('Trajectory must have mode')
+
+        for i in range(len(traj)):
+            obs = traj.obs[i]
+            info = traj.infos[i]
+
+            if hasattr(traj, 'mode'):
+                mode = traj.mode[i]
+            else:
+                mode = TmaxMode.EXPLORATION
+
+            if mode == TmaxMode.EXPLORATION:
+                num_exploration_frames += 1
+
+            if num_exploration_frames >= next_landmark and i > 0:
+                new_landmark_idx = m.add_landmark(obs, info, update_curr_landmark=True)
+
+                nodes[new_landmark_idx]['traj_idx'] = m.num_trajectories
+                nodes[new_landmark_idx]['frame_idx'] = i
+
+                log.info(
+                    'Added frame %d as a landmark %d to sparse map, traj %d',
+                    i, new_landmark_idx, m.num_trajectories,
+                )
+                is_new_landmark[i] = True
+                next_landmark += dist_between_landmarks
 
         m.num_trajectories += 1
         return is_new_landmark

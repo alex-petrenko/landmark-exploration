@@ -2,7 +2,7 @@ from algorithms.utils.arguments import parse_args
 from algorithms.utils.trajectory import Trajectory, TrajectoryBuffer
 
 # values to use if not specified in the command line
-DEFAULT_EXPERIMENT_NAME = 'tmax_v035'
+DEFAULT_EXPERIMENT_NAME = 'tmax_v036'
 DEFAULT_ENV = 'doom_maze_very_sparse'
 
 

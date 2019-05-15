@@ -1,5 +1,6 @@
 import math
 
+from algorithms.topological_maps.topological_map import hash_observation
 from utils.timing import Timing
 from utils.utils import log, min_with_idx
 
@@ -41,7 +42,7 @@ class Localizer:
             timing = Timing()
 
         # create a batch of all neighborhood observations from all envs for fast processing on GPU
-        neighborhood_obs, neighborhood_hashes, current_obs = [], [], []
+        neighborhood_obs, neighborhood_hashes, current_obs, current_obs_hashes = [], [], [], []
         neighborhood_infos, current_infos = [], []
         total_num_neighbors = 0
         neighborhood_sizes = [0] * len(maps)
@@ -55,6 +56,7 @@ class Localizer:
             neighborhood_infos.extend([m.get_info(i) for i in neighbor_indices])
             neighborhood_hashes.extend([m.get_hash(i) for i in neighbor_indices])
             current_obs.extend([obs[env_i]] * len(neighbor_indices))
+            current_obs_hashes.extend([hash_observation(obs[env_i])] * len(neighbor_indices))
             current_infos.extend([info[env_i]] * len(neighbor_indices))
             total_num_neighbors += len(neighbor_indices)
 
@@ -67,7 +69,7 @@ class Localizer:
             distances = distance_net.distances_from_obs(
                 session,
                 obs_first=neighborhood_obs, obs_second=current_obs,
-                hashes_first=neighborhood_hashes, hashes_second=None,  # calculate curr obs hashes on the fly
+                hashes_first=neighborhood_hashes, hashes_second=current_obs_hashes,
                 infos_first=neighborhood_infos, infos_second=current_infos,
             )
 
@@ -135,7 +137,7 @@ class Localizer:
 
         non_neighborhood_obs, non_neighborhood_hashes = [], []
         non_neighborhoods = {}
-        current_obs = []
+        current_obs, current_obs_hashes = [], []
         non_neighborhood_infos, current_infos = [], []
         for env_i in new_landmark_candidates:
             m = maps[env_i]
@@ -148,6 +150,7 @@ class Localizer:
             non_neighborhood_infos.extend([m.get_info(i) for i in non_neighbor_indices])
             non_neighborhood_hashes.extend([m.get_hash(i) for i in non_neighbor_indices])
             current_obs.extend([obs[env_i]] * len(non_neighbor_indices))
+            current_obs_hashes.extend([hash_observation(obs[env_i])] * len(non_neighbor_indices))
             current_infos.extend([info[env_i]] * len(non_neighbor_indices))
 
         assert len(non_neighborhood_obs) == len(current_obs)
@@ -163,7 +166,7 @@ class Localizer:
                 distances_batch = distance_net.distances_from_obs(
                     session,
                     obs_first=non_neighborhood_obs[start:end], obs_second=current_obs[start:end],
-                    hashes_first=non_neighborhood_hashes[start:end], hashes_second=None,
+                    hashes_first=non_neighborhood_hashes[start:end], hashes_second=current_obs_hashes[start:end],
                     infos_first=non_neighborhood_infos[start:end], infos_second=current_infos[start:end],
                 )
                 distances.extend(distances_batch)

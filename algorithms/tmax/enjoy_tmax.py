@@ -1,9 +1,11 @@
 import random
 import sys
 import time
+from collections import deque
 from threading import Thread
 
 import cv2
+import numpy as np
 from pynput.keyboard import Key, Listener, KeyCode
 
 from algorithms.utils.algo_utils import main_observation, goal_observation, EPS
@@ -15,7 +17,7 @@ from utils.envs.atari import atari_utils
 from utils.envs.doom import doom_utils
 from utils.envs.envs import create_env
 from utils.timing import Timing
-from utils.utils import log
+from utils.utils import log, min_with_idx
 
 
 class PolicyType:
@@ -65,6 +67,33 @@ def on_release(key):
     if action is not None:
         if action in current_actions:
             current_actions.remove(action)
+
+
+last_distances = deque([], maxlen=200)
+
+
+def calc_distance_to_memory(agent, sparse_map, obs):
+    distance_net = agent.curiosity.distance
+
+    num_landmarks = sparse_map.num_landmarks()
+    curr_obs = [obs] * num_landmarks
+    map_obs = [sparse_map.get_observation(node) for node in sparse_map.graph.nodes]
+
+    distances = distance_net.distances_from_obs(
+        agent.session, obs_first=map_obs, obs_second=curr_obs,
+    )
+
+    min_d, min_d_idx = min_with_idx(distances)
+    global last_distances
+    last_distances.append(min_d)
+
+    log.info('Avg.distance: %.3f', np.mean(last_distances))
+
+    import cv2
+    closest_node = list(sparse_map.graph.nodes)[min_d_idx]
+    closest_obs = sparse_map.get_observation(closest_node)
+    cv2.imshow('closest_obs', cv2.resize(cv2.cvtColor(closest_obs, cv2.COLOR_RGB2BGR), (420, 420)))
+    cv2.waitKey(1)
 
 
 def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_automap=False):
@@ -122,6 +151,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
 
         start_episode = time.time()
         t = Timing()
+
         while not done and not terminate and not max_frames_reached(num_frames):
             with t.timeit('one_frame'):
                 env.render()
@@ -161,6 +191,8 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
 
                 prev_obs = obs
                 obs = next_obs
+
+                calc_distance_to_memory(agent, sparse_persistent_map, obs)
 
                 episode_reward += rew
 

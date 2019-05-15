@@ -22,7 +22,7 @@ def trajectories_to_sparse_map(init_map, trajectories, trajectories_dir, agent, 
     map_builder = MapBuilder(agent)
     for t in trajectories:
         m.new_episode()
-        is_frame_a_landmark = map_builder.add_trajectory_to_sparse_map(m, t)
+        is_frame_a_landmark = map_builder.add_trajectory_to_sparse_map_fixed_landmarks(m, t)
         landmark_frames = np.nonzero(is_frame_a_landmark)
         log.info('Landmark frames %r', landmark_frames)
     sparse_map_dir = ensure_dir_exists(join(trajectories_dir, 'sparse_map'))
@@ -34,11 +34,11 @@ def pick_best_trajectory(init_map, agent, trajectories):
     """This is just a test."""
     m = init_map()
     map_builder = MapBuilder(agent)
-    map_builder.add_trajectory_to_sparse_map(m, trajectories[2])
+    map_builder.add_trajectory_to_sparse_map_fixed_landmarks(m, trajectories[0])
 
     # noinspection PyProtectedMember
-    best_t_idx, max_landmarks = agent.tmax_mgr._pick_best_exploration_trajectory(agent, trajectories, m)
-    log.info('Best traj index %d with landmarks %d', best_t_idx, max_landmarks)
+    best_t_idx, best_t_dist = agent.tmax_mgr._pick_best_exploration_trajectory_avg_distance(agent, trajectories, m)
+    log.info('Best traj index %d with dist %.3f', best_t_idx, best_t_dist)
 
 
 def trajectory_to_map(params, env_id):
@@ -91,7 +91,6 @@ def trajectory_to_map(params, env_id):
             trajectories[0].obs[0],
             directed_graph=False,
             initial_info=trajectories[0].infos[0],
-            verbose=True,
         )
 
     map_builder = MapBuilder(agent)
@@ -101,7 +100,7 @@ def trajectory_to_map(params, env_id):
         init_map, trajectories, trajectories_dir, agent, map_img, coord_limits,
     )
 
-    test_pick_best_trajectory = False
+    test_pick_best_trajectory = True
     if test_pick_best_trajectory:
         pick_best_trajectory(init_map, agent, copy.deepcopy(trajectories))
 
