@@ -116,11 +116,11 @@ class ECRMapModule(CuriosityModule):
             #     log.info('Distances to memory: %.3f, bonuses: %.3f', distances_to_memory[0], bonuses[0])
 
             assert len(distances_to_memory) == len(next_obs)
-            threshold = 0.5
+            threshold = 1.0
             dense_rewards = np.array([
                 0.0 if done else dist - threshold for (dist, done) in zip(distances_to_memory, dones)
             ])
-            dense_rewards *= 0.1  # scaling factor
+            dense_rewards *= 0.05  # scaling factor
 
             if self.params.ecr_map_dense_reward:
                 bonuses += dense_rewards

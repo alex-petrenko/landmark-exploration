@@ -173,7 +173,7 @@ class AgentPPO(AgentLearner):
             super(AgentPPO.Params, self).__init__(experiment_name)
 
             self.gamma = 0.99  # future reward discount
-            self.gae_lambda = 0.8
+            self.gae_lambda = 0.9
             self.rollout = 32
             self.num_envs = 192  # number of environments to collect the experience from
             self.num_workers = 16  # number of workers used to run the environments
