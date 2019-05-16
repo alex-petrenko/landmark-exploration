@@ -564,6 +564,7 @@ class TmaxManager:
         map_obs = [curr_sparse_map.get_observation(node) for node in curr_sparse_map.graph.nodes]
         map_obs_hash = [hash_observation(o) for o in map_obs]
 
+        all_tr_obs = []
         avg_distances = []
         timing = Timing()
         for t_idx, t in enumerate(trajectories):
@@ -575,6 +576,7 @@ class TmaxManager:
                     log.warning('Trajectory must have mode')
 
                 tr_obs = [t.obs[i] for i in range(len(t)) if mode[i] == TmaxMode.EXPLORATION]
+                all_tr_obs.append(tr_obs)
 
                 batch_size = 1024
                 batch_size = max(batch_size, len(map_obs))
@@ -597,6 +599,7 @@ class TmaxManager:
                         obs_first=all_map_obs, obs_second=obs,
                         hashes_first=all_map_obs_hash, hashes_second=obs_hash,
                     )
+                    # distances for individual frames
                     d = [d[k:k + len(map_obs)] for k in range(0, len(d), len(map_obs))]
 
                     for obs_distance in d:
@@ -609,10 +612,47 @@ class TmaxManager:
 
             log.debug('Trajectory %d has avg_distance of %.3f (took %s)', t_idx, trajectory_avg_distance, timing)
 
-        max_d, max_d_idx = max_with_idx(avg_distances)
-        log.debug('Best trajectory %d with avg distance from memory %.3f', max_d_idx, max_d)
+        distance_threshold = np.percentile(avg_distances, 90)
+        trajectory_candidates = []
 
-        best_trajectory = trajectories[max_d_idx]
+        for t_idx, t in enumerate(trajectories):
+            if avg_distances[t_idx] >= distance_threshold:
+                trajectory_candidates.append(t_idx)
+
+        log.debug(
+            'Selected %d candidate trajectories with distance greater than %.3f',
+            len(trajectory_candidates), distance_threshold,
+        )
+
+        keyframe_distance = 10
+        best_avg_dist_to_self = -1
+        best_trajectory_idx = 0
+        for t_idx in trajectory_candidates:
+            tr_obs = all_tr_obs[t_idx]
+            tr_keyframes = tr_obs[keyframe_distance::keyframe_distance]
+
+            distances_to_self = []
+            for kf_idx, keyframe in enumerate(tr_keyframes):
+                other_keyframes = [tr_keyframes[k] for k in range(len(tr_keyframes)) if k != kf_idx]
+                d = distance_net.distances_from_obs(
+                    agent.session, obs_first=[keyframe] * len(other_keyframes), obs_second=other_keyframes,
+                )
+                # log.debug('Distances to self: %r', d)
+                min_d, min_d_idx = min_with_idx(d)
+                distances_to_self.append(min_d)
+
+            avg_distance_to_self = np.mean(distances_to_self)
+            log.debug('Avg distance to self for %d is %.3f', t_idx, avg_distance_to_self)
+            if avg_distance_to_self > best_avg_dist_to_self:
+                best_avg_dist_to_self = avg_distance_to_self
+                best_trajectory_idx = t_idx
+
+        log.debug(
+            'Best trajectory %d has avg dist to memory %.3f', best_trajectory_idx, avg_distances[best_trajectory_idx],
+        )
+        log.debug('Best trajectory %d has avg dist to self %.3f', best_trajectory_idx, best_avg_dist_to_self)
+
+        best_trajectory = trajectories[best_trajectory_idx]
         log.debug('%d total frames in best trajectory', len(best_trajectory))
 
         if hasattr(best_trajectory, 'mode'):
@@ -621,7 +661,7 @@ class TmaxManager:
                 sum(mode == TmaxMode.EXPLORATION for mode in best_trajectory.mode),
             )
 
-        return max_d_idx, max_d
+        return best_trajectory_idx, avg_distances[best_trajectory_idx]
 
     def _prepare_persistent_map_for_locomotion(self):
         """Pick an exploration trajectory and turn it into a dense persistent map."""
@@ -712,23 +752,27 @@ class TmaxManager:
         log.debug('Prepared maps for exploration')
 
     def _update_value_estimates(self, m):
-        if self.global_stage != TmaxMode.EXPLORATION:
-            return
+        t = Timing()
+        with t.timeit('value_estimates'):
+            if self.global_stage != TmaxMode.EXPLORATION:
+                return
 
-        landmark_observations = [m.get_observation(node) for node in m.graph.nodes]
-        timer = [1.0 for _ in m.graph.nodes]
+            landmark_observations = [m.get_observation(node) for node in m.graph.nodes]
+            timer = [1.0 for _ in m.graph.nodes]
 
-        if self.agent.actor_critic.has_goal:
-            log.warning('Cannot estimate value of the landmark without a goal')
-            return
-        else:
-            _, _, values = self.agent.actor_critic.invoke(
-                self.agent.session, landmark_observations, None, None, None, timer,  # does not work with goals!
-            )
+            if self.agent.actor_critic.has_goal:
+                log.warning('Cannot estimate value of the landmark without a goal')
+                return
+            else:
+                _, _, values = self.agent.actor_critic.invoke(
+                    self.agent.session, landmark_observations, None, None, None, timer,  # does not work with goals!
+                )
 
-        assert len(values) == len(landmark_observations)
-        for i, node in enumerate(m.graph.nodes):
-            m.graph.nodes[node]['value_estimate'] = values[i]
+            assert len(values) == len(landmark_observations)
+            for i, node in enumerate(m.graph.nodes):
+                m.graph.nodes[node]['value_estimate'] = values[i]
+
+        log.info('Value estimates updated, took %s', t)
 
     def _delete_old_maps(self, env_maps, maps):
         """Delete old persistent maps that aren't used anymore."""
@@ -746,22 +790,50 @@ class TmaxManager:
             else:
                 return
 
+    def _reset_episodic_memory(self, env_i):
+        t = Timing()
+        with t.timeit('reset_memory'):
+            if self.curiosity.episodic_maps is None:
+                return
+            if self.curiosity.episodic_maps[env_i] is None:
+                return
+
+            m = self.current_sparse_maps[env_i]
+            nodes = list(m.graph.nodes)[1:]  # except the 0-th landmark
+            if len(nodes) <= 1:
+                return
+
+            max_number_of_landmarks_in_episodic_memory = min(50, len(nodes) - 1)
+            number_of_landmarks_in_episodic_memory = random.randint(0, max_number_of_landmarks_in_episodic_memory)
+            if number_of_landmarks_in_episodic_memory <= 0:
+                return
+
+            random_landmarks_to_add = random.sample(nodes, number_of_landmarks_in_episodic_memory)
+            random_landmarks_to_add.sort()
+            log.info('Env %d: adding landmarks %r to episodic memory', env_i, random_landmarks_to_add)
+
+            for l_idx, node in enumerate(random_landmarks_to_add):
+                obs = m.get_observation(node)
+                info = m.get_info(node)
+                self.curiosity.episodic_maps[env_i].add_landmark(obs, info, update_curr_landmark=True)
+
+            self.curiosity.episodic_maps[env_i].new_episode()
+
+        log.info(
+            'Env %d: episodic memory size in the beginning of the episode is %d (took %s)',
+            env_i, self.curiosity.episodic_maps[env_i].num_landmarks(), t,
+        )
+
     def _new_episode(self, env_i):
-        log.info('New episode for %d', env_i)
         self.current_dense_maps[env_i] = self.dense_persistent_maps[-1]
         self.current_sparse_maps[env_i] = self.sparse_persistent_maps[-1]
 
-        # Initialize curiosity episode map to be the current persistent map, this is to "push" the curious agent out
-        # of the already explored region. Note - this only works with sparse ECR reward, otherwise the agent can get
-        # stuck between two landmarks to maximize the immediate reward.
-        # if self.curiosity.episodic_maps is not None:
-        #     self.curiosity.episodic_maps[env_i] = copy.deepcopy(self.sparse_persistent_maps[-1])
-        #     self.curiosity.episodic_maps[env_i].reset()
-        #     self.curiosity.episodic_maps[env_i].new_episode()
+        # encourage the agent to get out of the explored region
+        self._reset_episodic_memory(env_i)
 
         self.env_stage[env_i] = self.global_stage
 
-        if env_i % 10 == 0:
+        if env_i % 100 == 0:
             # we don't have to do it every time
             self._update_value_estimates(self.current_sparse_maps[env_i])
 
@@ -921,6 +993,9 @@ class TmaxManager:
                     self._new_episode(env_i)
                 else:
                     self.episode_frames[env_i] += 1
+
+        if timing.new_episode > 5.0:
+            log.error('_new_episode function takes too long!!!')
 
             # timer = self.get_timer()
             # for env_i in range(self.num_envs):
