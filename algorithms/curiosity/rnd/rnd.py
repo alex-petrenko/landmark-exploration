@@ -40,16 +40,13 @@ class RandomNetworkDistillation(CuriosityModule):
             )
 
             encoder_obs = encoder_template(ph_obs, name='encoder')
-            encoded_obs = encoder_obs.encoded_input
+            self.predicted_features = encoder_obs.encoded_input
 
-            tgt_encoder_obs = encoder_template(ph_obs, trainable=False, name='tgt_encoder')  # TODO: how to set this as non trainiable
-            tgt_encoded_obs = tgt_encoder_obs.encoded_input
+            tgt_encoder_obs = encoder_template(ph_obs, trainable=False, name='tgt_encoder')
+            self.tgt_encoded_obs = tf.stop_gradient(tgt_encoder_obs.encoded_input)
 
-            self.feature_vector_size = encoded_obs.get_shape().as_list()[-1]
+            self.feature_vector_size = self.predicted_features.get_shape().as_list()[-1]
             log.info('Feature vector size in RND module: %d', self.feature_vector_size)
-
-            self.predicted_features = encoded_obs
-            self.tgt_encoded_obs = tgt_encoded_obs
 
             self.objectives = self._objectives()
 
@@ -58,12 +55,7 @@ class RandomNetworkDistillation(CuriosityModule):
 
             self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='rnd_step')
 
-            enc_variables = tf.get_collection(
-                key=tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name + '/encoder',
-            )  # TODO: Make sure it's correct var list
-
-            opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate,
-                                         name='rnd_opt', var_list=enc_variables)
+            opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='rnd_opt')
             self.train_rnd = opt.minimize(self.objectives.loss, global_step=self.step)
 
     def _objectives(self):

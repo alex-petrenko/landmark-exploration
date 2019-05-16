@@ -18,11 +18,13 @@ class ECRModule(CuriosityModule):
 
             self.episodic_memory_size = 200
 
-            self.add_to_memory_threshold = 0.9
-            self.memory_expansion_reward = 0.2  # reward for finding new memory entry
+            self.novelty_threshold = 0.0  # condition for adding current observation to memory
+
+            self.ecr_sparse_reward = False
+            self.sparse_reward_size = 0.2  # reward for finding new memory entry
 
             self.ecr_dense_reward = True
-            self.dense_reward_scaling_factor = 0.1
+            self.dense_reward_scaling_factor = 1.0
             self.dense_reward_threshold = 0.5
 
     def __init__(self, env, params):
@@ -112,14 +114,6 @@ class ECRModule(CuriosityModule):
 
             assert len(distances_to_memory) == len(next_obs_enc)
 
-            sparse_rewards = np.zeros(self.params.num_envs)
-            for i, dist in enumerate(distances_to_memory):
-                if dist > self.params.add_to_memory_threshold:
-                    self.episodic_memories[i].add(next_obs_enc[i])
-                    sparse_rewards[i] += self.params.memory_expansion_reward
-
-            bonuses += sparse_rewards
-
             dense_rewards = np.array([
                 0.0 if done else dist - self.params.dense_reward_threshold for (dist, done) in zip(distances_to_memory, dones)
             ])
@@ -130,23 +124,36 @@ class ECRModule(CuriosityModule):
                 assert len(dense_rewards) == len(bonuses)
                 bonuses += dense_rewards
 
+            sparse_rewards = np.zeros(self.params.num_envs)
+            for i, rew in enumerate(dense_rewards):
+                if rew > self.params.novelty_threshold:
+                    self.episodic_memories[i].add(next_obs_enc[i])
+                    sparse_rewards[i] += self.params.sparse_reward_size
+
+            if self.params.ecr_sparse_reward:
+                assert len(sparse_rewards) == len(bonuses)
+                bonuses += sparse_rewards
+
 
         self.current_episode_bonus += bonuses
         return bonuses
 
     def train(self, buffer, env_steps, agent):
-        self.distance_buffer.extract_data(self.trajectory_buffer.complete_trajectories)
 
-        if env_steps - self._last_trained > self.params.distance_train_interval:
-            if self.distance_buffer.has_enough_data():
-                self.distance.train(self.distance_buffer.buffer, env_steps, agent)
-                self._last_trained = env_steps
+        if self.params.distance_network_checkpoint is None:
 
-                # discard old experience
-                self.distance_buffer.reset()
+            self.distance_buffer.extract_data(self.trajectory_buffer.complete_trajectories)
 
-                # invalidate observation features because distance network has changed
-                self.distance.obs_encoder.reset()
+            if env_steps - self._last_trained > self.params.distance_train_interval:
+                if self.distance_buffer.has_enough_data():
+                    self.distance.train(self.distance_buffer.buffer, env_steps, agent)
+                    self._last_trained = env_steps
+
+                    # discard old experience
+                    self.distance_buffer.reset()
+
+                    # invalidate observation features because distance network has changed
+                    self.distance.obs_encoder.reset()
 
         if env_steps > self.params.distance_bootstrap and not self.is_initialized():
             log.debug('Curiosity is initialized @ %d steps!', env_steps)
