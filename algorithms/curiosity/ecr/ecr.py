@@ -135,8 +135,6 @@ class ECRModule(CuriosityModule):
                 assert len(sparse_rewards) == len(bonuses)
                 bonuses += sparse_rewards
 
-            print(bonuses[0], distances_to_memory[0])
-
         self.current_episode_bonus += bonuses
         return bonuses
 
