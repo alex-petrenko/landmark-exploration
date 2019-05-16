@@ -107,7 +107,8 @@ class ECRModule(CuriosityModule):
             for env_i, memlen in enumerate(memory_lengths):
                 if not dones[env_i] and memlen > 0:
                     new_count = count + memlen
-                    distances_to_memory.append(np.percentile(batch_distances[count:new_count], 10))
+                    this_env_distances = batch_distances[count:new_count]
+                    distances_to_memory.append(np.percentile(this_env_distances, 10))
                     count = new_count
                 else:
                     distances_to_memory.append(0)
@@ -134,6 +135,7 @@ class ECRModule(CuriosityModule):
                 assert len(sparse_rewards) == len(bonuses)
                 bonuses += sparse_rewards
 
+            print(bonuses[0], distances_to_memory[0])
 
         self.current_episode_bonus += bonuses
         return bonuses

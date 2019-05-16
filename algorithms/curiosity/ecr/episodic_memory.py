@@ -19,13 +19,6 @@ class EpisodicMemory:
         self._trim()
         self.arr.append(embedding)
 
-    def distances(self, session, reachability, embedding):
-        dist = []
-        for emb in self.arr:
-            dist.append(reachability.distances(session, embedding, emb))
-        assert len(dist) == len(self.arr)
-        return np.percentile(dist, 90)
-
     def reset(self, embedding=None):
         self.arr.clear()
         if embedding is not None:
