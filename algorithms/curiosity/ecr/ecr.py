@@ -1,8 +1,9 @@
 from collections import deque
-from functools import partial
 
 import numpy as np
 import tensorflow as tf
+
+from tensorflow.contrib import slim
 
 from algorithms.curiosity.curiosity_module import CuriosityModule
 from algorithms.curiosity.ecr.episodic_memory import EpisodicMemory
