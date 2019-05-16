@@ -1,34 +1,29 @@
 from collections import deque
-from functools import partial
 
 import numpy as np
 import tensorflow as tf
 
+from tensorflow.contrib import slim
+
 from algorithms.curiosity.curiosity_module import CuriosityModule
 from algorithms.curiosity.ecr.episodic_memory import EpisodicMemory
-from algorithms.distance.distance import DistanceNetwork, DistanceBuffer
+from algorithms.distance.distance import DistanceNetwork, DistanceBuffer, DistanceNetworkParams
 from utils.utils import log
 
 
 class ECRModule(CuriosityModule):
-    class Params:
+    class Params(DistanceNetworkParams):
         def __init__(self):
-            self.reachable_threshold = 5  # num. of frames between obs, such that one is reachable from the other
-            self.unreachable_threshold = 25  # num. of frames between obs, such that one is unreachable from the other
-            self.distance_target_buffer_size = 200000  # target number of training examples to store
-            self.distance_train_epochs = 8
-            self.distance_batch_size = 128
-            self.distance_bootstrap = 2000000
-            self.distance_train_interval = 1000000
-            self.distance_symmetric = True  # useful in 3D environments like Doom and DMLab
+            DistanceNetworkParams.__init__(self)
 
             self.episodic_memory_size = 200
+
+            self.add_to_memory_threshold = 0.9
+            self.memory_expansion_reward = 0.2  # reward for finding new memory entry
+
             self.ecr_dense_reward = True
             self.dense_reward_scaling_factor = 0.1
             self.dense_reward_threshold = 0.5
-            self.add_to_memory_threshold = 0.9
-
-            self.memory_expansion_reward = 0.2  # reward for finding new memory entry
 
     def __init__(self, env, params):
         self.params = params
