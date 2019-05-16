@@ -884,7 +884,7 @@ class TmaxManager:
     def _update_curiosity(self, obs, next_obs, dones, infos):
         mask = []
         for env_i in range(self.num_envs):
-            update_curiosity = self.env_stage[env_i] == TmaxMode.EXPLORATION
+            update_curiosity = self.mode[env_i] == TmaxMode.EXPLORATION
             if self.random_mode[env_i]:
                 update_curiosity = False
             mask.append(update_curiosity)

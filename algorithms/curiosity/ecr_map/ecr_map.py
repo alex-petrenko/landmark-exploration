@@ -1,4 +1,5 @@
 import copy
+import math
 import time
 from collections import deque
 
@@ -123,7 +124,13 @@ class ECRMapModule(CuriosityModule):
             dense_rewards *= 0.05  # scaling factor
 
             if self.params.ecr_map_dense_reward:
-                bonuses += dense_rewards
+                for i in range(self.params.num_envs):
+                    if maps[i] is not None:
+                        bonuses[i] += dense_rewards[i]
+
+            if math.nan in bonuses:
+                log.error('Bonuses: %r', bonuses)
+                log.error('NaN values in bonus array!')
 
         self.current_episode_bonus += bonuses
         return bonuses
