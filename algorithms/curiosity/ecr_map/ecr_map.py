@@ -24,6 +24,7 @@ class ECRMapModule(CuriosityModule):
             self.loop_closure_threshold = 0.6  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.2  # reward for finding new vertex
             self.ecr_map_dense_reward = False
+            self.ecr_map_sparse_reward = True
 
             self.expand_explored_region = False
             self.expand_explored_region_frames = 4000000
@@ -97,11 +98,13 @@ class ECRMapModule(CuriosityModule):
                 self.episodic_maps[i].new_episode()
 
         bonuses = np.full(self.params.num_envs, fill_value=-0.01)
+        with_sparse_reward = self.params.ecr_map_sparse_reward
 
         if self.initialized:
             # noinspection PyUnusedLocal
             def on_new_landmark(env_i, new_landmark_idx):
-                bonuses[env_i] += self.params.map_expansion_reward
+                if with_sparse_reward:
+                    bonuses[env_i] += self.params.map_expansion_reward
 
             if mask is None:
                 maps = self.episodic_maps
