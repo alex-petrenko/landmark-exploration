@@ -1,3 +1,4 @@
+import time
 from collections import deque
 
 import numpy as np
@@ -8,6 +9,7 @@ from tensorflow.contrib import slim
 from algorithms.curiosity.curiosity_module import CuriosityModule
 from algorithms.curiosity.ecr.episodic_memory import EpisodicMemory
 from algorithms.distance.distance import DistanceNetwork, DistanceBuffer, DistanceNetworkParams
+from algorithms.topological_maps.topological_map import map_summaries, TopologicalMap, get_position, get_angle
 from utils.utils import log
 
 
@@ -44,6 +46,7 @@ class ECRModule(CuriosityModule):
         self.episode_bonuses = deque([])
 
         self._last_trained = 0
+        self._last_map_summary = 0
 
     def initialize(self, session):
         # restore only distance network if we have checkpoint for it
@@ -59,12 +62,12 @@ class ECRModule(CuriosityModule):
             log.debug('Done loading distance network from checkpoint!')
 
     def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos):
-        obs_enc = self.distance.encode_observation(session, obs)
         if self.episodic_memories is None:
+            obs_enc = self.distance.encode_observation(session, obs)
             self.current_episode_bonus = np.zeros(self.params.num_envs)  # for statistics
             self.episodic_memories = []
             for i in range(self.params.num_envs):
-                self.episodic_memories.append(EpisodicMemory(self.params, obs_enc[i]))
+                self.episodic_memories.append(EpisodicMemory(self.params, obs_enc[i], infos[i]))
 
         next_obs_enc = self.distance.encode_observation(session, next_obs)
         assert len(next_obs_enc) == len(self.episodic_memories)
@@ -72,7 +75,7 @@ class ECRModule(CuriosityModule):
         for env_i in range(self.params.num_envs):
             if dones[env_i]:
                 if self.params.ecr_reset_memory:
-                    self.episodic_memories[env_i].reset(next_obs_enc[env_i])
+                    self.episodic_memories[env_i].reset(next_obs_enc[env_i], infos[env_i])
                 self.episode_bonuses.append(self.current_episode_bonus[env_i])
                 self.current_episode_bonus[env_i] = 0
 
@@ -84,8 +87,8 @@ class ECRModule(CuriosityModule):
             memory_lengths = []
             for env_i, memory in enumerate(self.episodic_memories):
                 if not dones[env_i]:
-                    memlen = len(memory.arr)
-                    memory_extended.extend(memory.arr)
+                    memlen = len(memory)
+                    memory_extended.extend(memory.embeddings)
                     next_obs_enc_extended.extend([next_obs_enc[env_i]] * memlen)
                     memory_lengths.append(memlen)
                 else:
@@ -119,7 +122,8 @@ class ECRModule(CuriosityModule):
             assert len(distances_to_memory) == len(next_obs_enc)
 
             dense_rewards = np.array([
-                0.0 if done else dist - self.params.dense_reward_threshold for (dist, done) in zip(distances_to_memory, dones)
+                0.0 if done else dist - self.params.dense_reward_threshold
+                for (dist, done) in zip(distances_to_memory, dones)
             ])
 
             dense_rewards *= self.params.dense_reward_scaling_factor
@@ -131,7 +135,7 @@ class ECRModule(CuriosityModule):
             sparse_rewards = np.zeros(self.params.num_envs)
             for i, rew in enumerate(dense_rewards):
                 if rew > self.params.novelty_threshold:
-                    self.episodic_memories[i].add(next_obs_enc[i])
+                    self.episodic_memories[i].add(next_obs_enc[i], infos[i])
                     sparse_rewards[i] += self.params.sparse_reward_size
 
             if self.params.ecr_sparse_reward:
@@ -142,7 +146,6 @@ class ECRModule(CuriosityModule):
         return bonuses
 
     def train(self, buffer, env_steps, agent):
-
         if self.params.distance_network_checkpoint is None:
 
             self.distance_buffer.extract_data(self.trajectory_buffer.complete_trajectories)
@@ -187,9 +190,49 @@ class ECRModule(CuriosityModule):
             curiosity_summary('avg_episode_bonus', avg_episode_bonus)
 
         summary_writer.add_summary(summary, env_steps)
-
         buffer_summaries(memories, env_steps, summary_writer, section)
+        self.episodic_memory_summary(env_steps, summary_writer, **kwargs)
+
         summary_writer.flush()
+
+    def episodic_memory_summary(self, env_steps, summary_writer, **kwargs):
+        time_since_last = time.time() - self._last_map_summary
+        map_summary_rate_seconds = 120
+        if time_since_last <= map_summary_rate_seconds:
+            return
+        if self.episodic_memories is None:
+            return
+
+        env_to_plot = 0
+        for env_i, memory in enumerate(self.episodic_memories):
+            if len(memory) > len(self.episodic_memories[env_to_plot]):
+                env_to_plot = env_i
+
+        log.info('Visualizing episodic memory for env %d', env_to_plot)
+        memory_to_plot = self.episodic_memories[env_to_plot]
+
+        if len(memory_to_plot.arr) <= 0:
+            return
+
+        m = TopologicalMap(
+            memory_to_plot.arr[0].embedding,
+            directed_graph=False,
+            initial_info=memory_to_plot.arr[0].info,
+        )
+        for lm_idx in range(1, len(memory_to_plot)):
+            info = memory_to_plot.arr[lm_idx].info
+            # noinspection PyProtectedMember
+            m._add_new_node(
+                obs=memory_to_plot.arr[lm_idx].embedding,
+                pos=get_position(info),
+                angle=get_angle(info),
+            )
+
+        map_img = kwargs.get('map_img')
+        coord_limits = kwargs.get('coord_limits')
+        map_summaries([m], env_steps, summary_writer, 'ecr', map_img, coord_limits, is_sparse=True)
+
+        self._last_map_summary = time.time()
 
 
 def buffer_summaries(buffers, env_steps, summary_writer, section):
