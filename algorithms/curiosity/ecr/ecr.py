@@ -27,6 +27,8 @@ class ECRModule(CuriosityModule):
             self.dense_reward_scaling_factor = 1.0
             self.dense_reward_threshold = 0.5
 
+            self.ecr_reset_memory = True
+
     def __init__(self, env, params):
         self.params = params
 
@@ -69,7 +71,8 @@ class ECRModule(CuriosityModule):
 
         for env_i in range(self.params.num_envs):
             if dones[env_i]:
-                self.episodic_memories[env_i].reset(next_obs_enc[env_i])
+                if self.params.ecr_reset_memory:
+                    self.episodic_memories[env_i].reset(next_obs_enc[env_i])
                 self.episode_bonuses.append(self.current_episode_bonus[env_i])
                 self.current_episode_bonus[env_i] = 0
 
@@ -133,7 +136,6 @@ class ECRModule(CuriosityModule):
             if self.params.ecr_sparse_reward:
                 assert len(sparse_rewards) == len(bonuses)
                 bonuses += sparse_rewards
-
 
         self.current_episode_bonus += bonuses
         return bonuses
