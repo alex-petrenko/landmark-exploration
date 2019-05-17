@@ -60,7 +60,7 @@ class RandomNetworkDistillation(CuriosityModule):
 
     def _objectives(self):
         # model losses
-        l2_loss_obs = tf.nn.l2_loss(self.tgt_encoded_obs - self.predicted_features)  # TODO: better name
+        l2_loss_obs = tf.nn.l2_loss(self.tgt_encoded_obs - self.predicted_features)
         prediction_loss = tf.reduce_mean(l2_loss_obs)
 
         bonus = self.params.prediction_bonus_coeff * prediction_loss
