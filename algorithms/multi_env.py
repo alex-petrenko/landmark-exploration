@@ -155,7 +155,6 @@ class _MultiEnvWorker:
                             prev_info = info
                             info = self._get_info(real_envs[i])  # info for the new episode
                             info['prev'] = prev_info  # info for the previous episode last frame
-                            # log.info('Prev info: %r', prev_info)
                             done = True
 
                         results[i] = (obs, reward, done, info)  # collapse dimension of size 1

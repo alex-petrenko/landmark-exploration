@@ -437,12 +437,12 @@ class TmaxManager:
 
         # don't allow locomotion to most far away targets right away
         # this is to force exploration policy to find shorter routes to interesting locations
-        # total_frames = max(0, self.env_steps - self.params.distance_bootstrap)
-        # stage_idx = total_frames // (2 * self.params.stage_duration)
-        # max_distance = max(5, stage_idx * 1000)
-        # potential_targets = MapBuilder.sieve_landmarks_by_distance(curr_sparse_map, max_distance=max_distance)
+        total_frames = max(0, self.env_steps - self.params.distance_bootstrap)
+        stage_idx = total_frames // self.params.stage_duration
+        max_distance = max(5, stage_idx * 200)
+        potential_targets = MapBuilder.sieve_landmarks_by_distance(curr_sparse_map, max_distance=max_distance)
 
-        potential_targets = list(curr_sparse_map.graph.nodes)
+        # potential_targets = list(curr_sparse_map.graph.nodes)
 
         # calculate UCB of value estimate for all targets
         total_num_samples = 0
@@ -920,7 +920,7 @@ class TmaxManager:
                 )
                 end_locomotion = True
 
-            if self.episode_frames[env_i] > self.params.max_episode / 2:
+            if self.episode_frames[env_i] > self.params.exploration_budget:
                 log.error(
                     'Takes too much time (%d) to get to %d',
                     self.episode_frames[env_i], self.locomotion_final_targets[env_i],

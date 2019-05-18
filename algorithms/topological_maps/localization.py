@@ -96,14 +96,6 @@ class Localizer:
 
             self._log_distances(env_i, neighbor_indices, distance)
 
-            if len(distance) <= 0:
-                log.warning('Distance to neighbors array empty! Neighbors %r, j %d jn %d', m.neighborhood(), j, j_next)
-                log.warning('Current landmark %d', m.curr_landmark_idx)
-                map_sizes = [mp.num_landmarks() if mp is not None else None for mp in maps]
-                log.warning('Map sizes %r', map_sizes)
-                log.warning('Distances array size %d', len(distances))
-                log.warning('Distances array %r', distances)
-
             j = j_next
 
             # check if we're far enough from all landmarks in the neighborhood
