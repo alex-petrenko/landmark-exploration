@@ -111,6 +111,7 @@ class TopologicalMap:
         self.loop_closure_candidate_frames = 0
         self.closest_landmarks = []
         self.curr_landmark_idx = 0  # assuming we're being put into the exact same starting spot every time
+        self.graph.nodes[self.curr_landmark_idx]['added_at'] = 0
         self.path_so_far = [0]
 
     def relabel_nodes(self):

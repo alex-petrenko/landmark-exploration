@@ -29,7 +29,10 @@ class Localizer:
                 neighbor_distance[neighbor_idx] = '{:.3f}'.format(distance[i])
             self._log_verbose('Env %d distance: %r', env_i, neighbor_distance)
 
-    def localize(self, session, obs, info, maps, distance_net, on_new_landmark=None, on_new_edge=None, timing=None):
+    def localize(
+            self,
+            session, obs, info, maps, distance_net, frames=None, on_new_landmark=None, on_new_edge=None, timing=None,
+    ):
         num_envs = len(obs)
         closest_landmark_idx = [-1] * num_envs
         # closest distance to the landmark in the existing graph (excluding new landmarks)
@@ -203,6 +206,10 @@ class Localizer:
                 # vertex is relatively far away from all vertices in the graph, we've found a new landmark!
                 if m.new_landmark_candidate_frames >= self.localize_frames:
                     new_landmark_idx = m.add_landmark(obs[env_i], info[env_i], update_curr_landmark=True)
+
+                    if frames is not None:
+                        m.graph.nodes[new_landmark_idx]['added_at'] = frames[env_i]
+
                     closest_landmark_idx[env_i] = new_landmark_idx
                     m.new_landmark_candidate_frames = 0
 

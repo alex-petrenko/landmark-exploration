@@ -824,21 +824,27 @@ class TmaxManager:
             env_i, self.curiosity.episodic_maps[env_i].num_landmarks(), t,
         )
 
-    def _new_episode(self, env_i):
+    def _new_episode(self, env_i, t=None):
+        if t is None:
+            t = Timing()
+
         self.current_dense_maps[env_i] = self.dense_persistent_maps[-1]
         self.current_sparse_maps[env_i] = self.sparse_persistent_maps[-1]
 
-        # encourage the agent to get out of the explored region
-        self._reset_episodic_memory(env_i)
+        with t.add_time('reset_mem'):
+            # encourage the agent to get out of the explored region
+            self._reset_episodic_memory(env_i)
 
         self.env_stage[env_i] = self.global_stage
 
-        if env_i % 100 == 0:
-            # we don't have to do it every time
-            self._update_value_estimates(self.current_sparse_maps[env_i])
+        with t.add_time('update_value_estimates'):
+            if env_i % 100 == 0:
+                # we don't have to do it every time
+                self._update_value_estimates(self.current_sparse_maps[env_i])
 
-        self._delete_old_maps(self.current_dense_maps, self.dense_persistent_maps)
-        self._delete_old_maps(self.current_sparse_maps, self.sparse_persistent_maps)
+        with t.add_time('delete_old_maps'):
+            self._delete_old_maps(self.current_dense_maps, self.dense_persistent_maps)
+            self._delete_old_maps(self.current_sparse_maps, self.sparse_persistent_maps)
 
         self.episode_frames[env_i] = 0
 
@@ -849,13 +855,16 @@ class TmaxManager:
 
         self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
 
-        locomotion_goal = self._get_locomotion_final_goal(env_i)
-        self.locomotion_final_targets[env_i] = locomotion_goal
-        # noinspection PyTypeChecker
-        self.locomotion_targets[env_i] = 0  # will be updated on the next frame
+        with t.add_time('locomotion_target'):
+            locomotion_goal = self._get_locomotion_final_goal(env_i)
+            self.locomotion_final_targets[env_i] = locomotion_goal
+            # noinspection PyTypeChecker
+            self.locomotion_targets[env_i] = 0  # will be updated on the next frame
 
         self.mode[env_i] = TmaxMode.LOCOMOTION
-        self.navigator.reset(env_i, self.current_dense_maps[env_i])
+
+        with t.add_time('navigator_reset'):
+            self.navigator.reset(env_i, self.current_dense_maps[env_i])
 
         assert self.locomotion_targets[env_i] is not None
         assert self.locomotion_final_targets[env_i] is not None
@@ -961,6 +970,7 @@ class TmaxManager:
                 update_curiosity = False
             mask.append(update_curiosity)
 
+        self.curiosity.episode_frames = self.episode_frames
         curiosity_bonus = self.curiosity.generate_bonus_rewards(
             self.agent.session, obs, next_obs, None, dones, infos, mask=mask,
         )
@@ -988,14 +998,15 @@ class TmaxManager:
             self._update_locomotion(next_obs)
 
         with timing.add_time('new_episode'):
+            new_ep_timing = Timing()
             for env_i in range(self.num_envs):
                 if dones[env_i]:
-                    self._new_episode(env_i)
+                    self._new_episode(env_i, new_ep_timing)
                 else:
                     self.episode_frames[env_i] += 1
 
-        if timing.new_episode > 5.0:
-            log.error('_new_episode function takes too long!!!')
+        if timing.new_episode > 3.0:
+            log.error('_new_episode function takes too long!!! %s', new_ep_timing)
 
             # timer = self.get_timer()
             # for env_i in range(self.num_envs):
