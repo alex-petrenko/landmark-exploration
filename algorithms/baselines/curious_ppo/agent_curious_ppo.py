@@ -137,10 +137,12 @@ class AgentCuriousPPO(AgentPPO):
                     env_obs, rewards, dones, infos = multi_env.step(actions)
 
                     if self.params.graceful_episode_termination:
+                        rewards = list(rewards)
                         for i in range(self.params.num_envs):
-                            if dones[i] and infos[i].get('terminated_by_timer', False):
-                                log.info('Env %d terminated by timer %r', i, infos[i])
-                                rewards[i] += values[i]
+                            if dones[i] and infos[i].get('prev') is not None:
+                                if infos[i]['prev'].get('terminated_by_timer', False):
+                                    log.info('Env %d terminated by timer', i)
+                                    rewards[i] += values[i]
 
                     trajectory_buffer.add(obs, actions, infos, dones)
                     next_obs, new_goals = main_observation(env_obs), goal_observation(env_obs)
