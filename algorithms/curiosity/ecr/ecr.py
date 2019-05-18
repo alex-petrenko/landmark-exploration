@@ -10,6 +10,7 @@ from algorithms.curiosity.curiosity_module import CuriosityModule
 from algorithms.curiosity.ecr.episodic_memory import EpisodicMemory
 from algorithms.distance.distance import DistanceNetwork, DistanceBuffer, DistanceNetworkParams
 from algorithms.topological_maps.topological_map import map_summaries, TopologicalMap, get_position, get_angle
+from utils.timing import Timing
 from utils.utils import log
 
 
@@ -18,12 +19,13 @@ class ECRModule(CuriosityModule):
         def __init__(self):
             DistanceNetworkParams.__init__(self)
 
-            self.episodic_memory_size = 200
+            self.episodic_memory_size = 600
+            self.ecr_memory_sample_size = 200
 
             self.novelty_threshold = 0.0  # condition for adding current observation to memory
 
             self.ecr_sparse_reward = False
-            self.sparse_reward_size = 0.2  # reward for finding new memory entry
+            self.sparse_reward_size = 0.2  # optional reward for finding new memory entry
 
             self.ecr_dense_reward = True
             self.dense_reward_scaling_factor = 1.0
@@ -85,13 +87,16 @@ class ECRModule(CuriosityModule):
             memory_extended = []
             next_obs_enc_extended = []
             memory_lengths = []
+            sample_landmarks = []
             for env_i, memory in enumerate(self.episodic_memories):
                 if not dones[env_i]:
-                    memlen = len(memory)
-                    memory_extended.extend(memory.embeddings)
-                    next_obs_enc_extended.extend([next_obs_enc[env_i]] * memlen)
-                    memory_lengths.append(memlen)
+                    embeddings, landmark_indices = memory.sample_landmarks(self.params.ecr_memory_sample_size)
+                    sample_landmarks.append(landmark_indices)
+                    memory_extended.extend(embeddings)
+                    next_obs_enc_extended.extend([next_obs_enc[env_i]] * len(embeddings))
+                    memory_lengths.append(len(embeddings))
                 else:
+                    sample_landmarks.append([])
                     memory_lengths.append(0)
 
             assert len(memory_extended) == len(next_obs_enc_extended)
@@ -111,13 +116,18 @@ class ECRModule(CuriosityModule):
             count = 0
             distances_to_memory = []
             for env_i, memlen in enumerate(memory_lengths):
+                new_count = count + memlen
+
                 if not dones[env_i] and memlen > 0:
-                    new_count = count + memlen
                     this_env_distances = batch_distances[count:new_count]
-                    distances_to_memory.append(np.percentile(this_env_distances, 10))
-                    count = new_count
+                    distance_percentile = self.episodic_memories[env_i].distance_percentile(
+                        this_env_distances, sample_landmarks[env_i], percentile=10,
+                    )
+                    distances_to_memory.append(distance_percentile)
                 else:
                     distances_to_memory.append(0)
+
+                count = new_count
 
             assert len(distances_to_memory) == len(next_obs_enc)
 
@@ -196,43 +206,50 @@ class ECRModule(CuriosityModule):
         summary_writer.flush()
 
     def episodic_memory_summary(self, env_steps, summary_writer, **kwargs):
-        time_since_last = time.time() - self._last_map_summary
-        map_summary_rate_seconds = 120
-        if time_since_last <= map_summary_rate_seconds:
-            return
-        if self.episodic_memories is None:
-            return
+        t = Timing()
 
-        env_to_plot = 0
-        for env_i, memory in enumerate(self.episodic_memories):
-            if len(memory) > len(self.episodic_memories[env_to_plot]):
-                env_to_plot = env_i
+        with t.timeit('ecr_memory'):
+            time_since_last = time.time() - self._last_map_summary
+            map_summary_rate_seconds = 120
+            if time_since_last <= map_summary_rate_seconds:
+                return
+            if self.episodic_memories is None:
+                return
 
-        log.info('Visualizing episodic memory for env %d', env_to_plot)
-        memory_to_plot = self.episodic_memories[env_to_plot]
+            env_to_plot = 0
+            for env_i, memory in enumerate(self.episodic_memories):
+                if len(memory) > len(self.episodic_memories[env_to_plot]):
+                    env_to_plot = env_i
 
-        if len(memory_to_plot.arr) <= 0:
-            return
+            log.info('Visualizing episodic memory for env %d', env_to_plot)
+            memory_to_plot = self.episodic_memories[env_to_plot]
 
-        m = TopologicalMap(
-            memory_to_plot.arr[0].embedding,
-            directed_graph=False,
-            initial_info=memory_to_plot.arr[0].info,
-        )
-        for lm_idx in range(1, len(memory_to_plot)):
-            info = memory_to_plot.arr[lm_idx].info
-            # noinspection PyProtectedMember
-            m._add_new_node(
-                obs=memory_to_plot.arr[lm_idx].embedding,
-                pos=get_position(info),
-                angle=get_angle(info),
+            if len(memory_to_plot) <= 0:
+                return
+
+            landmark_indices = sorted(memory_to_plot.landmarks.keys())
+
+            m = TopologicalMap(
+                memory_to_plot.landmarks[landmark_indices[0]].embedding,
+                directed_graph=False,
+                initial_info=memory_to_plot.landmarks[landmark_indices[0]].info,
             )
 
-        map_img = kwargs.get('map_img')
-        coord_limits = kwargs.get('coord_limits')
-        map_summaries([m], env_steps, summary_writer, 'ecr', map_img, coord_limits, is_sparse=True)
+            for lm_idx in landmark_indices[1:]:
+                info = memory_to_plot.landmarks[lm_idx].info
+                # noinspection PyProtectedMember
+                m._add_new_node(
+                    obs=memory_to_plot.landmarks[lm_idx].embedding,
+                    pos=get_position(info),
+                    angle=get_angle(info),
+                )
 
-        self._last_map_summary = time.time()
+            map_img = kwargs.get('map_img')
+            coord_limits = kwargs.get('coord_limits')
+            map_summaries([m], env_steps, summary_writer, 'ecr', map_img, coord_limits, is_sparse=True)
+
+            self._last_map_summary = time.time()
+        log.info('Took %s', t)
 
 
 def buffer_summaries(buffers, env_steps, summary_writer, section):
