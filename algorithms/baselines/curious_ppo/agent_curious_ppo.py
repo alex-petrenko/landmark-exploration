@@ -52,6 +52,8 @@ class AgentCuriousPPO(AgentPPO):
             self.random_exploration = False
             self.extrinsic_reward_coeff = 1.0
 
+            self.graceful_episode_termination = False
+
         @staticmethod
         def filename_prefix():
             return 'curious_ppo_'
@@ -134,10 +136,11 @@ class AgentCuriousPPO(AgentPPO):
                     # wait for all the workers to complete an environment step
                     env_obs, rewards, dones, infos = multi_env.step(actions)
 
-                    for i in range(self.params.num_envs):
-                        if dones[i] and infos[i].get('terminated_by_timer', False):
-                            log.info('Env %d terminated by timer %r', i, infos[i])
-                            rewards[i] += values[i]
+                    if self.params.graceful_episode_termination:
+                        for i in range(self.params.num_envs):
+                            if dones[i] and infos[i].get('terminated_by_timer', False):
+                                log.info('Env %d terminated by timer %r', i, infos[i])
+                                rewards[i] += values[i]
 
                     trajectory_buffer.add(obs, actions, infos, dones)
                     next_obs, new_goals = main_observation(env_obs), goal_observation(env_obs)
