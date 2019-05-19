@@ -18,9 +18,9 @@ class RandomNetworkDistillation(CuriosityModule):
             self.prediction_loss_scale = 10.0
             self.intrinsic_bonus_clip = 0.1
             if self.intrinsic_bonus_clip:
-                self.intrinsic_bonus_min = 1 - self.intrinsic_bonus_clip
-                self.intrinsic_bonus_max = 1 + self.intrinsic_bonus_clip
-            self.prediction_bonus_coeff = 0.05  # scaling factor for prediction bonus vs env rewards
+                self.intrinsic_bonus_min = - self.intrinsic_bonus_clip
+                self.intrinsic_bonus_max = self.intrinsic_bonus_clip
+            self.prediction_bonus_coeff = 0.01  # scaling factor for prediction bonus vs env rewards
             self.forward_fc = 256
 
     def __init__(self, env, ph_obs, params=None):
@@ -61,8 +61,7 @@ class RandomNetworkDistillation(CuriosityModule):
         # model losses
         l2_loss_obs = tf.nn.l2_loss(self.tgt_features - self.predicted_features)
         prediction_loss = tf.reduce_mean(l2_loss_obs)
-
-        bonus = prediction_loss * self.params.prediction_bonus_coeff
+        bonus = prediction_loss
 
         loss = prediction_loss * self.params.prediction_loss_scale
         return AttrDict(locals())
@@ -77,16 +76,20 @@ class RandomNetworkDistillation(CuriosityModule):
         pass
 
     def generate_bonus_rewards(self, session, observations, next_obs, actions, dones, infos):
-        bonuses = session.run(
+        bonuses = session.run( #TODO: bonuses should not be scalar
             self.objectives.bonus,
             feed_dict={
                 self.ph_obs: observations,
             }
         )
+        print(bonuses[:4])
+        bonuses *= self.params.prediction_bonus_coeff # TODO: coeff is not scaling right: check paper
         if self.params.intrinsic_bonus_clip:
             bonuses = np.clip(bonuses, a_min=self.params.intrinsic_bonus_min, a_max=self.params.intrinsic_bonus_max)
 
-        bonuses = bonuses * np.array(dones)  # don't give bonus for the last transition in the episode
+        bonuses = bonuses * (1 - np.array(dones))  # don't give bonus for the last transition in the episode
+        print(bonuses[:4])
+        print(dones[:4])
         return bonuses
 
     def train(self, buffer, env_steps, agent):
