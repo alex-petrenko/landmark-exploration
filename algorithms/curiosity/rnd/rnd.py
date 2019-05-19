@@ -1,5 +1,6 @@
 from functools import partial
 
+import numpy as np
 import tensorflow as tf
 
 from algorithms.curiosity.curiosity_module import CuriosityModule
@@ -14,16 +15,18 @@ class RandomNetworkDistillation(CuriosityModule):
 
     class Params:  # TODO: Remove what you don't need
         def __init__(self):
-            self.cm_lr_scale = 10.0
-            self.clip_bonus = 0.1
+            self.prediction_loss_scale = 10.0
+            self.intrinsic_bonus_clip = 0.1
+            if self.intrinsic_bonus_clip:
+                self.intrinsic_bonus_min = 1 - self.intrinsic_bonus_clip
+                self.intrinsic_bonus_max = 1 + self.intrinsic_bonus_clip
             self.prediction_bonus_coeff = 0.05  # scaling factor for prediction bonus vs env rewards
             self.forward_fc = 256
 
-    def __init__(self, env, ph_obs, forward_fc=256, params=None):
+    def __init__(self, env, ph_obs, params=None):
         """
         :param env
         :param ph_obs - placeholder for observations
-        :param forward_fc
         """
         with tf.variable_scope('rnd'):
             self.params = params
@@ -33,17 +36,13 @@ class RandomNetworkDistillation(CuriosityModule):
 
             obs_space = main_observation_space(env)
 
-            target_enc_params = get_enc_params(params, 'rnd_target')  # fixed but random enc
-            encoder_template = tf.make_template(
-                'obs_encoder', make_encoder, create_scope_now_=True,
-                obs_space=obs_space, regularizer=reg, enc_params=target_enc_params,
-            )
-
-            encoder_obs = encoder_template(ph_obs, name='encoder')
+            target_enc_params = get_enc_params(params, 'rnd_target')
+            encoder_obs = make_encoder(ph_obs, obs_space, reg, target_enc_params, name='target_encoder')
             self.predicted_features = encoder_obs.encoded_input
 
-            tgt_encoder_obs = encoder_template(ph_obs, trainable=False, name='tgt_encoder')
-            self.tgt_encoded_obs = tf.stop_gradient(tgt_encoder_obs.encoded_input)
+            predictor_enc_params = get_enc_params(params, 'rnd_predictor')
+            target_features = make_encoder(ph_obs, obs_space, reg, predictor_enc_params, name='predictor_encoder')
+            self.tgt_features = tf.stop_gradient(target_features.encoded_input)
 
             self.feature_vector_size = self.predicted_features.get_shape().as_list()[-1]
             log.info('Feature vector size in RND module: %d', self.feature_vector_size)
@@ -60,13 +59,12 @@ class RandomNetworkDistillation(CuriosityModule):
 
     def _objectives(self):
         # model losses
-        l2_loss_obs = tf.nn.l2_loss(self.tgt_encoded_obs - self.predicted_features)
+        l2_loss_obs = tf.nn.l2_loss(self.tgt_features - self.predicted_features)
         prediction_loss = tf.reduce_mean(l2_loss_obs)
 
-        bonus = self.params.prediction_bonus_coeff * prediction_loss
-        self.prediction_curiosity_bonus = tf.clip_by_value(bonus, -self.params.clip_bonus, self.params.clip_bonus)
+        bonus = prediction_loss * self.params.prediction_bonus_coeff
 
-        loss = self.params.cm_lr_scale * prediction_loss
+        loss = prediction_loss * self.params.prediction_loss_scale
         return AttrDict(locals())
 
     def _add_summaries(self):
@@ -80,16 +78,17 @@ class RandomNetworkDistillation(CuriosityModule):
 
     def generate_bonus_rewards(self, session, observations, next_obs, actions, dones, infos):
         bonuses = session.run(
-            self.prediction_curiosity_bonus,
+            self.objectives.bonus,
             feed_dict={
                 self.ph_obs: observations,
             }
         )
+        if self.params.intrinsic_bonus_clip:
+            bonuses = np.clip(bonuses, a_min=self.params.intrinsic_bonus_min, a_max=self.params.intrinsic_bonus_max)
 
-        bonuses = bonuses * dones  # don't give bonus for the last transition in the episode
+        bonuses = bonuses * np.array(dones)  # don't give bonus for the last transition in the episode
         return bonuses
 
-    # noinspection PyProtectedMember
     def train(self, buffer, env_steps, agent):
         """
         Actually do a single iteration of training

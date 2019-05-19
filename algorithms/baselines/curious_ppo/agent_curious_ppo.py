@@ -3,6 +3,7 @@ import time
 
 import numpy as np
 
+from algorithms.curiosity.rnd.rnd import RandomNetworkDistillation
 from algorithms.utils.algo_utils import num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer
 from algorithms.curiosity.ecr.ecr import ECRModule
@@ -37,6 +38,7 @@ class AgentCuriousPPO(AgentPPO):
         ECRModule.Params,  # find "episodic curiosity" params here
         ECRMapModule.Params,  # find "episodic curiosity" params here
         IntrinsicCuriosityModule.Params,  # find "ICM" params here
+        RandomNetworkDistillation.Params,  # find "ICM" params here
     ):
         """Hyperparams for curious PPO"""
 
@@ -46,6 +48,7 @@ class AgentCuriousPPO(AgentPPO):
             ECRModule.Params.__init__(self)
             ECRMapModule.Params.__init__(self)
             IntrinsicCuriosityModule.Params.__init__(self)
+            RandomNetworkDistillation.Params.__init__(self)
 
             self.curiosity_type = 'icm'  # icm or ecr or ecr_map
             self.random_exploration = False
@@ -72,6 +75,8 @@ class AgentCuriousPPO(AgentPPO):
             self.curiosity = ECRModule(env, params)
         elif self.params.curiosity_type == 'ecr_map':
             self.curiosity = ECRMapModule(env, params)
+        elif self.params.curiosity_type == 'rnd':
+            self.curiosity = RandomNetworkDistillation(env, self.ph_observations, params)
         else:
             raise Exception(f'Curiosity type {self.params.curiosity_type} not supported')
 
