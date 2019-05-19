@@ -970,7 +970,6 @@ class TmaxManager:
                 update_curiosity = False
             mask.append(update_curiosity)
 
-        self.curiosity.episode_frames = self.episode_frames
         curiosity_bonus = self.curiosity.generate_bonus_rewards(
             self.agent.session, obs, next_obs, None, dones, infos, mask=mask,
         )

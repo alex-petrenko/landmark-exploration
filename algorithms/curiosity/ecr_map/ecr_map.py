@@ -58,7 +58,7 @@ class ECRMapModule(CuriosityModule):
         self.last_explored_region_update = self.params.distance_bootstrap
         self.explored_region_map = None
 
-        self.episode_frames = None
+        self.episode_frames = [0] * self.params.num_envs
 
         self._last_trained = 0
         self._last_map_summary = 0
@@ -77,8 +77,6 @@ class ECRMapModule(CuriosityModule):
             log.debug('Done loading distance network from checkpoint!')
 
     def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos, mask=None):
-        frames = self.episode_frames
-
         for i, episodic_map in enumerate(self.episodic_maps):
             if episodic_map is None:
                 # noinspection PyTypeChecker
@@ -105,6 +103,11 @@ class ECRMapModule(CuriosityModule):
 
                 self.episodic_maps[i].new_episode()
 
+                self.episode_frames[i] = 0
+            else:
+                self.episode_frames[i] += 1
+
+        frames = self.episode_frames
         bonuses = np.full(self.params.num_envs, fill_value=-0.04)
         with_sparse_reward = self.params.ecr_map_sparse_reward
 
