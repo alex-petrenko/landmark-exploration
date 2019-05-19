@@ -24,8 +24,9 @@ class ECRMapModule(CuriosityModule):
             self.loop_closure_threshold = 0.6  # condition for graph loop closure (finding new edge)
             self.map_expansion_reward = 0.4  # reward for finding new vertex
 
-            self.revisiting_penalty = -0.1
+            self.revisiting_penalty = -0.2
             self.revisiting_threshold = 0.2
+            self.revisit_num_frames = 5
 
             self.ecr_map_dense_reward = False
             self.ecr_map_sparse_reward = True
@@ -135,7 +136,7 @@ class ECRMapModule(CuriosityModule):
                         if added_at == -1:
                             continue
 
-                        if frames[env_i] - added_at > 10:
+                        if frames[env_i] - added_at > self.params.revisit_num_frames:
                             bonuses[env_i] += self.params.revisiting_penalty
 
             # if bonuses[0] > 0:
