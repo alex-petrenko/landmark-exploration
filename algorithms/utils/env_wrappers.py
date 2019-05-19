@@ -12,7 +12,7 @@ import numpy as np
 from gym import spaces, RewardWrapper, ObservationWrapper
 
 from algorithms.utils.algo_utils import num_env_steps
-from utils.utils import numpy_all_the_way
+from utils.utils import numpy_all_the_way, log
 
 
 def reset_with_info(env):

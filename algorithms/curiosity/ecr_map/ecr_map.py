@@ -22,7 +22,12 @@ class ECRMapModule(CuriosityModule):
 
             self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
             self.loop_closure_threshold = 0.6  # condition for graph loop closure (finding new edge)
-            self.map_expansion_reward = 0.2  # reward for finding new vertex
+            self.map_expansion_reward = 0.4  # reward for finding new vertex
+
+            self.revisiting_penalty = -0.2
+            self.revisiting_threshold = 0.2
+            self.revisit_num_frames = 5
+
             self.ecr_map_dense_reward = False
             self.ecr_map_sparse_reward = True
 
@@ -53,6 +58,8 @@ class ECRMapModule(CuriosityModule):
         self.past_maps = deque([], maxlen=200)
         self.last_explored_region_update = self.params.distance_bootstrap
         self.explored_region_map = None
+
+        self.episode_frames = [0] * self.params.num_envs
 
         self._last_trained = 0
         self._last_map_summary = 0
@@ -97,22 +104,40 @@ class ECRMapModule(CuriosityModule):
 
                 self.episodic_maps[i].new_episode()
 
-        bonuses = np.full(self.params.num_envs, fill_value=-0.01)
+                self.episode_frames[i] = 0
+            else:
+                self.episode_frames[i] += 1
+
+        frames = self.episode_frames
+        bonuses = np.full(self.params.num_envs, fill_value=-0.04)
         with_sparse_reward = self.params.ecr_map_sparse_reward
 
         if self.initialized:
             # noinspection PyUnusedLocal
-            def on_new_landmark(env_i, new_landmark_idx):
+            def on_new_landmark(env_i_, new_landmark_idx):
                 if with_sparse_reward:
-                    bonuses[env_i] += self.params.map_expansion_reward
+                    bonuses[env_i_] += self.params.map_expansion_reward
 
             if mask is None:
                 maps = self.episodic_maps
             else:
                 maps = [self.episodic_maps[i] if mask[i] else None for i in range(len(mask))]
             distances_to_memory = self.localizer.localize(
-                session, next_obs, infos, maps, self.distance, on_new_landmark=on_new_landmark,
+                session, next_obs, infos, maps, self.distance, frames=frames, on_new_landmark=on_new_landmark,
             )
+
+            if frames is not None:
+                for env_i, m in enumerate(maps):
+                    if m is None:
+                        continue
+
+                    if distances_to_memory[env_i] < self.params.revisiting_threshold:
+                        added_at = m.graph.nodes[m.curr_landmark_idx].get('added_at', -1)
+                        if added_at == -1:
+                            continue
+
+                        if frames[env_i] - added_at > self.params.revisit_num_frames:
+                            bonuses[env_i] += self.params.revisiting_penalty
 
             # if bonuses[0] > 0:
             #     log.warning('Distances to memory: %.3f, bonuses: %.3f', distances_to_memory[0], bonuses[0])

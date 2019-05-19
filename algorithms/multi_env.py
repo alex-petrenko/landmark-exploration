@@ -152,7 +152,9 @@ class _MultiEnvWorker:
                         obs, reward, done, info = result[0]
                         if done or reset[i]:
                             obs = real_envs[i].reset()
+                            prev_info = info
                             info = self._get_info(real_envs[i])  # info for the new episode
+                            info['prev'] = prev_info  # info for the previous episode last frame
                             done = True
 
                         results[i] = (obs, reward, done, info)  # collapse dimension of size 1

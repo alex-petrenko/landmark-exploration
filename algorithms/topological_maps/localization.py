@@ -29,7 +29,10 @@ class Localizer:
                 neighbor_distance[neighbor_idx] = '{:.3f}'.format(distance[i])
             self._log_verbose('Env %d distance: %r', env_i, neighbor_distance)
 
-    def localize(self, session, obs, info, maps, distance_net, on_new_landmark=None, on_new_edge=None, timing=None):
+    def localize(
+            self,
+            session, obs, info, maps, distance_net, frames=None, on_new_landmark=None, on_new_edge=None, timing=None,
+    ):
         num_envs = len(obs)
         closest_landmark_idx = [-1] * num_envs
         # closest distance to the landmark in the existing graph (excluding new landmarks)
@@ -95,14 +98,6 @@ class Localizer:
             assert len(neighbor_indices) == neighborhood_sizes[env_i]
 
             self._log_distances(env_i, neighbor_indices, distance)
-
-            if len(distance) <= 0:
-                log.warning('Distance to neighbors array empty! Neighbors %r, j %d jn %d', m.neighborhood(), j, j_next)
-                log.warning('Current landmark %d', m.curr_landmark_idx)
-                map_sizes = [mp.num_landmarks() if mp is not None else None for mp in maps]
-                log.warning('Map sizes %r', map_sizes)
-                log.warning('Distances array size %d', len(distances))
-                log.warning('Distances array %r', distances)
 
             j = j_next
 
@@ -211,6 +206,10 @@ class Localizer:
                 # vertex is relatively far away from all vertices in the graph, we've found a new landmark!
                 if m.new_landmark_candidate_frames >= self.localize_frames:
                     new_landmark_idx = m.add_landmark(obs[env_i], info[env_i], update_curr_landmark=True)
+
+                    if frames is not None:
+                        m.graph.nodes[new_landmark_idx]['added_at'] = frames[env_i]
+
                     closest_landmark_idx[env_i] = new_landmark_idx
                     m.new_landmark_candidate_frames = 0
 
