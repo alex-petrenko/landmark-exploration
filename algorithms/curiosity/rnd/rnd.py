@@ -15,12 +15,12 @@ class RandomNetworkDistillation(CuriosityModule):
 
     class Params:
         def __init__(self):
-            self.prediction_loss_scale = 1.0
+            self.prediction_loss_scale = 10.0
             self.intrinsic_bonus_clip = 0.1
             if self.intrinsic_bonus_clip:
                 self.intrinsic_bonus_min = - self.intrinsic_bonus_clip
                 self.intrinsic_bonus_max = self.intrinsic_bonus_clip
-            self.prediction_bonus_coeff = 0.05  # scaling factor for prediction bonus vs env rewards
+            self.prediction_bonus_coeff = 1  # scaling factor for prediction bonus vs env rewards
             self.forward_fc = 256
 
     def __init__(self, env, ph_obs, params=None):
@@ -77,17 +77,19 @@ class RandomNetworkDistillation(CuriosityModule):
         pass
 
     def generate_bonus_rewards(self, session, observations, next_obs, actions, dones, infos):
-        bonuses = session.run( #TODO: bonuses should not be scalar
+        bonuses = session.run(
             self.objectives.bonus,
             feed_dict={
                 self.ph_obs: observations,
             }
         )
-        bonuses *= self.params.prediction_bonus_coeff # TODO: coeff is not scaling right: check paper
+        assert len(bonuses) == len(dones)
+        bonuses *= self.params.prediction_bonus_coeff
         if self.params.intrinsic_bonus_clip:
             bonuses = np.clip(bonuses, a_min=self.params.intrinsic_bonus_min, a_max=self.params.intrinsic_bonus_max)
 
         bonuses = bonuses * (1 - np.array(dones))  # don't give bonus for the last transition in the episode
+        # print(bonuses[:4])
         return bonuses
 
     def train(self, buffer, env_steps, agent):
