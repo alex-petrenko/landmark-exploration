@@ -61,7 +61,7 @@ class RandomNetworkDistillation(CuriosityModule):
         # model losses
         l2_loss_obs = tf.squared_difference(self.tgt_features, self.predicted_features)
         #one axis must have dimension None
-        prediction_loss = tf.reduce_mean(l2_loss_obs, axis=1)
+        prediction_loss = tf.reduce_mean(l2_loss_obs, axis=-1)
         bonus = prediction_loss
 
         loss = prediction_loss * self.params.prediction_loss_scale
@@ -80,7 +80,7 @@ class RandomNetworkDistillation(CuriosityModule):
         bonuses = session.run(
             self.objectives.bonus,
             feed_dict={
-                self.ph_obs: observations,
+                self.ph_obs: next_obs,
             }
         )
         assert len(bonuses) == len(dones)
