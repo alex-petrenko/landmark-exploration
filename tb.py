@@ -9,6 +9,7 @@ import glob
 import subprocess
 import argparse
 import os.path
+import time
 import sys
 from os.path import join
 
@@ -17,6 +18,8 @@ def main():
     parser = argparse.ArgumentParser(description=r'Launch tensorboard on multiple directories in an easy way.')
     parser.add_argument('--port', default=6006, type=int, help='The port to use for tensorboard')
     parser.add_argument('--quiet', '-q', action='store_true', help='Run in silent mode')
+    parser.add_argument('--refresh-every', '-r', dest='refresh', type=int, default=1800,
+                        help='Refresh every x seconds (default 1800 sec, i.e. 30 min)')
     parser.add_argument('filters', nargs='+', type=str, help='directories in train_dir to monitor')
     args = parser.parse_args()
 
@@ -34,7 +37,10 @@ def main():
         cmd += ' 2>/dev/null'
 
     print(cmd)
-    subprocess.call(cmd, shell=True)
+    p = subprocess.Popen(cmd, shell=False)
+    time.sleep(args.refresh)
+    print("Restarting tensorboard")
+    p.kill()
 
     return 0
 
