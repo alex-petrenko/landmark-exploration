@@ -9,9 +9,11 @@ sudo apt-get install build-essential zlib1g-dev libsdl2-dev libjpeg-dev \
 nasm tar libbz2-dev libgtk2.0-dev cmake git libfluidsynth-dev libgme-dev \
 libopenal-dev timidity libwildmidi-dev unzip
 
-sudo apt-get install libboost-all-dev
+sudo apt-get install libboost-all-dev python-pip
 
-sudo apt install ffmpeg   <-- for gif summaries
+sudo pip install pipenv
+
+sudo apt install ffmpeg  # for gif summaries
 
 2) go to project dir and install python packages:
 
