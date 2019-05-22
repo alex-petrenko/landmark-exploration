@@ -5,13 +5,22 @@ Little handy script to launch tensorboard using a wildcard mask.
 Courtesy of Shao-Hua Sun.
 """
 
-import glob
-import subprocess
-import argparse
-import os.path
-import time
 import sys
+import glob
+import time
+import psutil
+import os.path
+import argparse
+import subprocess
+
 from os.path import join
+
+
+def kill(proc_pid):
+    process = psutil.Process(proc_pid)
+    for proc in process.children(recursive=True):
+        proc.kill()
+    process.kill()
 
 
 def main():
@@ -36,11 +45,15 @@ def main():
     if args.quiet:
         cmd += ' 2>/dev/null'
 
-    print(cmd)
-    p = subprocess.Popen(cmd, shell=False)
-    time.sleep(args.refresh)
-    print("Restarting tensorboard")
-    p.kill()
+    num_restarts = 0
+    while True:
+        num_restarts += 1
+        print(cmd)
+        p = subprocess.Popen(cmd, shell=True)
+        time.sleep(args.refresh)
+        print('Kill current tensorboard process', p.pid, '...')
+        kill(p.pid)
+        print('Restarting tensorboard', num_restarts, '...')
 
     return 0
 
