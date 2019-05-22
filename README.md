@@ -13,7 +13,8 @@ sudo apt-get install libboost-all-dev
 
 2) install additional project dependencies
 
-sudo apt install ffmpeg  # for gif summaries in Tensorboard
+sudo apt install ffmpeg      # for gif summaries in Tensorboard
+sudo apt install python3-tk  # for matplotlib summaries in Tensorboard
 
 3) go to project dir and install python packages:
 
