@@ -86,10 +86,13 @@ class ECRMapModule(CuriosityModule):
             log.debug('Done loading distance network from checkpoint!')
 
     def generate_bonus_rewards(self, session, obs, next_obs, actions, dones, infos, mask=None):
+        if self.explored_region_map is None:
+            self.explored_region_map = TopologicalMap(obs[0], directed_graph=False, initial_info=infos[0])
+
         for i, episodic_map in enumerate(self.episodic_maps):
             if episodic_map is None:
                 # noinspection PyTypeChecker
-                self.episodic_maps[i] = TopologicalMap(obs[i], directed_graph=False, initial_info=infos[i])
+                self.episodic_maps[i] = copy.deepcopy(self.explored_region_map)
 
         for i in range(self.params.num_envs):
             if dones[i]:
@@ -101,10 +104,9 @@ class ECRMapModule(CuriosityModule):
                 self.current_episode_bonus[i] = 0
 
                 if self.explored_region_map is not None:
-                    assert self.params.expand_explored_region
-
                     # set the episodic map to be the map of the explored region, so we don't receive any more reward
                     # for seeing what we've already explored
+                    # noinspection PyTypeChecker
                     self.episodic_maps[i] = copy.deepcopy(self.explored_region_map)
                     for node in self.episodic_maps[i].graph.nodes:
                         self.episodic_maps[i].graph.nodes[node]['added_at'] = -1
@@ -183,7 +185,7 @@ class ECRMapModule(CuriosityModule):
                 if ratio < 30 / 1000:
                     # make landmarks easier to find
                     self.new_landmark_threshold *= 0.95
-                    self.loop_closure_threshold = 0.666 * self.new_landmark_threshold
+                    self.loop_closure_threshold = 0.5 * self.new_landmark_threshold
                     log.info(
                         'Decreased landmark threshold to %.3f (%.3f)',
                         self.new_landmark_threshold, self.loop_closure_threshold,
@@ -192,7 +194,7 @@ class ECRMapModule(CuriosityModule):
                     not_far_probability = 1.0 - self.new_landmark_threshold
                     not_far_probability *= 0.9  # decrease minimum probability that new landmark is not "far"
                     self.new_landmark_threshold = 1.0 - not_far_probability
-                    self.loop_closure_threshold = 0.666 * self.new_landmark_threshold
+                    self.loop_closure_threshold = 0.5 * self.new_landmark_threshold
                     log.info(
                         'Increased landmark threshold to %.3f (%.3f)',
                         self.new_landmark_threshold, self.loop_closure_threshold,
@@ -204,6 +206,58 @@ class ECRMapModule(CuriosityModule):
                 self.landmarks_generated = 0
 
         return bonuses
+
+    def _expand_explored_region(self, env_steps, agent):
+        if not self.params.expand_explored_region:
+            return
+
+        if env_steps - self.last_explored_region_update < self.params.expand_explored_region_frames:
+            return
+
+        if len(self.past_maps) <= 0:
+            return
+
+        max_landmarks_idx = 0
+        for i, m in enumerate(self.past_maps):
+            if m.num_landmarks() > self.past_maps[max_landmarks_idx].num_landmarks():
+                max_landmarks_idx = i
+
+        biggest_map = self.past_maps[max_landmarks_idx]
+        log.debug('Biggest map %d with %d landmarks', max_landmarks_idx, biggest_map.num_landmarks())
+
+        existing_nodes = set(self.explored_region_map.graph.nodes)
+        node_distances = biggest_map.topological_distances(0)
+
+        node_distances = [(dist, idx) for idx, dist in node_distances.items()]
+        node_distances.sort()
+
+        num_to_add, num_added = 5, 0
+        new_map_nodes = []
+        for dist, idx in node_distances:
+            if idx in existing_nodes:
+                new_map_nodes.append(idx)
+                log.debug('Keep node %d, it is already in the map of explored region', idx)
+                continue
+
+            new_map_nodes.append(idx)
+            log.debug('Adding new node %d with topological distance %d', idx, dist)
+            num_added += 1
+            if num_added >= num_to_add:
+                break
+
+        log.debug('List of nodes in the new map %r', new_map_nodes)
+
+        self.explored_region_map.graph = biggest_map.graph.subgraph(new_map_nodes).copy()
+        self.explored_region_map.new_episode()
+
+        self.last_explored_region_update = env_steps
+
+        checkpoint_dir = model_dir(agent.params.experiment_dir())
+        self.explored_region_map.save_checkpoint(
+            checkpoint_dir, map_img=agent.map_img, coord_limits=agent.coord_limits, verbose=True,
+        )
+
+        self.past_maps.clear()
 
     def train(self, latest_batch_of_experience, env_steps, agent):
         # latest batch of experience is not used here
@@ -228,28 +282,7 @@ class ECRMapModule(CuriosityModule):
             log.debug('Curiosity is initialized @ %d steps!', env_steps)
             self.initialized = True
 
-        if self.params.expand_explored_region:
-            if env_steps - self.last_explored_region_update >= self.params.expand_explored_region_frames:
-                if len(self.past_maps) >= self.past_maps.maxlen:
-                    map_sizes = []
-                    for i, m in enumerate(self.past_maps):
-                        map_sizes.append((m.num_landmarks(), i))
-
-                    map_sizes.sort()
-                    median_map_idx = map_sizes[len(map_sizes) // 2][1]
-                    median_map = self.past_maps[median_map_idx]
-
-                    log.debug(
-                        'Select map %d with %d landmarks as our new map of explored region @ %d frames',
-                        median_map_idx, median_map.num_landmarks(), env_steps,
-                    )
-                    self.explored_region_map = copy.deepcopy(median_map)
-                    self.last_explored_region_update = env_steps
-
-                    checkpoint_dir = model_dir(agent.params.experiment_dir())
-                    self.explored_region_map.save_checkpoint(
-                        checkpoint_dir, map_img=agent.map_img, coord_limits=agent.coord_limits, verbose=True,
-                    )
+        self._expand_explored_region(env_steps, agent)
 
     def set_trajectory_buffer(self, trajectory_buffer):
         self.trajectory_buffer = trajectory_buffer
@@ -290,7 +323,6 @@ class ECRMapModule(CuriosityModule):
             map_img = kwargs.get('map_img')
             coord_limits = kwargs.get('coord_limits')
             map_summaries(maps, env_steps, summary_writer, section, map_img, coord_limits, is_sparse=True)
-            summary_writer.flush()
 
             if self.explored_region_map is not None:
                 map_summaries(
@@ -298,4 +330,5 @@ class ECRMapModule(CuriosityModule):
                     is_sparse=True,
                 )
 
+            summary_writer.flush()
             self._last_map_summary = time.time()
