@@ -246,7 +246,7 @@ class TmaxManager:
 
         self.env_steps = 0
         self.episode_frames = [0] * self.num_envs
-        self.end_episode = [self.params.exploration_budget * 1000] * self.num_envs
+        self.end_episode = [self.params.max_episode] * self.num_envs
 
         # frame at which we switched to exploration mode
         self.exploration_started = [0] * self.num_envs
@@ -345,20 +345,9 @@ class TmaxManager:
     def get_timer(self):
         timer = np.ones(self.num_envs, dtype=np.float32)
         for env_i in range(self.num_envs):
-            exploration_mode = self.mode[env_i] == TmaxMode.EXPLORATION
-            assert not exploration_mode or self.end_episode[env_i] >= self.params.exploration_budget
-
-            if self.end_episode[env_i] < 0 or not exploration_mode:
-                timer[env_i] = 1.0  # does not matter, because it isn't used
-            else:
-                assert exploration_mode
-                assert self.exploration_started[env_i] >= 0
-
-                # remaining frame budget for the exploration policy
-                frames_so_far = self.episode_frames[env_i] - self.exploration_started[env_i]
-                remaining_frames = self.params.exploration_budget - frames_so_far
-                timer[env_i] = max(remaining_frames / self.params.exploration_budget, 0.0)
-                assert -EPS < timer[env_i] < 1.0 + EPS
+            remaining_frames = self.params.max_episode - self.episode_frames[env_i]
+            timer[env_i] = max(remaining_frames / self.params.max_episode, 0.0)
+            assert -EPS < timer[env_i] < 1.0 + EPS
 
         return timer
 
@@ -439,7 +428,7 @@ class TmaxManager:
         # this is to force exploration policy to find shorter routes to interesting locations
         total_frames = max(0, self.env_steps - self.params.distance_bootstrap)
         stage_idx = total_frames // self.params.stage_duration
-        max_distance = max(5, stage_idx * 200)
+        max_distance = max(5, stage_idx * self.params.max_travel_per_stage)
         potential_targets = MapBuilder.sieve_landmarks_by_distance(curr_sparse_map, max_distance=max_distance)
 
         # potential_targets = list(curr_sparse_map.graph.nodes)
@@ -676,8 +665,6 @@ class TmaxManager:
 
         trajectories = [t[1] for t in self.exploration_trajectories]
 
-        assert self.params.exploration_budget > self.params.random_frames_at_the_end
-
         # truncate trajectories
         for t_idx, t in enumerate(trajectories):
             first_exploration_frame = len(t)
@@ -739,8 +726,8 @@ class TmaxManager:
         new_sparse_map = copy.deepcopy(self.sparse_persistent_maps[-1])
 
         # reset UCB statistics
-        # for node in new_sparse_map.graph.nodes:
-        #     new_sparse_map.graph.nodes[node]['num_samples'] = 1
+        for node in new_sparse_map.graph.nodes:
+            new_sparse_map.graph.nodes[node]['num_samples'] = 1
 
         new_dense_map.new_episode()
         new_sparse_map.new_episode()
@@ -849,7 +836,7 @@ class TmaxManager:
         self.episode_frames[env_i] = 0
 
         # this will be updated once locomotion goal is achieved (even if it's 0)
-        self.end_episode[env_i] = self.params.exploration_budget * 1000
+        self.end_episode[env_i] = self.params.max_episode
         self.exploration_started[env_i] = 0
         self.random_mode[env_i] = False
 
@@ -929,7 +916,7 @@ class TmaxManager:
                 )
                 end_locomotion = True
 
-            if self.episode_frames[env_i] > self.params.exploration_budget:
+            if self.episode_frames[env_i] > self.params.max_episode // 2:
                 log.error(
                     'Takes too much time (%d) to get to %d',
                     self.episode_frames[env_i], self.locomotion_final_targets[env_i],
@@ -954,9 +941,7 @@ class TmaxManager:
                     # after we reached locomotion goal we just collect random experience
                     self.random_mode[env_i] = True
 
-                self.end_episode[env_i] = self.episode_frames[env_i] + self.params.exploration_budget
-                if self.env_stage[env_i] == TmaxMode.EXPLORATION:
-                    self.end_episode[env_i] += self.params.random_frames_at_the_end
+                self.end_episode[env_i] = self.params.max_episode
 
                 self.locomotion_targets[env_i] = self.locomotion_final_targets[env_i] = None
                 self.locomotion_success.append(locomotion_success)
@@ -1064,11 +1049,10 @@ class AgentTMAX(AgentLearner):
 
             self.ucb_degree = 0.5  # exploration/exploitation tradeoff
 
-            self.exploration_budget = 1000
-            self.random_frames_at_the_end = 0  # don't use
             self.max_exploration_trajectory = 500  # should be less than exploration budget
             self.max_frames_between_landmarks = 100
-            self.max_episode = 20000
+            self.max_episode = 2000  # in 4-repeated frames
+            self.max_travel_per_stage = 100
 
             self.locomotion_experience_replay = True
 
