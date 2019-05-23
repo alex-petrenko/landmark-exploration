@@ -31,6 +31,8 @@ class ECRMapModule(CuriosityModule):
             self.ecr_map_dense_reward = False
             self.ecr_map_sparse_reward = True
 
+            self.ecr_map_adaptive_reward = True
+
             self.expand_explored_region = False
             self.expand_explored_region_frames = 4000000
 
@@ -60,6 +62,12 @@ class ECRMapModule(CuriosityModule):
         self.explored_region_map = None
 
         self.episode_frames = [0] * self.params.num_envs
+
+        # statistics for adaptive reward threshold
+        self.frames_analyzed = 0
+        self.landmarks_generated = 0
+        self.new_landmark_threshold = self.params.new_landmark_threshold
+        self.loop_closure_threshold = self.params.loop_closure_threshold
 
         self._last_trained = 0
         self._last_map_summary = 0
@@ -98,6 +106,8 @@ class ECRMapModule(CuriosityModule):
                     # set the episodic map to be the map of the explored region, so we don't receive any more reward
                     # for seeing what we've already explored
                     self.episodic_maps[i] = copy.deepcopy(self.explored_region_map)
+                    for node in self.episodic_maps[i].graph.nodes:
+                        self.episodic_maps[i].graph.nodes[node]['added_at'] = -1
                 else:
                     # we don't have a map of explored region, so reset episodic memory to zero
                     self.episodic_maps[i].reset(next_obs[i], infos[i])
@@ -107,6 +117,7 @@ class ECRMapModule(CuriosityModule):
                 self.episode_frames[i] = 0
             else:
                 self.episode_frames[i] += 1
+                self.frames_analyzed += 1
 
         frames = self.episode_frames
         bonuses = np.full(self.params.num_envs, fill_value=-0.04)
@@ -117,11 +128,15 @@ class ECRMapModule(CuriosityModule):
             def on_new_landmark(env_i_, new_landmark_idx):
                 if with_sparse_reward:
                     bonuses[env_i_] += self.params.map_expansion_reward
+                    self.landmarks_generated += 1
 
             if mask is None:
                 maps = self.episodic_maps
             else:
                 maps = [self.episodic_maps[i] if mask[i] else None for i in range(len(mask))]
+
+            self.localizer.new_landmark_threshold = self.new_landmark_threshold
+            self.localizer.loop_closure_threshold = self.loop_closure_threshold
             distances_to_memory = self.localizer.localize(
                 session, next_obs, infos, maps, self.distance, frames=frames, on_new_landmark=on_new_landmark,
             )
@@ -161,6 +176,33 @@ class ECRMapModule(CuriosityModule):
                 log.error('NaN values in bonus array!')
 
         self.current_episode_bonus += bonuses
+
+        if self.params.ecr_map_adaptive_reward:
+            if self.frames_analyzed >= 50000:
+                ratio = self.landmarks_generated / self.frames_analyzed
+                if ratio < 30 / 1000:
+                    # make landmarks easier to find
+                    self.new_landmark_threshold *= 0.95
+                    self.loop_closure_threshold = 0.666 * self.new_landmark_threshold
+                    log.info(
+                        'Decreased landmark threshold to %.3f (%.3f)',
+                        self.new_landmark_threshold, self.loop_closure_threshold,
+                    )
+                elif ratio > 50 / 1000:
+                    not_far_probability = 1.0 - self.new_landmark_threshold
+                    not_far_probability *= 0.9  # decrease minimum probability that new landmark is not "far"
+                    self.new_landmark_threshold = 1.0 - not_far_probability
+                    self.loop_closure_threshold = 0.666 * self.new_landmark_threshold
+                    log.info(
+                        'Increased landmark threshold to %.3f (%.3f)',
+                        self.new_landmark_threshold, self.loop_closure_threshold,
+                    )
+                else:
+                    log.info('Landmark threshold unchanged, ratio %.3f', ratio)
+
+                self.frames_analyzed = 0
+                self.landmarks_generated = 0
+
         return bonuses
 
     def train(self, latest_batch_of_experience, env_steps, agent):
@@ -236,6 +278,9 @@ class ECRMapModule(CuriosityModule):
         if self.params.expand_explored_region:
             explored_region_size = 0 if self.explored_region_map is None else self.explored_region_map.num_landmarks()
             curiosity_summary('explored_region_size', explored_region_size)
+
+        curiosity_summary('new_landmark_threshold', self.new_landmark_threshold)
+        curiosity_summary('loop_closure_threshold', self.loop_closure_threshold)
 
         summary_writer.add_summary(summary, env_steps)
 
