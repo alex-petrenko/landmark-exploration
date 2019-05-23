@@ -790,20 +790,22 @@ class TmaxManager:
             if len(nodes) <= 1:
                 return
 
-            max_number_of_landmarks_in_episodic_memory = min(50, len(nodes) - 1)
-            number_of_landmarks_in_episodic_memory = random.randint(0, max_number_of_landmarks_in_episodic_memory)
-            if number_of_landmarks_in_episodic_memory <= 0:
-                return
+            # max_number_of_landmarks_in_episodic_memory = min(50, len(nodes) - 1)
+            # number_of_landmarks_in_episodic_memory = random.randint(0, max_number_of_landmarks_in_episodic_memory)
+            # if number_of_landmarks_in_episodic_memory <= 0:
+            #     return
+            #
+            # random_landmarks_to_add = random.sample(nodes, number_of_landmarks_in_episodic_memory)
+            # random_landmarks_to_add.sort()
+            # log.info('Env %d: adding landmarks %r to episodic memory', env_i, random_landmarks_to_add)
+            #
+            # for l_idx, node in enumerate(random_landmarks_to_add):
+            #     obs = m.get_observation(node)
+            #     info = m.get_info(node)
+            #     self.curiosity.episodic_maps[env_i].add_landmark(obs, info, update_curr_landmark=True)
+            #
 
-            random_landmarks_to_add = random.sample(nodes, number_of_landmarks_in_episodic_memory)
-            random_landmarks_to_add.sort()
-            log.info('Env %d: adding landmarks %r to episodic memory', env_i, random_landmarks_to_add)
-
-            for l_idx, node in enumerate(random_landmarks_to_add):
-                obs = m.get_observation(node)
-                info = m.get_info(node)
-                self.curiosity.episodic_maps[env_i].add_landmark(obs, info, update_curr_landmark=True)
-
+            self.curiosity.episodic_maps[env_i] = copy.deepcopy(m)
             self.curiosity.episodic_maps[env_i].new_episode()
 
         log.info(
