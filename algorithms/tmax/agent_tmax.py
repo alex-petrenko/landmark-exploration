@@ -338,7 +338,6 @@ class TmaxManager:
 
             if self.episode_frames[env_i] >= self.end_episode[env_i]:
                 reset[env_i] = True
-                log.info('Episode reset for env %d', env_i)
 
         return reset
 
@@ -972,7 +971,7 @@ class TmaxManager:
         self.env_steps = env_steps
 
         curiosity_bonus = np.zeros(self.num_envs)
-        augmented_rewards = np.zeros(self.num_envs)
+        augmented_rewards = np.array(rewards)
         done_flags = np.array(dones)
 
         if self.params.persistent_map_checkpoint is None:
@@ -1008,7 +1007,7 @@ class TmaxManager:
         # combine final rewards and done flags
         for env_i in range(self.num_envs):
             if self.mode[env_i] == TmaxMode.EXPLORATION:
-                augmented_rewards[env_i] = rewards[env_i] + curiosity_bonus[env_i]
+                augmented_rewards[env_i] += curiosity_bonus[env_i]
 
             self.intrinsic_reward[env_i] = curiosity_bonus[env_i]
 
@@ -1561,6 +1560,7 @@ class AgentTMAX(AgentLearner):
             masks[env_non_random] = 1
 
         if len(env_random) > 0:
+            log.error('Random actions for %r', env_random)
             actions[env_random] = np.random.randint(0, self.actor_critic.num_actions, len(env_random))
             is_random[env_random] = 1
             masks[env_random] = 0
@@ -1868,8 +1868,13 @@ class AgentTMAX(AgentLearner):
                             rewards = list(rewards)
                             for i in range(self.params.num_envs):
                                 if dones[i] and reset[i]:
-                                    log.info('Env %d terminated by timer', i)
                                     rewards[i] += values[i]
+                                    if i == 0:
+                                        log.info('Env %d terminated by timer', i)
+                                        log.info('rew %.3f, value %.3f', rewards[i], values[i])
+
+                            if dones[0] and reset[0]:
+                                log.info('All rewards %r', rewards)
 
                     trajectory_buffer.add(observations, actions, infos, dones, tmax_mgr=tmax_mgr, is_random=is_random)
 
