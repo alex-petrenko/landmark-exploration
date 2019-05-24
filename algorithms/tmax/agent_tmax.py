@@ -1864,11 +1864,10 @@ class AgentTMAX(AgentLearner):
                         reset = tmax_mgr.is_episode_reset()
                         env_obs, rewards, dones, new_infos = multi_env.step(actions, reset)
 
-                    if self.params.graceful_episode_termination:
-                        rewards = list(rewards)
-                        for i in range(self.params.num_envs):
-                            if dones[i] and infos[i].get('prev') is not None:
-                                if infos[i]['prev'].get('terminated_by_timer', False):
+                        if self.params.graceful_episode_termination:
+                            rewards = list(rewards)
+                            for i in range(self.params.num_envs):
+                                if dones[i] and reset[i]:
                                     log.info('Env %d terminated by timer', i)
                                     rewards[i] += values[i]
 
