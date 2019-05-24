@@ -1039,7 +1039,9 @@ class AgentTMAX(AgentLearner):
             self.graph_enc_name = 'rnn'  # 'rnn', 'deepsets'
             self.max_neighborhood_size = 6  # max number of neighbors that can be fed into policy at every timestep
             self.graph_encoder_rnn_size = 128  # size of GRU layer in RNN neighborhood encoder
-            self.with_timer = True
+            self.with_timer = False
+
+            self.graceful_episode_termination = True
 
             self.rl_locomotion = False
             self.naive_locomotion = False  # plain action repeat instead of SPTM
@@ -1861,6 +1863,14 @@ class AgentTMAX(AgentLearner):
                     with timing.add_time('env_step'):
                         reset = tmax_mgr.is_episode_reset()
                         env_obs, rewards, dones, new_infos = multi_env.step(actions, reset)
+
+                    if self.params.graceful_episode_termination:
+                        rewards = list(rewards)
+                        for i in range(self.params.num_envs):
+                            if dones[i] and infos[i].get('prev') is not None:
+                                if infos[i]['prev'].get('terminated_by_timer', False):
+                                    log.info('Env %d terminated by timer', i)
+                                    rewards[i] += values[i]
 
                     trajectory_buffer.add(observations, actions, infos, dones, tmax_mgr=tmax_mgr, is_random=is_random)
 
