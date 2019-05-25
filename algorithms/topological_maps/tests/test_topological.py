@@ -185,9 +185,13 @@ class TestGraph(TestCase):
                 m.add_landmark(np.array(0), {'pos': {'agent_x': 300 + 50*i, 'agent_y': 400 + 100*j, 'agent_a': 10}})
 
         graph = m.labeled_graph
-        figure = plot_graph(graph, layout='pos')
 
-        show = False
+        map_img = np.zeros([200, 200, 3], np.uint8)
+        map_img[:, :, 1] = 100
+
+        figure = plot_graph(graph, layout='pos', map_img=map_img, limits=[200, 200, 800, 800])
+
+        show = True
         if show:
             from matplotlib import pyplot as plt
             plt.show()

@@ -87,13 +87,22 @@ def calc_distance_to_memory(agent, sparse_map, obs):
     global last_distances
     last_distances.append(min_d)
 
-    log.info('Avg.distance: %.3f', np.mean(last_distances))
+    # log.info('Avg.distance: %.3f', np.mean(last_distances))
+    log.info('Curr.distance: %.3f', min_d)
 
     import cv2
     closest_node = list(sparse_map.graph.nodes)[min_d_idx]
     closest_obs = sparse_map.get_observation(closest_node)
     cv2.imshow('closest_obs', cv2.resize(cv2.cvtColor(closest_obs, cv2.COLOR_RGB2BGR), (420, 420)))
     cv2.waitKey(1)
+
+
+def calc_value_estimate(agent, obs):
+    _, _, values = agent.actor_critic.invoke(
+        agent.session, [obs], None, None, None, [1.0],
+    )
+    value = values[0]
+    log.info('Current value estimate is %.3f', value)
 
 
 def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_automap=False):
@@ -193,6 +202,7 @@ def enjoy(params, env_id, max_num_episodes=1000, max_num_frames=None, show_autom
                 obs = next_obs
 
                 calc_distance_to_memory(agent, sparse_persistent_map, obs)
+                calc_value_estimate(agent, obs)
 
                 episode_reward += rew
 

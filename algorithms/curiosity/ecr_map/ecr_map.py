@@ -22,9 +22,10 @@ class ECRMapModule(CuriosityModule):
 
             self.new_landmark_threshold = 0.9  # condition for considering current observation a "new landmark"
             self.loop_closure_threshold = 0.6  # condition for graph loop closure (finding new edge)
-            self.map_expansion_reward = 0.4  # reward for finding new vertex
+            self.map_expansion_reward = 0.2  # reward for finding new vertex
+            self.per_step_intrinsic_reward = -0.02  # to make cumulative reward negative (to be attracted to goals)
 
-            self.revisiting_penalty = -0.2
+            self.revisiting_penalty = 0.0
             self.revisiting_threshold = 0.2
             self.revisit_num_frames = 5
 
@@ -122,7 +123,7 @@ class ECRMapModule(CuriosityModule):
                 self.frames_analyzed += 1
 
         frames = self.episode_frames
-        bonuses = np.full(self.params.num_envs, fill_value=-0.04)
+        bonuses = np.full(self.params.num_envs, fill_value=self.params.per_step_intrinsic_reward)
         with_sparse_reward = self.params.ecr_map_sparse_reward
 
         if self.initialized:
@@ -324,7 +325,7 @@ class ECRMapModule(CuriosityModule):
             coord_limits = kwargs.get('coord_limits')
             map_summaries(maps, env_steps, summary_writer, section, map_img, coord_limits, is_sparse=True)
 
-            if self.explored_region_map is not None:
+            if self.explored_region_map is not None and self.params.expand_explored_region:
                 map_summaries(
                     [self.explored_region_map], env_steps, summary_writer, 'explored_region', map_img, coord_limits,
                     is_sparse=True,

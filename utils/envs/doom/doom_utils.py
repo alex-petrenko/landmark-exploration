@@ -44,15 +44,11 @@ DOOM_ENVS = [
 
     DoomCfg('doom_maze_sptm', 'VizdoomSptmBattleNavigation-v0', 1.0, 2100),
 
-    DoomCfg('doom_textured_easy', 'VizdoomTexturedMazeEasy-v0', 1.0, 2100),
-    DoomCfg('doom_textured_very_sparse', 'VizdoomTexturedMazeVerySparse-v0', 1.0, 2100),
+    DoomCfg('doom_textured_easy', 'VizdoomTexturedMazeEasy-v0', 1.0, 20000),
+    DoomCfg('doom_textured_very_sparse', 'VizdoomTexturedMazeVerySparse-v0', 1.0, 20000),
     DoomCfg('doom_textured', 'VizdoomTexturedMaze-v0', 1.0, 2100),
 
     DoomCfg('doom_textured_super_sparse', 'VizdoomTexturedMazeSuperSparse-v0', 1.0, 20000),
-    DoomCfg('doom_textured_super_sparse_4200', 'VizdoomTexturedMazeSuperSparse-v0', 1.0, 4200),
-    DoomCfg('doom_textured_super_sparse_8400', 'VizdoomTexturedMazeSuperSparse-v0', 1.0, 8400),
-    DoomCfg('doom_textured_super_sparse_16800', 'VizdoomTexturedMazeSuperSparse-v0', 1.0, 16800),
-
     DoomCfg('doom_textured_super_sparse_v2', 'VizdoomTexturedMazeSuperSparse-v2', 1.0, 20000),
     DoomCfg('doom_textured_multi_goal', 'VizdoomTexturedMazeMultiGoal-v0', 1.0, 20000),
 

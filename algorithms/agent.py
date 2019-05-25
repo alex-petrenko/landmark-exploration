@@ -237,11 +237,13 @@ class AgentLearner(Agent):
             return
 
         self._last_coverage_summary = time.time()
-        self._write_position_heatmap_summaries(tag='position_coverage', step=env_steps)
+        self._write_position_heatmap_summaries(
+            tag='position_coverage', step=env_steps, histograms=self.position_histograms,
+        )
 
-    def _write_position_heatmap_summaries(self, tag, step):
-        summed_histogram = np.zeros_like(self.position_histograms[0])
-        for hist in self.position_histograms:
+    def _write_position_heatmap_summaries(self, tag, step, histograms):
+        summed_histogram = np.zeros_like(histograms[0])
+        for hist in histograms:
             summed_histogram += hist
         summed_histogram += 1  # min shouldn't be 0 (for log scale)
 

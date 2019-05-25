@@ -1184,8 +1184,25 @@ class AgentTMAX(AgentLearner):
 
         self._last_tmax_map_summary = 0  # timestamp of the latest tmax map summary
 
+        self.loco_histogram = None
+        self._last_loco_coverage_summary = 0  # timestamp of the latest coverage summary written
+        self._num_loco_coverage_summaries = 0
+
         if self.params.use_env_map:
             self.map_img, self.coord_limits = generate_env_map(make_env_func)
+
+            max_histogram_length = 100
+            self.current_histogram, self.previous_histogram = None, None
+            if self.coord_limits:
+                w = (self.coord_limits[2] - self.coord_limits[0])
+                h = (self.coord_limits[3] - self.coord_limits[1])
+                if w > h:
+                    len_x = max_histogram_length
+                    len_y = int((h / w) * max_histogram_length)
+                else:
+                    len_x = int((w / h) * max_histogram_length)
+                    len_y = max_histogram_length
+                self.loco_histogram = np.zeros((len_x, len_y), dtype=np.int32)
 
     @staticmethod
     def add_ppo_objectives(actor_critic, actions, old_action_probs, advantages, returns, masks, params, step):
@@ -1484,6 +1501,44 @@ class AgentTMAX(AgentLearner):
             self._write_gif_summaries(tag='loco_trajectories', gif_images=trajectories_locomotion, step=env_steps)
 
         log.info('Took %.3f seconds to write gif summaries', time.time() - start_gif_summaries)
+
+    def _maybe_loco_coverage_summaries(self, env_steps):
+        time_since_last = time.time() - self._last_loco_coverage_summary
+        if time_since_last < self.params.heatmap_save_rate:
+            return
+
+        self._last_loco_coverage_summary = time.time()
+        self._write_position_heatmap_summaries(
+            tag='loco_position_coverage', step=env_steps, histograms=[self.loco_histogram],
+        )
+
+        self._num_loco_coverage_summaries += 1
+        if self._num_loco_coverage_summaries % 10 == 0:
+            self.loco_histogram[:, :] = 0.0
+
+    def _process_infos_tmax(self, infos, modes):
+        self.process_infos(infos)  # regular position coverage
+
+        if self.loco_histogram is None:
+            return
+
+        for i, mode in enumerate(modes):
+            if mode != TmaxMode.LOCOMOTION:
+                continue
+
+            info = infos[i]
+            agent_x, agent_y = info['pos']['agent_x'], info['pos']['agent_y']
+
+            # Get agent coordinates normalized to [0, 1]
+            dx = (agent_x - self.coord_limits[0]) / (self.coord_limits[2] - self.coord_limits[0])
+            dy = (agent_y - self.coord_limits[1]) / (self.coord_limits[3] - self.coord_limits[1])
+
+            # Rescale coordinates to histogram dimensions
+            # Subtract eps to exclude upper bound of dx, dy
+            dx = int((dx - EPS) * self.loco_histogram.shape[0])
+            dy = int((dy - EPS) * self.loco_histogram.shape[1])
+
+            self.loco_histogram[dx, dy] += 1
 
     def best_action(self, observation):
         raise NotImplementedError('Use best_action_tmax instead')
@@ -1892,10 +1947,11 @@ class AgentTMAX(AgentLearner):
                         None, None, modes, masks, timer, is_random,
                     )
 
+                    self._process_infos_tmax(infos, modes)
+
                     obs_prev = observations
                     observations, goals, infos = new_obs, new_goals, new_infos
 
-                    self.process_infos(infos)
                     num_steps_delta = num_env_steps(infos)
                     num_steps += num_steps_delta
                     env_steps += num_steps_delta
@@ -1920,6 +1976,7 @@ class AgentTMAX(AgentLearner):
                     self._maybe_trajectory_summaries(trajectory_buffer, env_steps)
                 with timing.timeit('cov_summaries'):
                     self._maybe_coverage_summaries(env_steps)
+                    self._maybe_loco_coverage_summaries(env_steps)
                 with timing.timeit('curiosity_summaries'):
                     self.curiosity.additional_summaries(
                         env_steps, self.summary_writer, self.params.stats_episodes,
@@ -1965,12 +2022,9 @@ class AgentTMAX(AgentLearner):
 
 # TODO: run random policy to estimate potential of landmarks?
 # TODO: use UCB also for locomotion stage?
-# TODO: remove previous frame from the locomotion policy
 # TODO: weight loop closures
 # TODO: choose only trajectories we can reliably traverse
-# TODO: measure number of landmarks on the entire trajectory, not only on the piece we're adding
 
+# May 24th
+# TODO: choose actual landmarks on the new trajectory, instead of fixed intervals
 
-# May 7, 2019
-# TODO: try naive Locomotion
-# TODO: random exploration policy
