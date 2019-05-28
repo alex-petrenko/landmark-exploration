@@ -358,16 +358,15 @@ class TmaxManager:
                 continue
 
             # number of new landmarks on the trajectory and cumulative extrinsic reward
-            num_landmarks = 0
+            intrinsic_reward = 0
             extrinsic_reward = 0
             for i in range(len(t)):
-                if t.intrinsic_reward[i] > 0:
-                    num_landmarks += 1
+                intrinsic_reward += t.intrinsic_reward[i]
                 extrinsic_reward += t.env_reward[i]
 
             # calculate weighted "value" of the trajectory
-            extrinsic_reward_coeff = 20
-            trajectory_value = num_landmarks + extrinsic_reward_coeff * extrinsic_reward
+            extrinsic_reward_coeff = 30
+            trajectory_value = intrinsic_reward + extrinsic_reward_coeff * extrinsic_reward
 
             if len(self.exploration_trajectories) <= 0:
                 self.exploration_trajectories.append((trajectory_value, t))

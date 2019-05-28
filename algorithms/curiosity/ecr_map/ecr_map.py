@@ -25,7 +25,7 @@ class ECRMapModule(CuriosityModule):
             self.map_expansion_reward = 0.2  # reward for finding new vertex
             self.per_step_intrinsic_reward = -0.02  # to make cumulative reward negative (to be attracted to goals)
 
-            self.revisiting_penalty = 0.0
+            self.revisiting_penalty = -0.05
             self.revisiting_threshold = 0.2
             self.revisit_num_frames = 5
 
