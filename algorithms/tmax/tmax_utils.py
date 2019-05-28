@@ -42,6 +42,7 @@ class TmaxTrajectory(Trajectory):
         self.stage = []
         self.locomotion_target = []
         self.intrinsic_reward = []
+        self.env_reward = []
         self.is_random = []
 
     def add(self, obs, action, info, **kwargs):
@@ -50,6 +51,7 @@ class TmaxTrajectory(Trajectory):
         self.stage.append(kwargs['stage'])
         self.locomotion_target.append(kwargs['locomotion_target'])
         self.intrinsic_reward.append(kwargs['intrinsic_reward'])
+        self.env_reward.append(kwargs['env_reward'])
         self.is_random.append(kwargs['is_random'])
 
     def add_frame(self, tr, i):
@@ -58,6 +60,7 @@ class TmaxTrajectory(Trajectory):
             mode=tr.mode[i], stage=tr.stage[i],
             locomotion_target=tr.locomotion_target[i],
             intrinsic_reward=tr.intrinsic_reward[i],
+            env_reward=tr.env_reward[i],
             is_random=tr.is_random[i],
         )
 
@@ -73,6 +76,7 @@ class TmaxTrajectoryBuffer(TrajectoryBuffer):
         assert len(obs) == len(actions)
         tmax_mgr = kwargs['tmax_mgr']
         is_random = kwargs['is_random']
+        env_rewards = kwargs['env_rewards']
         for env_idx in range(len(obs)):
             self.current_trajectories[env_idx].add(
                 obs[env_idx], actions[env_idx], infos[env_idx],
@@ -81,6 +85,7 @@ class TmaxTrajectoryBuffer(TrajectoryBuffer):
                 locomotion_target=tmax_mgr.locomotion_targets[env_idx],
                 intrinsic_reward=tmax_mgr.intrinsic_reward[env_idx],
                 is_random=is_random[env_idx],
+                env_reward=env_rewards[env_idx],
             )
 
             if dones[env_idx]:

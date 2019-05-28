@@ -183,7 +183,7 @@ class ECRMapModule(CuriosityModule):
         if self.params.ecr_map_adaptive_reward:
             if self.frames_analyzed >= 50000:
                 ratio = self.landmarks_generated / self.frames_analyzed
-                if ratio < 30 / 1000:
+                if ratio < 25 / 1000:
                     # make landmarks easier to find
                     self.new_landmark_threshold *= 0.95
                     self.loop_closure_threshold = 0.5 * self.new_landmark_threshold
@@ -191,7 +191,7 @@ class ECRMapModule(CuriosityModule):
                         'Decreased landmark threshold to %.3f (%.3f)',
                         self.new_landmark_threshold, self.loop_closure_threshold,
                     )
-                elif ratio > 50 / 1000:
+                elif ratio > 40 / 1000:
                     not_far_probability = 1.0 - self.new_landmark_threshold
                     not_far_probability *= 0.9  # decrease minimum probability that new landmark is not "far"
                     self.new_landmark_threshold = 1.0 - not_far_probability

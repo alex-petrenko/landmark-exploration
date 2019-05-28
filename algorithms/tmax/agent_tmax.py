@@ -357,28 +357,25 @@ class TmaxManager:
             if not is_all_exploration:
                 continue
 
-            # calculate total intrinsic reward over the trajectory
-            total_intrinsic_reward = sum(
-                t.intrinsic_reward[i] for i in range(len(t)) if t.mode[i] == TmaxMode.EXPLORATION
-            )
+            # number of new landmarks on the trajectory and cumulative extrinsic reward
+            num_landmarks = 0
+            extrinsic_reward = 0
+            for i in range(len(t)):
+                if t.intrinsic_reward[i] > 0:
+                    num_landmarks += 1
+                extrinsic_reward += t.env_reward[i]
 
-            self.exploration_trajectories.append((total_intrinsic_reward, t))
+            # calculate weighted "value" of the trajectory
+            extrinsic_reward_coeff = 20
+            trajectory_value = num_landmarks + extrinsic_reward_coeff * extrinsic_reward
 
-            # if len(self.exploration_trajectories) < self.exploration_trajectories.maxlen:
-            #     self.exploration_trajectories.append((total_intrinsic_reward, t))
-            #     continue
-            #
-            # # if list is full then find trajectory with minimum intrinsic reward, remove from deque and append new
-            # min_reward_idx = 0
-            # for i, past_trajectory in enumerate(self.exploration_trajectories):
-            #     reward, _ = past_trajectory
-            #     if reward < self.exploration_trajectories[min_reward_idx][0]:
-            #         min_reward_idx = i
-            #
-            # if total_intrinsic_reward > self.exploration_trajectories[min_reward_idx][0]:
-            #     log.info('Found better exploration trajectory with reward %.3f', total_intrinsic_reward)
-            #     del self.exploration_trajectories[min_reward_idx]
-            #     self.exploration_trajectories.append((total_intrinsic_reward, t))
+            if len(self.exploration_trajectories) <= 0:
+                self.exploration_trajectories.append((trajectory_value, t))
+            else:
+                if trajectory_value >= self.exploration_trajectories[0][0]:
+                    self.exploration_trajectories.clear()
+                    log.debug('Found new best trajectory with value %.3f', trajectory_value)
+                    self.exploration_trajectories.append((trajectory_value, t))
 
     def envs_with_locomotion_targets(self, env_indices):
         envs_with_goal, envs_without_goal = [], []
@@ -1052,10 +1049,10 @@ class AgentTMAX(AgentLearner):
 
             self.ucb_degree = 0.5  # exploration/exploitation tradeoff
 
-            self.max_exploration_trajectory = 500  # should be less than exploration budget
             self.max_frames_between_landmarks = 100
             self.max_episode = 2000  # in 4-repeated frames
-            self.max_travel_per_stage = 100
+            self.max_exploration_trajectory = 1900  # should be less than exploration budget
+            self.max_travel_per_stage = 1900
 
             self.locomotion_experience_replay = True
 
@@ -1917,21 +1914,18 @@ class AgentTMAX(AgentLearner):
                     # wait for all the workers to complete an environment step
                     with timing.add_time('env_step'):
                         reset = tmax_mgr.is_episode_reset()
-                        env_obs, rewards, dones, new_infos = multi_env.step(actions, reset)
+                        env_obs, env_rewards, dones, new_infos = multi_env.step(actions, reset)
 
-                        if self.params.graceful_episode_termination:
-                            rewards = list(rewards)
-                            for i in range(self.params.num_envs):
-                                if dones[i] and reset[i]:
-                                    rewards[i] += values[i]
-                                    if i == 0:
-                                        log.info('Env %d terminated by timer', i)
-                                        log.info('rew %.3f, value %.3f', rewards[i], values[i])
+                    rewards = list(env_rewards)
+                    if self.params.graceful_episode_termination:
+                        for i in range(self.params.num_envs):
+                            if dones[i] and reset[i]:
+                                rewards[i] += values[i]
 
-                            if dones[0] and reset[0]:
-                                log.info('All rewards %r', rewards)
-
-                    trajectory_buffer.add(observations, actions, infos, dones, tmax_mgr=tmax_mgr, is_random=is_random)
+                    trajectory_buffer.add(
+                        observations, actions, infos, dones,
+                        tmax_mgr=tmax_mgr, is_random=is_random, env_rewards=env_rewards,
+                    )
 
                     new_obs, new_goals = self._get_observations(env_obs)
 
