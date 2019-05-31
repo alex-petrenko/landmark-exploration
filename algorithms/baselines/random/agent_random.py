@@ -22,6 +22,9 @@ class AgentRandom(AgentLearner):
         def filename_prefix():
             return 'random_'
 
+        def load(self):
+            return self
+
     def __init__(self, make_env_func, params):
         """Initialize PPO computation graph and some auxiliary tensors."""
         super(AgentRandom, self).__init__(params)
