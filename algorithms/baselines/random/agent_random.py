@@ -52,7 +52,7 @@ class AgentRandom(AgentLearner):
         if math.isnan(avg_rewards) or math.isnan(avg_length):
             return
 
-        log.info('Avg. %d episode lenght: %.3f', self.params.stats_episodes, avg_length)
+        log.info('Avg. %d episode length: %.3f', self.params.stats_episodes, avg_length)
         # TODO update. Just store the best of avg_reward in a class variable. Why is this a tensor?
         log.info(
             'Avg. %d episode reward: %.3f (best: %.3f)',

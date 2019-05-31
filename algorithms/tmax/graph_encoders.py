@@ -13,7 +13,7 @@ class NeighborhoodEncoderRNN(Encoder):
         """
         Ctor.
         :param neighbors: observations that are close to the current observation in the topological sense (encoded)
-        :param num_neighbors: tensor, lenghts of sequences (sizes of neighborhoods)
+        :param num_neighbors: tensor, lengths of sequences (sizes of neighborhoods)
         """
         super(NeighborhoodEncoderRNN, self).__init__(regularizer=None, name=name)
 

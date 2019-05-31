@@ -65,11 +65,11 @@ def evaluate_locomotion_agent(agent, multi_env):
     navigator._ensure_paths_to_goal_calculated([m] * num_envs, final_goal_idx)
     path_lengths = [0] * num_envs
     for env_i in range(num_envs):
-        location, path_lenght = 0, 0
+        location, path_length = 0, 0
         while location != final_goal_idx[env_i]:
             location = navigator.paths[env_i][location]
-            path_lenght += 1
-        path_lengths[env_i] = path_lenght
+            path_length += 1
+        path_lengths[env_i] = path_length
 
     frames = 0
     next_target, next_target_d = navigator.get_next_target(

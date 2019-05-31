@@ -341,5 +341,5 @@ class MultiEnv:
         return self._calc_episode_stats(self.episode_lengths, n)
 
     def stats_num_episodes(self):
-        worker_lenghts = [len(r) for r in self.episode_rewards]
-        return sum(worker_lenghts)
+        worker_lengths = [len(r) for r in self.episode_rewards]
+        return sum(worker_lengths)

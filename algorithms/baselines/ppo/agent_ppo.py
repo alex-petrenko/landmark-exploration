@@ -353,7 +353,7 @@ class AgentPPO(AgentLearner):
         if math.isnan(avg_rewards) or math.isnan(avg_length):
             return
 
-        log.info('Avg. %d episode lenght: %.3f', self.params.stats_episodes, avg_length)
+        log.info('Avg. %d episode length: %.3f', self.params.stats_episodes, avg_length)
         best_avg_reward = self.best_avg_reward.eval(session=self.session)
         log.info(
             'Avg. %d episode reward: %.3f (best: %.3f)',
