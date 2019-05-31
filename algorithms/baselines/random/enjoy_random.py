@@ -52,7 +52,8 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=1e9, fps=20):
             if fps < 1000:
                 time.sleep(1.0 / fps)
             action = agent.best_action([obs], goals=[goal_obs], deterministic=False)
-            env_obs, rew, done, _ = env.step(action)
+            env_obs, rew, done, info = env.step(action)
+            agent.process_infos([info])
             obs, goal_obs = main_observation(env_obs), goal_observation(env_obs)
             episode_reward.append(rew)
             log.info('fps: %.1f, rew: %d, done: %s', 1.0 / (time.time() - start), rew, done)
@@ -72,6 +73,10 @@ def enjoy(params, env_id, max_num_episodes=1000000, max_num_frames=1e9, fps=20):
         avg_reward = sum(last_episodes) / len(last_episodes)
         log.info(
             'Episode reward: %f, avg reward for %d episodes: %f', sum(episode_reward), len(last_episodes), avg_reward,
+        )
+
+        agent._write_position_heatmap_summaries(
+            tag='position_coverage', step=num_frames, histograms=agent.position_histograms,
         )
 
         if max_frames_reached(num_frames):
