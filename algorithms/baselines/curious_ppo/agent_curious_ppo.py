@@ -97,7 +97,7 @@ class AgentCuriousPPO(AgentPPO):
             actions = self.previous_actions
 
             for i in range(len(obs)):
-                if random.random() < self.params.action_repeat_chance:
+                if random.random() > self.params.action_repeat_chance:
                     action = np.random.randint(0, self.num_actions)
                     actions[i] = action
 
