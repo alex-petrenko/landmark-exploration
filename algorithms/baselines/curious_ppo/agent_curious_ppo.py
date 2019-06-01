@@ -1,4 +1,5 @@
 import copy
+import random
 import time
 
 import numpy as np
@@ -53,6 +54,8 @@ class AgentCuriousPPO(AgentPPO):
 
             self.curiosity_type = 'icm'  # icm or ecr or ecr_map
             self.random_exploration = False
+            self.action_repeat_chance = 0.95
+
             self.extrinsic_reward_coeff = 1.0
 
             self.graceful_episode_termination = False
@@ -83,15 +86,25 @@ class AgentCuriousPPO(AgentPPO):
         else:
             raise Exception(f'Curiosity type {self.params.curiosity_type} not supported')
 
+        self.previous_actions = np.random.randint(0, self.num_actions, self.params.num_envs)
+
     def initialize(self):
         super().initialize()
         self.curiosity.initialize(self.session)
 
     def _policy_step(self, obs, goals):
         if self.params.random_exploration:
-            actions = np.random.randint(0, self.num_actions, self.params.num_envs)
+            actions = self.previous_actions
+
+            for i in range(len(obs)):
+                if random.random() < self.params.action_repeat_chance:
+                    action = np.random.randint(0, self.num_actions)
+                    actions[i] = action
+
             action_probs = np.ones(self.params.num_envs)
             values = np.zeros(self.params.num_envs)
+
+            self.previous_actions = actions
         else:
             actions, action_probs, values = self.actor_critic.invoke(self.session, obs, goals)
 
@@ -105,8 +118,8 @@ class AgentCuriousPPO(AgentPPO):
                 with timing.timeit('train_critic'):
                     self._train_critic(buffer, env_steps)
 
-        with timing.timeit('train_curiosity'):
-            self.curiosity.train(buffer, env_steps, agent=self)
+            with timing.timeit('train_curiosity'):
+                self.curiosity.train(buffer, env_steps, agent=self)
 
         return step
 
@@ -149,15 +162,18 @@ class AgentCuriousPPO(AgentPPO):
                                     log.info('Env %d terminated by timer', i)
                                     rewards[i] += values[i]
 
-                    trajectory_buffer.add(obs, actions, infos, dones)
+                    if not self.params.random_exploration:
+                        trajectory_buffer.add(obs, actions, infos, dones)
+
                     next_obs, new_goals = main_observation(env_obs), goal_observation(env_obs)
 
                     # calculate curiosity bonus
                     with timing.add_time('curiosity'):
-                        bonuses = self.curiosity.generate_bonus_rewards(
-                            self.session, obs, next_obs, actions, dones, infos,
-                        )
-                        rewards = self.params.extrinsic_reward_coeff * np.array(rewards) + bonuses
+                        if not self.params.random_exploration:
+                            bonuses = self.curiosity.generate_bonus_rewards(
+                                self.session, obs, next_obs, actions, dones, infos,
+                            )
+                            rewards = self.params.extrinsic_reward_coeff * np.array(rewards) + bonuses
 
                     # add experience from environment to the current buffer
                     buffer.add(obs, next_obs, actions, action_probs, rewards, dones, values, goals)

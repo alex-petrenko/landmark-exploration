@@ -259,3 +259,5 @@ class AgentLearner(Agent):
 
         summary = visualize_matplotlib_figure_tensorboard(fig, tag)
         self.summary_writer.add_summary(summary, step)
+        self.summary_writer.flush()
+

@@ -1,3 +1,4 @@
+import random
 import time
 
 import math
@@ -19,6 +20,7 @@ class AgentRandom(AgentLearner):
             super(AgentRandom.Params, self).__init__(experiment_name)
 
             self.action_repeat_chance = 0.95
+            self.use_env_map = True
 
         @staticmethod
         def filename_prefix():
@@ -68,24 +70,8 @@ class AgentRandom(AgentLearner):
 
     def best_action(self, observation, goals=None, deterministic=False):
         # Repeat last action with probability action_repeat_chance
-        if self.last_action and np.random.randint(0, 100) > 100 * self.params.action_repeat_chance:
+        if self.last_action and random.random() < self.params.action_repeat_chance:
             return self.last_action
         action = self.action_space.sample()
         self.last_action = action
         return action
-
-    def _train_actor(self, buffer, env_steps):
-        pass
-
-    def _train_critic(self, buffer, env_steps):
-        pass
-        
-    def _train(self, buffer, env_steps):
-        pass
-
-    def _learn_loop(self, multi_env):
-        """Main training loop."""
-        pass
-
-    def learn(self):
-        pass
