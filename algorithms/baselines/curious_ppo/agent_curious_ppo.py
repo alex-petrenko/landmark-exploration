@@ -1,8 +1,10 @@
 import copy
 import random
 import time
+from collections import deque
 
 import numpy as np
+import tensorflow as tf
 
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer
 from algorithms.curiosity.compression.etc import ExplorationThroughCompression
@@ -93,9 +95,42 @@ class AgentCuriousPPO(AgentPPO):
 
         self.previous_actions = np.random.randint(0, self.num_actions, self.params.num_envs)
 
+        self.extra_summaries = {}
+
     def initialize(self):
         super().initialize()
         self.curiosity.initialize(self.session)
+
+    def _process_infos(self, infos, dones):
+        super().process_infos(infos)
+
+        for i, info in enumerate(infos):
+            if not dones[i]:
+                continue
+
+            if 'episode' not in info:
+                continue
+            if 'visited_rooms' not in info['episode']:
+                continue
+
+            visited_rooms = len(info['episode']['visited_rooms'])
+            if 'visited_rooms' not in self.extra_summaries:
+                self.extra_summaries['visited_rooms'] = deque(maxlen=300)
+            self.extra_summaries['visited_rooms'].append(visited_rooms)
+            self.extra_summaries['max_visited_rooms'] = max(visited_rooms, self.extra_summaries.get('visited_rooms', 0))
+
+    def _maybe_extra_summaries(self, env_steps):
+        summary = tf.Summary()
+
+        if 'visited_rooms' in self.extra_summaries:
+            avg_visited_rooms = np.mean(self.extra_summaries['visited_rooms'])
+            summary.value.add(tag='curious_ppo/avg_rooms', simple_value=float(avg_visited_rooms))
+
+        if 'max_visited_rooms' in self.extra_summaries:
+            max_rooms = self.extra_summaries['max_visited_rooms']
+            summary.value.add(tag='curious_ppo/max_visited_rooms', simple_value=float(max_rooms))
+
+        self.summary_writer.add_summary(summary, env_steps)
 
     def _policy_step(self, obs, goals):
         if self.params.random_exploration:
@@ -184,7 +219,7 @@ class AgentCuriousPPO(AgentPPO):
                     buffer.add(obs, next_obs, actions, action_probs, rewards, dones, values, goals)
 
                     obs, goals = next_obs, new_goals
-                    self.process_infos(infos)
+                    self._process_infos(infos, dones)
                     num_steps += num_env_steps(infos)
 
                 # last step values are required for TD-return calculation
@@ -216,3 +251,4 @@ class AgentCuriousPPO(AgentPPO):
             fps = num_steps / (time.time() - batch_start)
             self._maybe_print(step, env_steps, avg_reward, avg_length, fps, timing)
             self._maybe_aux_summaries(env_steps, avg_reward, avg_length, fps)
+            self._maybe_extra_summaries(env_steps)

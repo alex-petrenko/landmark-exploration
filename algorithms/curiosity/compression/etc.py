@@ -77,8 +77,8 @@ class VAE:
             )
 
             start_kl_coeff = 0.0
-            final_kl_coeff = 1.0
-            kl_decay_env_steps = 5e8
+            final_kl_coeff = 0.5
+            kl_decay_env_steps = 1e8
 
             # decay KL component to prevent posterior collapse
             kl_coeff = tf.train.polynomial_decay(
@@ -166,7 +166,7 @@ class ExplorationThroughCompression(CuriosityModule):
 
     def generate_bonus_rewards(self, session, observations, next_obs, actions, dones, infos):
         bonuses = session.run(self.vae.losses, feed_dict={self.ph_obs: next_obs})
-        bonuses *= 0.1
+        bonuses *= 0.05
         assert len(bonuses) == len(dones)
 
         if self.params.intrinsic_bonus_clip > 0:

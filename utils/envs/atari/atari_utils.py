@@ -65,7 +65,8 @@ def make_atari_env(atari_cfg, mode='train', **kwargs):
 
     assert 'NoFrameskip' in env.spec.id
 
-    one_life = True
+    one_life = False
+
     if one_life:
         env = OneLifeWrapper(env)
 
