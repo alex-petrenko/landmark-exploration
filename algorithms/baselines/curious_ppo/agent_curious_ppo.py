@@ -118,7 +118,9 @@ class AgentCuriousPPO(AgentPPO):
             if 'visited_rooms' not in self.extra_summaries:
                 self.extra_summaries['visited_rooms'] = deque(maxlen=300)
             self.extra_summaries['visited_rooms'].append(visited_rooms)
-            self.extra_summaries['max_visited_rooms'] = max(visited_rooms, self.extra_summaries.get('visited_rooms', 0))
+            self.extra_summaries['max_visited_rooms'] = max(
+                visited_rooms, self.extra_summaries.get('max_visited_rooms', 0),
+            )
 
     def _maybe_extra_summaries(self, env_steps):
         summary = tf.Summary()
