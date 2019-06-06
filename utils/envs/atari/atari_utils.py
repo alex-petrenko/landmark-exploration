@@ -56,6 +56,7 @@ def atari_env_by_name(name):
     raise Exception('Unknown Atari env')
 
 
+# noinspection PyUnusedLocal
 def make_atari_env(atari_cfg, mode='train', **kwargs):
     """Heavily inspired by https://github.com/openai/random-network-distillation"""
 
@@ -64,7 +65,10 @@ def make_atari_env(atari_cfg, mode='train', **kwargs):
 
     assert 'NoFrameskip' in env.spec.id
 
-    env = OneLifeWrapper(env)
+    one_life = False
+    if one_life:
+        env = OneLifeWrapper(env)
+
     env = StickyActionWrapper(env)
     env = MaxAndSkipWrapper(env, skip=4)
 

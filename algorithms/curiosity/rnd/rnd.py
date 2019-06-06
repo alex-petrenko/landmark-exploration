@@ -23,24 +23,24 @@ class RandomNetworkDistillation(CuriosityModule):
             self.prediction_bonus_coeff = 1  # scaling factor for prediction bonus vs env rewards
             self.forward_fc = 256
 
-    def __init__(self, env, ph_obs, params=None):
+    def __init__(self, env, ph_obs, agent):
         """
         :param env
         :param ph_obs - placeholder for observations
         """
         with tf.variable_scope('rnd'):
-            self.params = params
+            self.params = agent.params
             self.ph_obs = ph_obs
 
             reg = None  # don't use regularization
 
             obs_space = main_observation_space(env)
 
-            target_enc_params = get_enc_params(params, 'rnd_target')
+            target_enc_params = get_enc_params(self.params, 'rnd_target')
             encoder_obs = make_encoder(ph_obs, obs_space, reg, target_enc_params, name='target_encoder')
             self.predicted_features = encoder_obs.encoded_input
 
-            predictor_enc_params = get_enc_params(params, 'rnd_predictor')
+            predictor_enc_params = get_enc_params(self.params, 'rnd_predictor')
             target_features = make_encoder(ph_obs, obs_space, reg, predictor_enc_params, name='predictor_encoder')
             self.tgt_features = tf.stop_gradient(target_features.encoded_input)
 
@@ -60,7 +60,7 @@ class RandomNetworkDistillation(CuriosityModule):
     def _objectives(self):
         # model losses
         l2_loss_obs = tf.squared_difference(self.tgt_features, self.predicted_features)
-        #one axis must have dimension None
+        # one axis must have dimension None
         prediction_loss = tf.reduce_mean(l2_loss_obs, axis=-1)
         bonus = prediction_loss
 

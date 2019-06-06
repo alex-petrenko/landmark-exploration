@@ -4,6 +4,7 @@ import time
 
 import numpy as np
 
+from algorithms.curiosity.compression.etc import ExplorationThroughCompression
 from algorithms.curiosity.rnd.rnd import RandomNetworkDistillation
 from algorithms.utils.algo_utils import num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer
@@ -40,7 +41,8 @@ class AgentCuriousPPO(AgentPPO):
         ECRModule.Params,  # find "episodic curiosity" params here
         ECRMapModule.Params,  # find "episodic curiosity" params here
         IntrinsicCuriosityModule.Params,  # find "ICM" params here
-        RandomNetworkDistillation.Params,  # find "ICM" params here
+        RandomNetworkDistillation.Params,
+        ExplorationThroughCompression.Params,
     ):
         """Hyperparams for curious PPO"""
 
@@ -51,6 +53,7 @@ class AgentCuriousPPO(AgentPPO):
             ECRMapModule.Params.__init__(self)
             IntrinsicCuriosityModule.Params.__init__(self)
             RandomNetworkDistillation.Params.__init__(self)
+            ExplorationThroughCompression.Params.__init__(self)
 
             self.curiosity_type = 'icm'  # icm or ecr or ecr_map
             self.random_exploration = False
@@ -82,7 +85,9 @@ class AgentCuriousPPO(AgentPPO):
         elif self.params.curiosity_type == 'ecr_map':
             self.curiosity = ECRMapModule(env, params)
         elif self.params.curiosity_type == 'rnd':
-            self.curiosity = RandomNetworkDistillation(env, self.ph_observations, params)
+            self.curiosity = RandomNetworkDistillation(env, self.ph_observations, self)
+        elif self.params.curiosity_type == 'etc':
+            self.curiosity = ExplorationThroughCompression(env, self.ph_observations, self)
         else:
             raise Exception(f'Curiosity type {self.params.curiosity_type} not supported')
 

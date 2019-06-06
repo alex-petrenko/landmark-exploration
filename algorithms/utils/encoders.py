@@ -55,7 +55,7 @@ class EncoderCNN(Encoder):
             elif img_enc_name == 'convnet_84px_8x8':
                 conv_filters = self._convnet_simple([(32, 8, 4), (32, 4, 2), (32, 3, 2), (32, 3, 2)])
             elif img_enc_name == 'convnet_84px_bigger':
-                conv_filters = self._convnet_simple([(64, 3, 2)] * 5)
+                conv_filters = self._convnet_simple([(32, 8, 4), (64, 4, 2), (64, 3, 2), (64, 3, 2)])
             else:
                 raise Exception('Unknown model name')
 
