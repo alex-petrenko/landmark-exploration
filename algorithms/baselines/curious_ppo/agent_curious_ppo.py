@@ -105,10 +105,10 @@ class AgentCuriousPPO(AgentPPO):
         super().process_infos(infos)
 
         for i, info in enumerate(infos):
-            if info[i].get('prev') is None:
+            if info.get('prev') is None:
                 continue
 
-            info = info[i]['prev']
+            info = info['prev']
             if 'episode' not in info:
                 continue
             if 'visited_rooms' not in info['episode']:
