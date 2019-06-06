@@ -3,8 +3,7 @@
 Exploration through compression.
 
 """
-
-
+from collections import deque
 from functools import partial
 
 import numpy as np
@@ -36,18 +35,16 @@ class VAE:
 
         # variational bottleneck
         self.z_mu = dense(obs_enc.encoded_input, self.num_latent, activation=None)
-        self.z_log_sigma_sq = dense(obs_enc.encoded_input, self.num_latent, activation=None)
-        sigma = tf.sqrt(tf.exp(self.z_log_sigma_sq))
-        self.eps = tf.random_normal(shape=tf.shape(self.z_log_sigma_sq), mean=0, stddev=1, dtype=tf.float32)
 
         if params.variational:
+            self.z_log_sigma_sq = dense(obs_enc.encoded_input, self.num_latent, activation=None)
+            sigma = tf.sqrt(tf.exp(self.z_log_sigma_sq))
+            self.eps = tf.random_normal(shape=tf.shape(self.z_log_sigma_sq), mean=0, stddev=1, dtype=tf.float32)
             self.z = self.z_mu + sigma * self.eps
         else:
             self.z = self.z_mu  # pure autoencoder
 
-        decoder = tf.make_template(
-            'vae_dec', make_decoder, create_scope_now_=True, name='dec',
-        )
+        decoder = tf.make_template('vae_dec', make_decoder, create_scope_now_=True, name='dec')
 
         obs_dec = decoder(self.z).decoded
 
@@ -63,7 +60,7 @@ class VAE:
         regularization_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
 
         # total loss
-        reconst_coeff = 0.5
+        reconst_coeff = 1.0
         self.losses = reconst_coeff * img_losses
 
         kl_coeff = latent_loss = 0
@@ -107,7 +104,9 @@ class VAE:
         with tf.name_scope('vae_latent'):
             summary_avg_min_max('mu', self.z_mu, collections=['vae'])
             summary_avg_min_max('abs_mu', tf.abs(self.z_mu), collections=['vae'])
-            summary_avg_min_max('sigma', sigma, collections=['vae'])
+            if params.variational:
+                # noinspection PyUnboundLocalVariable
+                summary_avg_min_max('sigma', sigma, collections=['vae'])
             summary_avg_min_max('z', self.z, collections=['vae'])
 
         with tf.name_scope('vae_obs_first_0'):
@@ -122,7 +121,6 @@ class ExplorationThroughCompression(CuriosityModule):
             self.num_latent = 64
             self.variational = False
             self.intrinsic_bonus_clip = 1.0
-            self.extrinsic_reward_coeff = 1.0  # scaling factor for prediction bonus vs env rewards
 
             self.etc_batch_size = 64
 
@@ -131,21 +129,24 @@ class ExplorationThroughCompression(CuriosityModule):
         :param env
         :param ph_obs - placeholder for observations
         """
-        with tf.variable_scope('etc'):
-            self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='etc_step')
+        self.step = tf.Variable(0, trainable=False, dtype=tf.int64, name='etc_step')
 
-            self.params = agent.params
-            self.ph_obs = ph_obs
+        self.params = agent.params
+        self.ph_obs = ph_obs
 
-            obs_space = main_observation_space(env)
+        obs_space = main_observation_space(env)
 
-            self.vae = VAE(self.ph_obs, obs_space, agent.params, agent.total_env_steps)
+        self.vae = VAE(self.ph_obs, obs_space, agent.params, agent.total_env_steps)
 
-            self._add_summaries()
-            self.summaries = merge_summaries(collections=['vae', 'etc'])
+        self._add_summaries()
+        self.summaries = merge_summaries(collections=['vae', 'etc'])
 
-            opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='etc_opt')
-            self.train_etc = opt.minimize(self.vae.loss, global_step=self.step)
+        opt = tf.train.AdamOptimizer(learning_rate=self.params.learning_rate, name='etc_opt')
+        self.train_etc = opt.minimize(self.vae.loss, global_step=self.step)
+
+        self.curr_episode_bonuses = [0] * self.params.num_envs
+        self.last_episode_bonuses = [0] * self.params.num_envs
+        self.last_bonuses = deque(maxlen=1000)
 
     def _add_summaries(self):
         with tf.name_scope('etc'):
@@ -157,13 +158,21 @@ class ExplorationThroughCompression(CuriosityModule):
 
     def generate_bonus_rewards(self, session, observations, next_obs, actions, dones, infos):
         bonuses = session.run(self.vae.losses, feed_dict={self.ph_obs: next_obs})
+        bonuses *= 0.1
         assert len(bonuses) == len(dones)
-        bonuses *= self.params.extrinsic_reward_coeff
 
         if self.params.intrinsic_bonus_clip > 0:
             bonuses = np.clip(bonuses, a_min=-self.params.intrinsic_bonus_clip, a_max=self.params.intrinsic_bonus_clip)
 
         bonuses = bonuses * (1 - np.array(dones))  # don't give bonus for the last transition in the episode
+
+        self.last_bonuses.append(bonuses[0])
+        self.curr_episode_bonuses += bonuses
+        for i in range(len(dones)):
+            if dones[i]:
+                self.last_episode_bonuses[i] = self.curr_episode_bonuses[i]
+                self.curr_episode_bonuses[i] = 0
+
         return bonuses
 
     def train(self, buffer, env_steps, agent):
@@ -200,4 +209,16 @@ class ExplorationThroughCompression(CuriosityModule):
         return True
 
     def additional_summaries(self, env_steps, summary_writer, stats_episodes, **kwargs):
-        pass
+        summary = tf.Summary()
+        section = 'etc_aux_summaries'
+
+        def curiosity_summary(tag, value):
+            summary.value.add(tag=f'{section}/{tag}', simple_value=float(value))
+
+        curiosity_summary('avg_episode_bonus', np.mean(self.last_episode_bonuses))
+        curiosity_summary('avg_step_bonus', np.mean(self.last_bonuses))
+        curiosity_summary('max_step_bonus', np.max(self.last_bonuses))
+        curiosity_summary('min_step_bonus', np.min(self.last_bonuses))
+
+        summary_writer.add_summary(summary, env_steps)
+

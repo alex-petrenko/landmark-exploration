@@ -4,13 +4,13 @@ import time
 
 import numpy as np
 
-from algorithms.curiosity.compression.etc import ExplorationThroughCompression
-from algorithms.curiosity.rnd.rnd import RandomNetworkDistillation
-from algorithms.utils.algo_utils import num_env_steps, main_observation, goal_observation
 from algorithms.baselines.ppo.agent_ppo import AgentPPO, PPOBuffer
+from algorithms.curiosity.compression.etc import ExplorationThroughCompression
 from algorithms.curiosity.ecr.ecr import ECRModule
 from algorithms.curiosity.ecr_map.ecr_map import ECRMapModule
 from algorithms.curiosity.icm.icm import IntrinsicCuriosityModule
+from algorithms.curiosity.rnd.rnd import RandomNetworkDistillation
+from algorithms.utils.algo_utils import num_env_steps, main_observation, goal_observation
 from algorithms.utils.env_wrappers import main_observation_space
 from algorithms.utils.tf_utils import placeholder_from_space
 from algorithms.utils.trajectory import TrajectoryBuffer

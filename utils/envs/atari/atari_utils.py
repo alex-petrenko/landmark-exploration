@@ -1,7 +1,7 @@
 import gym
 from gym.envs.atari.atari_env import ACTION_MEANING
 
-from algorithms.utils.env_wrappers import ResizeWrapper, ClipRewardWrapper
+from algorithms.utils.env_wrappers import ResizeWrapper, ClipRewardWrapper, TimeLimitWrapper
 from utils.envs.atari.atari_wrappers import StickyActionWrapper, MaxAndSkipWrapper, AtariVisitedRoomsInfoWrapper, \
     RenderWrapper, OneLifeWrapper
 from utils.utils import log
@@ -65,7 +65,7 @@ def make_atari_env(atari_cfg, mode='train', **kwargs):
 
     assert 'NoFrameskip' in env.spec.id
 
-    one_life = False
+    one_life = True
     if one_life:
         env = OneLifeWrapper(env)
 
@@ -77,6 +77,10 @@ def make_atari_env(atari_cfg, mode='train', **kwargs):
 
     env = ResizeWrapper(env, ATARI_W, ATARI_H, add_channel_dim=True, area_interpolation=True)
     env = ClipRewardWrapper(env)
+
+    # randomly vary episode duration to somewhat decorrelate the experience
+    timeout = atari_cfg.default_timeout - 50
+    env = TimeLimitWrapper(env, limit=timeout, random_variation_steps=49)
 
     if mode == 'test':
         env = RenderWrapper(env)
