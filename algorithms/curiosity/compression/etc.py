@@ -63,7 +63,6 @@ class VAE:
         reconst_coeff = 1.0
         self.losses = reconst_coeff * img_losses
 
-        kl_coeff = latent_loss = 0
         if params.variational:
             # latent loss
             # KL divergence: measure the difference between two distributions
@@ -86,6 +85,9 @@ class VAE:
                 cycle=False,
             )
             self.losses += kl_coeff * latent_losses
+            latent_loss = tf.reduce_mean(latent_losses)
+        else:
+            kl_coeff = latent_loss = 0.0
 
         self.loss = tf.reduce_mean(self.losses) + regularization_loss
 
@@ -120,7 +122,7 @@ class ExplorationThroughCompression(CuriosityModule):
         def __init__(self):
             self.num_latent = 64
             self.variational = False
-            self.intrinsic_bonus_clip = 1.0
+            self.intrinsic_bonus_clip = 5.0
 
             self.etc_batch_size = 64
 
