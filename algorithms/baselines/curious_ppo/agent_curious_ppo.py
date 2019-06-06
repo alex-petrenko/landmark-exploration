@@ -101,13 +101,14 @@ class AgentCuriousPPO(AgentPPO):
         super().initialize()
         self.curiosity.initialize(self.session)
 
-    def _process_infos(self, infos, dones):
+    def _process_infos(self, infos):
         super().process_infos(infos)
 
         for i, info in enumerate(infos):
-            if not dones[i]:
+            if info[i].get('prev') is None:
                 continue
 
+            info = info[i]['prev']
             if 'episode' not in info:
                 continue
             if 'visited_rooms' not in info['episode']:
@@ -219,7 +220,7 @@ class AgentCuriousPPO(AgentPPO):
                     buffer.add(obs, next_obs, actions, action_probs, rewards, dones, values, goals)
 
                     obs, goals = next_obs, new_goals
-                    self._process_infos(infos, dones)
+                    self._process_infos(infos)
                     num_steps += num_env_steps(infos)
 
                 # last step values are required for TD-return calculation
