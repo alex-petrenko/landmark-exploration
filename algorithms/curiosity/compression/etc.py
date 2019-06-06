@@ -167,7 +167,9 @@ class ExplorationThroughCompression(CuriosityModule):
             bonuses = np.clip(bonuses, a_min=-self.params.intrinsic_bonus_clip, a_max=self.params.intrinsic_bonus_clip)
 
         bonuses = bonuses * (1 - np.array(dones))  # don't give bonus for the last transition in the episode
-        bonuses -= np.mean(self.last_bonuses)
+
+        if len(self.last_bonuses) > 0:
+            bonuses -= np.mean(self.last_bonuses)
 
         self.last_bonuses.append(bonuses[0])
         self.curr_episode_bonuses += bonuses
