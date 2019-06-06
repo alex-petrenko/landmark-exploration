@@ -142,7 +142,6 @@ class OneLifeWrapper(gym.Wrapper):
 
         if self.die:
             done = True
-            reward = min(reward, -1.0)
+            reward = min(reward, -0.0001)
 
-        reward = max(reward, -1.0)
         return obs, reward, done, info
