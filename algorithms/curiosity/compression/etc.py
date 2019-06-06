@@ -62,7 +62,7 @@ class VAE:
         # total loss
         start_rec_coeff = 1e-3
         final_rec_coeff = 1.0
-        rec_decay_env_steps = 1e6
+        rec_decay_env_steps = 1e4
         reconst_coeff = tf.train.polynomial_decay(
             start_rec_coeff, global_step, rec_decay_env_steps, final_rec_coeff, power=1.0, cycle=False,
         )
