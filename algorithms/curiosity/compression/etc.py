@@ -17,7 +17,7 @@ from algorithms.utils.tf_utils import merge_summaries, dense, summary_avg_min_ma
 
 
 class VAE:
-    def __init__(self, ph_obs, obs_space, params, env_steps):
+    def __init__(self, ph_obs, obs_space, params, global_step, env_steps):
         self.num_latent = params.num_latent
         self.regularizer = tf.contrib.layers.l2_regularizer(scale=1e-5)
 
@@ -60,7 +60,12 @@ class VAE:
         regularization_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
 
         # total loss
-        reconst_coeff = 1.0
+        start_rec_coeff = 1e-3
+        final_rec_coeff = 1.0
+        rec_decay_env_steps = 1e6
+        reconst_coeff = tf.train.polynomial_decay(
+            start_rec_coeff, global_step, rec_decay_env_steps, final_rec_coeff, power=1.0, cycle=False,
+        )
         self.losses = reconst_coeff * img_losses
 
         if params.variational:
@@ -84,6 +89,7 @@ class VAE:
                 power=1.0,
                 cycle=False,
             )
+            kl_coeff = tf.maximum(kl_coeff, 1e-5)
             self.losses += kl_coeff * latent_losses
             latent_loss = tf.reduce_mean(latent_losses)
         else:
@@ -138,7 +144,7 @@ class ExplorationThroughCompression(CuriosityModule):
 
         obs_space = main_observation_space(env)
 
-        self.vae = VAE(self.ph_obs, obs_space, agent.params, agent.total_env_steps)
+        self.vae = VAE(self.ph_obs, obs_space, agent.params, self.step, agent.total_env_steps)
 
         self._add_summaries()
         self.summaries = merge_summaries(collections=['vae', 'etc'])
